@@ -1,0 +1,8 @@
+camel-ai
+openai
+pydantic
+requests
+flask
+flask-cors
+pyyaml
+python-dotenv

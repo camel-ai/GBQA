@@ -1,0 +1,40 @@
+{
+  "game_name": "dark-castle",
+  "game_title": "Dark Castle: Night of Awakening",
+  "bug_version": "dark-castle",
+  "total_bugs": 3,
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "bug_type": "logic error",
+      "difficulty": "easy",
+      "minimal_reproduction": [
+        "Collect any two key fragments.",
+        "Execute `combine`."
+      ],
+      "observed_fault": "The player can assemble the complete key with only two fragments instead of all three."
+    },
+    {
+      "id": "BUG-002",
+      "bug_type": "description flaw",
+      "difficulty": "easy",
+      "minimal_reproduction": [
+        "Enter the bedroom.",
+        "Execute `look` before opening the bedside drawer."
+      ],
+      "observed_fault": "The room description reveals the hidden small key before the drawer has been opened."
+    },
+    {
+      "id": "BUG-003",
+      "bug_type": "data inconsistency",
+      "difficulty": "medium",
+      "minimal_reproduction": [
+        "Pick up any portable item.",
+        "Move to a room.",
+        "Execute `drop`.",
+        "Execute `look`."
+      ],
+      "observed_fault": "The dropped object does not appear in the updated room description, so the textual state fails to reflect the backend change."
+    }
+  ]
+}

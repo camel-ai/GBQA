@@ -1,0 +1,72 @@
+# Agent configuration
+
+# LLM and CAMEL runtime settings
+llm:
+  platform: "auto"  # auto | MODELSCOPE | OPENROUTER | OPENAI_COMPATIBLE_MODEL | ...
+  # model: ""    # Falls back to OPENAI_MODEL
+  # api_key: ""  # Falls back to OPENAI_API_KEY
+  # base_url: ""  # Optional. Falls back to the default OpenAI API base URL.
+  temperature: 0.5
+  max_tokens: 4096
+  timeout: 60
+  message_window_size: 6
+  reset_between_turns: true
+  context_token_limit: 12000
+
+# Agent loop settings
+agent:
+  max_steps: 100
+  max_consecutive_failures: 5
+  reflection_threshold: 3
+  reflection_interval: 10
+  auto_summarize: true
+  summary_threshold: 15
+  summary_interval: 40
+  confidence_threshold: 0.7
+  verbose: true
+  prompt_dir: "prompts"
+
+# Memory settings
+memory:
+  max_short_term: 30
+  long_term_file: "memory/{game_id}/long_term.json"
+  load_persistent_long_term: false
+  cross_session_enabled: false
+  cross_session_top_k: 3
+  cross_session_similarity: 0.2
+
+# Game endpoints
+games:
+  dark-castle:
+    port: 5000
+    name: "Dark Castle: Night of Awakening"
+    ground_truth: true
+    bug_version: "dark-castle"
+    ground_truth_path: "../hub/{game_id}/bugs/{bug_version}.json"
+    profile: "Text adventure in a mysterious castle. Focus on exploration, items, puzzles, and narrative consistency. You can also use 'new game' to reset and 'close game' to end a session."
+
+  placeholder:
+    port: 5001
+    name: "Placeholder"
+    
+# Report output
+report:
+  output_dir: "reports"
+  format: "both"
+  auto_save: true
+
+# Evaluation
+evaluation:
+  match_threshold: 0.65
+  llm_threshold: 0.6
+  use_llm: true
+
+# Bug detection
+bug_detection:
+  enable_llm_analysis: true
+  auto_confirm_threshold: 0.8
+  rules:
+    - error_message
+    - state_consistency
+    - response_format
+    - duplicate_item

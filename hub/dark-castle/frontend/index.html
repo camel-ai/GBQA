@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Castle: Night of Awakening</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+    <div class="lightning" id="lightning"></div>
+
+    <div class="game-container">
+        <header class="game-header">
+            <h1 class="game-title">
+                <span class="title-decoration">⚜</span>
+                Dark Castle
+                <span class="title-decoration">⚜</span>
+            </h1>
+            <p class="game-subtitle">Night of Awakening</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-icon">📍</span>
+                <span class="status-label">Location:</span>
+                <span class="status-value" id="current-room">Unknown</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon">🎒</span>
+                <span class="status-label">Inventory:</span>
+                <span class="status-value" id="inventory-count">0/6</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon">⏱️</span>
+                <span class="status-label">Turn:</span>
+                <span class="status-value" id="turn-count">0</span>
+            </div>
+            <div class="status-item light-status" id="light-status">
+                <span class="status-icon">🕯️</span>
+                <span class="status-value" id="light-text">No light</span>
+            </div>
+        </div>
+
+        <main class="game-main">
+            <div class="output-panel">
+                <div class="output-scroll" id="game-output">
+                    <div class="welcome-message">
+                        <p>Press the button below to begin your escape.</p>
+                    </div>
+                </div>
+                <div class="output-fade"></div>
+            </div>
+
+            <aside class="sidebar">
+                <div class="panel inventory-panel">
+                    <h3 class="panel-title">
+                        <span class="panel-icon">🎒</span>
+                        Inventory
+                    </h3>
+                    <ul class="inventory-list" id="inventory-list">
+                        <li class="empty-slot">Empty</li>
+                    </ul>
+                </div>
+
+                <div class="panel exits-panel">
+                    <h3 class="panel-title">
+                        <span class="panel-icon">🚪</span>
+                        Exits
+                    </h3>
+                    <div class="exits-grid" id="exits-grid">
+                        <button class="exit-btn" data-direction="north" disabled>North</button>
+                        <button class="exit-btn" data-direction="west" disabled>West</button>
+                        <button class="exit-btn center-btn" data-direction="look">Look</button>
+                        <button class="exit-btn" data-direction="east" disabled>East</button>
+                        <button class="exit-btn" data-direction="south" disabled>South</button>
+                        <button class="exit-btn" data-direction="up" disabled>Up</button>
+                        <button class="exit-btn" data-direction="down" disabled>Down</button>
+                    </div>
+                </div>
+
+                <div class="panel quick-panel">
+                    <h3 class="panel-title">
+                        <span class="panel-icon">⚡</span>
+                        Quick Commands
+                    </h3>
+                    <div class="quick-buttons">
+                        <button class="quick-btn" data-command="inventory">Inventory</button>
+                        <button class="quick-btn" data-command="help">Help</button>
+                        <button class="quick-btn" data-command="combine">Combine</button>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <div class="input-area">
+            <div class="input-wrapper">
+                <span class="input-prompt">></span>
+                <input
+                    type="text"
+                    id="command-input"
+                    class="command-input"
+                    placeholder="Enter a command... (for example: look, go north, take key)"
+                    autocomplete="off"
+                    disabled
+                >
+                <button id="send-btn" class="send-btn" disabled>Send</button>
+            </div>
+            <button id="new-game-btn" class="new-game-btn" onclick="startGame()">Start New Game</button>
+        </div>
+    </div>
+
+    <div class="key-fragments" id="key-fragments">
+        <div class="fragment" id="fragment-a" title="Key Fragment A">
+            <span class="fragment-icon">🔷</span>
+        </div>
+        <div class="fragment" id="fragment-b" title="Key Fragment B">
+            <span class="fragment-icon">🔶</span>
+        </div>
+        <div class="fragment" id="fragment-c" title="Key Fragment C">
+            <span class="fragment-icon">🔻</span>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
