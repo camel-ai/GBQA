@@ -144,6 +144,94 @@ Response example:
 GET /api/agent/state/<game_id>
 ```
 
+### 2.4 List Source Code Files
+
+```http
+GET /api/agent/code/files
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "files": [
+    {"path": "app.py", "size": 11222},
+    {"path": "game/engine.py", "size": 7767},
+    {"path": "game/actions.py", "size": 29959},
+    {"path": "game/world.py", "size": 13574},
+    {"path": "game/parser.py", "size": 7204},
+    {"path": "game/data/rooms.json", "size": 9406},
+    {"path": "game/data/items.json", "size": 14198}
+  ]
+}
+```
+
+### 2.5 Read a Source Code File
+
+```http
+POST /api/agent/code/read
+```
+
+Request body:
+
+```json
+{
+  "path": "game/engine.py",
+  "start_line": 1,
+  "end_line": 20
+}
+```
+
+`start_line` and `end_line` are optional. When omitted the full file is returned.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "path": "game/engine.py",
+  "content": "   1  \"\"\"...\n   2  ...",
+  "start_line": 1,
+  "end_line": 20,
+  "total_lines": 227
+}
+```
+
+### 2.6 Search Source Code
+
+```http
+POST /api/agent/code/search
+```
+
+Request body:
+
+```json
+{
+  "pattern": "def handle_combine",
+  "max_results": 30
+}
+```
+
+`pattern` supports Python regex. `max_results` defaults to 30.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "pattern": "def handle_combine",
+  "matches": [
+    {
+      "path": "game/actions.py",
+      "line": 562,
+      "text": "    def handle_combine(self, command: ParsedCommand) -> ActionResult:"
+    }
+  ],
+  "total": 1
+}
+```
+
 ## 3. Log Endpoints
 
 ### 3.1 List Logs
@@ -321,4 +409,4 @@ playGame();
 
 ---
 
-Document version: `1.0.0`
+Document version: `1.1.0`

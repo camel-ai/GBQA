@@ -42,6 +42,55 @@ class ToolRegistry:
         return self._tools[name].invoke(payload)
 
 
+def register_code_reading_tools(
+    registry: ToolRegistry,
+    game_client: GameClient,
+) -> None:
+    """Register tools for reading game source code."""
+    registry.register(
+        Tool(
+            name="code_list_files",
+            description="List all source code files in the game.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda _: game_client.list_code_files(),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_read_file",
+            description="Read the content of a source code file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.read_code_file(
+                payload["path"],
+                start_line=int(payload.get("start_line", 0)),
+                end_line=int(payload.get("end_line", 0)),
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_search",
+            description="Search for a pattern across game source code files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                },
+                "required": ["pattern"],
+            },
+            handler=lambda payload: game_client.search_code(payload["pattern"]),
+        )
+    )
+
+
 def register_standard_game_tools(
     registry: ToolRegistry,
     game_client: GameClient,

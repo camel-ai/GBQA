@@ -4,6 +4,7 @@ Expose the game backend to the web frontend and agent clients.
 """
 
 import os
+import re
 import secrets
 
 from flask import Flask, jsonify, request, send_from_directory, session
@@ -12,6 +13,9 @@ from flask_cors import CORS
 from game.engine import GameEngine, create_new_game, game_sessions
 from game.logger import GameLogger
 
+CODE_ROOT = os.path.dirname(os.path.abspath(__file__))
+_ALLOWED_EXTENSIONS = {".py", ".json"}
+_SKIP_DIRS = {"__pycache__", "venv", ".venv", "node_modules", ".git", "path"}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 
@@ -217,6 +221,114 @@ def get_current_log(game_id):
         )
 
     return jsonify({"success": False, "message": "There is no active log."}), 404
+
+
+def _safe_code_path(requested: str) -> str | None:
+    """Resolve *requested* to an absolute path under CODE_ROOT.
+
+    Returns ``None`` when the path escapes CODE_ROOT or has a
+    disallowed extension.
+    """
+    cleaned = requested.replace("\\", "/")
+    if ".." in cleaned.split("/"):
+        return None
+    full = os.path.normpath(os.path.join(CODE_ROOT, cleaned))
+    if not full.startswith(CODE_ROOT):
+        return None
+    _, ext = os.path.splitext(full)
+    if ext not in _ALLOWED_EXTENSIONS:
+        return None
+    return full
+
+
+@app.route("/api/agent/code/files", methods=["GET"])
+def agent_code_list_files():
+    """List source code files available for reading."""
+    files = []
+    for dirpath, dirnames, filenames in os.walk(CODE_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for fname in filenames:
+            _, ext = os.path.splitext(fname)
+            if ext not in _ALLOWED_EXTENSIONS:
+                continue
+            full = os.path.join(dirpath, fname)
+            rel = os.path.relpath(full, CODE_ROOT)
+            files.append({"path": rel, "size": os.path.getsize(full)})
+    files.sort(key=lambda f: f["path"])
+    return jsonify({"success": True, "files": files})
+
+
+@app.route("/api/agent/code/read", methods=["POST"])
+def agent_code_read_file():
+    """Read source code of a specific file."""
+    data = request.get_json() or {}
+    path = data.get("path", "")
+    if not path:
+        return jsonify({"success": False, "message": "Please provide a file path."}), 400
+
+    full = _safe_code_path(path)
+    if full is None or not os.path.isfile(full):
+        return jsonify({"success": False, "message": f"File not found or not allowed: {path}"}), 404
+
+    with open(full, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    start_line = max(int(data.get("start_line", 1)), 1)
+    end_line = int(data.get("end_line", 0)) or len(lines)
+    end_line = min(end_line, len(lines))
+
+    selected = lines[start_line - 1 : end_line]
+    numbered = "".join(
+        f"{start_line + i:>4}  {line}" for i, line in enumerate(selected)
+    )
+
+    return jsonify({
+        "success": True,
+        "path": path,
+        "content": numbered,
+        "start_line": start_line,
+        "end_line": end_line,
+        "total_lines": len(lines),
+    })
+
+
+@app.route("/api/agent/code/search", methods=["POST"])
+def agent_code_search():
+    """Search for a pattern across source code files."""
+    data = request.get_json() or {}
+    pattern = data.get("pattern", "")
+    if not pattern:
+        return jsonify({"success": False, "message": "Please provide a search pattern."}), 400
+
+    max_results = int(data.get("max_results", 30))
+    matches = []
+    for dirpath, dirnames, filenames in os.walk(CODE_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for fname in filenames:
+            _, ext = os.path.splitext(fname)
+            if ext not in _ALLOWED_EXTENSIONS:
+                continue
+            full = os.path.join(dirpath, fname)
+            rel = os.path.relpath(full, CODE_ROOT)
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as f:
+                    for lineno, line in enumerate(f, 1):
+                        if re.search(pattern, line):
+                            matches.append({
+                                "path": rel,
+                                "line": lineno,
+                                "text": line.rstrip("\n"),
+                            })
+                            if len(matches) >= max_results:
+                                break
+            except re.error:
+                return jsonify({"success": False, "message": f"Invalid regex pattern: {pattern}"}), 400
+            if len(matches) >= max_results:
+                break
+        if len(matches) >= max_results:
+            break
+
+    return jsonify({"success": True, "pattern": pattern, "matches": matches, "total": len(matches)})
 
 
 if __name__ == "__main__":

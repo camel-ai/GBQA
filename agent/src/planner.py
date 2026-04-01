@@ -62,6 +62,7 @@ class ActionPlanner:
             )
         return Action(
             command=decision.command.strip(),
+            tool=decision.tool.strip() or "game_command",
             rationale=decision.rationale.strip(),
             expected_outcome=decision.expected_outcome.strip(),
             bug_exist=decision.bug_exist,

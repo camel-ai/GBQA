@@ -150,6 +150,7 @@ class Reporter:
                         "output": record.planner_output,
                     },
                     "environment": {
+                        "tool": record.action.tool,
                         "action": record.action.command,
                         "rationale": record.action.rationale,
                         "expected_outcome": record.action.expected_outcome,

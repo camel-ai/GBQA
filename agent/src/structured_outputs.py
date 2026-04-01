@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 class PlannerDecision(BaseModel):
     """Planner output schema."""
 
+    tool: str = Field(default="game_command")
     command: str = Field(min_length=1)
     rationale: str = ""
     expected_outcome: str = ""

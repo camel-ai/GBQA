@@ -25,8 +25,18 @@ Now, by considering the above context, decide the next command to send. Follow t
 - If two or more attempts at the same idea fail, pivot to a different object, room, or verification strategy instead of trying more verb variants.
 - Only report a bug when you have concrete evidence of contradiction, hidden-information leakage, impossible state, or a state description that failed to update after an action.
 
+## Available Tools:
+- game_command (default): Send a command to the game
+- code_list_files: List all source code files in the game (put any placeholder like "list" in "command")
+- code_read_file: Read a source file (put file path in "command", e.g. "game/engine.py" or "game/actions.py:100-150")
+- code_search: Search for a pattern in source code (put the search pattern in "command")
+
+Use code tools ONLY when you have a concrete hypothesis to verify via source code.
+Do not speculatively browse code. Prefer gameplay-based verification first.
+
 Return ONLY a JSON object with these fields:
 {
+  "tool": "<game_command|code_list_files|code_read_file|code_search>",
   "rationale": "<short reason>",
   "command": "<string>",
   "expected_outcome": "<what you expect to observe>",

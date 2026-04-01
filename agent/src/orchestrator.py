@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from .observer import ObservationParser
 from .planner import ActionPlanner
 from .reporter import Reporter
 from .reflection import ReflectionAnalyzer
-from .types import BugFinding, Observation, RunReport, StepRecord
+from .types import Action, BugFinding, Observation, RunReport, StepRecord
 
 
 class Orchestrator:
@@ -89,26 +90,49 @@ class Orchestrator:
                 report.metadata["llm_error"] = plan.error
                 break
             action = plan.action
-            raw_response = self._tool_registry.invoke(
-                "game_command", {"game_id": game_session_id, "command": action.command}
-            )
-            current_observation = self._parser.parse(raw_response)
+
+            # Auto-trigger code lookup when bug confidence is high
+            auto_code_note = ""
+            if (
+                action.bug_exist
+                and action.confidence >= self._confidence_threshold
+                and self._has_code_tools()
+            ):
+                auto_code_note = self._auto_code_lookup(action)
+
+            is_code_tool = action.tool.startswith("code_")
+            raw_response = self._invoke_tool(action, game_session_id)
+
+            if is_code_tool:
+                current_observation = Observation(
+                    success=raw_response.get("success", True),
+                    message=self._format_code_response(raw_response),
+                    state=current_observation.state,
+                    turn=current_observation.turn,
+                )
+            else:
+                current_observation = self._parser.parse(raw_response)
+
             record = StepRecord(
                 step=step,
                 action=action,
                 observation=current_observation,
                 planner_prompt=plan.prompt,
                 planner_output=plan.output,
+                notes=auto_code_note,
             )
             report.steps.append(record)
 
-            findings = self._detector.inspect(action, current_observation)
-            for bug in findings:
-                report.bugs.append(bug)
-                self._memory.record_bug(bug, step)
-                self._reporter.log_bug(bug, step)
+            if is_code_tool:
+                findings: List[BugFinding] = []
+            else:
+                findings = self._detector.inspect(action, current_observation)
+                for bug in findings:
+                    report.bugs.append(bug)
+                    self._memory.record_bug(bug, step)
+                    self._reporter.log_bug(bug, step)
 
-            if current_observation.success:
+            if is_code_tool or current_observation.success:
                 consecutive_failures = 0
             elif self._detector.is_benign_failure(current_observation):
                 consecutive_failures = 0
@@ -129,7 +153,12 @@ class Orchestrator:
                 should_reflect = True
             if self._reflection_analyzer and should_reflect:
                 reflection = self._reflection_analyzer.reflect(context)
-                record.notes = self._reflection_analyzer.format_note(reflection)
+                reflection_note = self._reflection_analyzer.format_note(reflection)
+                record.notes = (
+                    f"{record.notes}\n{reflection_note}".strip()
+                    if record.notes
+                    else reflection_note
+                )
                 record.reflection_prompt = reflection.prompt
                 record.reflection_output = reflection.output
                 last_reflection_step = step
@@ -244,6 +273,107 @@ class Orchestrator:
             if similarity >= 0.88:
                 return True
         return False
+
+    def _invoke_tool(
+        self, action: Action, game_session_id: str
+    ) -> Dict[str, Any]:
+        """Dispatch to the appropriate tool based on ``action.tool``."""
+        if action.tool == "code_list_files":
+            payload: Dict[str, Any] = {}
+        elif action.tool == "code_read_file":
+            payload = self._parse_code_read_params(action.command)
+        elif action.tool == "code_search":
+            payload = {"pattern": action.command}
+        else:
+            payload = {"game_id": game_session_id, "command": action.command}
+        return self._tool_registry.invoke(action.tool, payload)
+
+    @staticmethod
+    def _parse_code_read_params(command: str) -> Dict[str, Any]:
+        """Parse ``"path/to/file.py:10-50"`` into tool payload."""
+        match = re.match(r"^(.+?):(\d+)-(\d+)$", command.strip())
+        if match:
+            return {
+                "path": match.group(1),
+                "start_line": int(match.group(2)),
+                "end_line": int(match.group(3)),
+            }
+        return {"path": command.strip()}
+
+    @staticmethod
+    def _format_code_response(raw: Dict[str, Any]) -> str:
+        """Format a code-tool API response into readable text."""
+        if not raw.get("success", False):
+            return f"[Code tool error] {raw.get('message', 'Unknown error')}"
+        if "files" in raw:
+            lines = [f"  {f['path']}  ({f['size']} bytes)" for f in raw["files"]]
+            return "Source files:\n" + "\n".join(lines)
+        if "content" in raw:
+            header = f"File: {raw.get('path', '?')} (lines {raw.get('start_line')}-{raw.get('end_line')} of {raw.get('total_lines')})"
+            return f"{header}\n{raw['content']}"
+        if "matches" in raw:
+            if not raw["matches"]:
+                return f"No matches for pattern: {raw.get('pattern', '')}"
+            lines = [
+                f"  {m['path']}:{m['line']}  {m['text']}" for m in raw["matches"]
+            ]
+            return f"Search results for '{raw.get('pattern', '')}':\n" + "\n".join(lines)
+        return str(raw)
+
+    _KNOWN_GAME_VERBS = frozenset({
+        "go", "look", "examine", "take", "drop", "put", "open", "close",
+        "use", "light", "unlock", "read", "combine", "climb", "oil",
+        "enter", "inventory", "help",
+    })
+
+    def _has_code_tools(self) -> bool:
+        """Return True when code-reading tools are registered."""
+        return any(t.name == "code_search" for t in self._tool_registry.list_tools())
+
+    def _auto_code_lookup(self, action: Action) -> str:
+        """Auto-trigger code search + read when the planner reports a high-confidence bug.
+
+        Workflow:
+          1. Derive a search query from the game command verb (e.g. "combine" → "def handle_combine").
+          2. Search the game source via ``code_search``.
+          3. If there are matches, read ±15 lines around the first match via ``code_read_file``.
+          4. Return the combined result as a text note (stored in ``StepRecord.notes``).
+        """
+        query = self._extract_code_search_query(action)
+        if not query:
+            return ""
+
+        # Step 1: search for the relevant handler
+        search_response = self._tool_registry.invoke("code_search", {"pattern": query})
+        search_text = self._format_code_response(search_response)
+
+        # Step 2: read surrounding context of the first match
+        read_text = ""
+        matches = search_response.get("matches", [])
+        if matches:
+            first = matches[0]
+            start = max(1, first["line"] - 15)
+            end = first["line"] + 15
+            read_response = self._tool_registry.invoke("code_read_file", {
+                "path": first["path"],
+                "start_line": start,
+                "end_line": end,
+            })
+            read_text = self._format_code_response(read_response)
+
+        parts = [f"[Auto code lookup for '{query}']", search_text]
+        if read_text:
+            parts.append(read_text)
+        return "\n".join(parts)
+
+    @classmethod
+    def _extract_code_search_query(cls, action: Action) -> str:
+        """Derive a source-code search pattern from the game command."""
+        cmd = action.command.strip().lower()
+        verb = cmd.split()[0] if cmd else ""
+        if verb in cls._KNOWN_GAME_VERBS:
+            return f"def handle_{verb}"
+        return cmd if len(cmd) <= 40 else cmd[:40]
 
     @staticmethod
     def _is_fatal_llm_error(error: str) -> bool:

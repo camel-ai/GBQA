@@ -21,7 +21,7 @@ from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
-from src.tool_registry import ToolRegistry, register_standard_game_tools
+from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools
 
 
 def main() -> None:
@@ -154,6 +154,8 @@ def main() -> None:
     )
     registry = ToolRegistry()
     register_standard_game_tools(registry, game_client)
+    if config.get_section("agent").get("enable_code_reading", False):
+        register_code_reading_tools(registry, game_client)
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
