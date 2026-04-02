@@ -232,6 +232,108 @@ Response example:
 }
 ```
 
+### 2.7 Write / Patch a Source Code File
+
+```http
+POST /api/agent/code/write
+```
+
+Request body (patch mode — search-and-replace):
+
+```json
+{
+  "path": "game/actions.py",
+  "patch": {
+    "search": "    def handle_take(self, command: ParsedCommand) -> ActionResult:",
+    "replace": "    def handle_take(self, command: ParsedCommand) -> ActionResult:\n        print(f\"DEBUG: target={command.target}\")"
+  }
+}
+```
+
+Request body (full overwrite):
+
+```json
+{
+  "path": "game/actions.py",
+  "content": "...full file content..."
+}
+```
+
+A backup of the original file is created on the first write. The server hot-reloads
+the affected module so changes take effect immediately for all active game sessions.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Successfully updated game/actions.py",
+  "path": "game/actions.py",
+  "backup_available": true
+}
+```
+
+### 2.8 Read / Clear Debug Logs
+
+Captured `print()` output from the game server process.
+
+**Read logs:**
+
+```http
+GET /api/agent/code/debug_logs
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "logs": "[14:23:01.456] DEBUG: target=matches\n"
+}
+```
+
+**Clear logs:**
+
+```http
+DELETE /api/agent/code/debug_logs
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Debug logs cleared."
+}
+```
+
+### 2.9 Restore a Source Code File
+
+Restore a file to its original state before any `code/write` modifications.
+
+```http
+POST /api/agent/code/restore
+```
+
+Request body:
+
+```json
+{
+  "path": "game/actions.py"
+}
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Successfully restored game/actions.py",
+  "path": "game/actions.py",
+  "backup_available": false
+}
+```
+
 ## 3. Log Endpoints
 
 ### 3.1 List Logs
@@ -409,4 +511,4 @@ playGame();
 
 ---
 
-Document version: `1.1.0`
+Document version: `1.2.0`

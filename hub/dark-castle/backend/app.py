@@ -6,6 +6,10 @@ Expose the game backend to the web frontend and agent clients.
 import os
 import re
 import secrets
+import sys
+import io
+import importlib
+from datetime import datetime
 
 from flask import Flask, jsonify, request, send_from_directory, session
 from flask_cors import CORS
@@ -18,6 +22,32 @@ _ALLOWED_EXTENSIONS = {".py", ".json"}
 _SKIP_DIRS = {"__pycache__", "venv", ".venv", "node_modules", ".git", "path"}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+
+# Debug log buffer for agent-based debugging
+class DebugBuffer(io.StringIO):
+    def write(self, s):
+        if s.strip():
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            super().write(f"[{timestamp}] {s.rstrip()}\n")
+        else:
+            super().write(s)
+
+debug_output = DebugBuffer()
+code_write_backups: dict[str, str] = {}
+# Redirect stdout to capture print statements
+original_stdout = sys.stdout
+
+class Tee(object):
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+sys.stdout = Tee(original_stdout, debug_output)
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 app.secret_key = secrets.token_hex(32)
@@ -232,13 +262,47 @@ def _safe_code_path(requested: str) -> str | None:
     cleaned = requested.replace("\\", "/")
     if ".." in cleaned.split("/"):
         return None
-    full = os.path.normpath(os.path.join(CODE_ROOT, cleaned))
-    if not full.startswith(CODE_ROOT):
+    full = os.path.realpath(os.path.join(CODE_ROOT, cleaned))
+    if not full.startswith(os.path.realpath(CODE_ROOT)):
         return None
     _, ext = os.path.splitext(full)
     if ext not in _ALLOWED_EXTENSIONS:
         return None
     return full
+
+
+def _reload_runtime_for_path(path: str) -> None:
+    """Best-effort hot reload for edited runtime game modules."""
+    normalized = path.replace("\\", "/")
+    if not normalized.startswith("game/") or not normalized.endswith(".py"):
+        return
+
+    module_name = normalized[:-3].replace("/", ".")
+    module = importlib.import_module(module_name)
+    reloaded = importlib.reload(module)
+
+    if module_name == "game.actions":
+        action_handler_cls = reloaded.ActionHandler
+        for engine in game_sessions.values():
+            if engine.world is not None:
+                engine.action_handler = action_handler_cls(engine.world)
+
+    if module_name == "game.parser":
+        parser_cls = reloaded.CommandParser
+        for engine in game_sessions.values():
+            engine.parser = parser_cls()
+
+    if module_name == "game.engine":
+        engine_cls = reloaded.GameEngine
+        for game_id, engine in list(game_sessions.items()):
+            if not isinstance(engine, engine_cls):
+                continue
+            if engine.world is not None:
+                import game.actions as actions_module
+                import game.parser as parser_module
+
+                engine.parser = parser_module.CommandParser()
+                engine.action_handler = actions_module.ActionHandler(engine.world)
 
 
 @app.route("/api/agent/code/files", methods=["GET"])
@@ -329,6 +393,112 @@ def agent_code_search():
             break
 
     return jsonify({"success": True, "pattern": pattern, "matches": matches, "total": len(matches)})
+
+
+@app.route("/api/agent/code/write", methods=["POST"])
+def agent_code_write_file():
+    """Modify or overwrite a source code file."""
+    data = request.get_json() or {}
+    path = data.get("path", "")
+    content = data.get("content", "")
+    patch = data.get("patch", {})  # Optional: {"search": "old", "replace": "new"}
+
+    if not path:
+        return jsonify({"success": False, "message": "Please provide a file path."}), 400
+
+    full = _safe_code_path(path)
+    if full is None:
+        return jsonify({"success": False, "message": f"Path not allowed: {path}"}), 403
+
+    try:
+        with open(full, "r", encoding="utf-8") as f:
+            old_text = f.read()
+        created_backup = path not in code_write_backups
+        if created_backup:
+            code_write_backups[path] = old_text
+
+        if patch and "search" in patch and "replace" in patch:
+            search_text = patch["search"]
+            replace_text = patch["replace"]
+            if search_text not in old_text:
+                return jsonify({"success": False, "message": "Patch pattern not found."}), 400
+            new_text = old_text.replace(search_text, replace_text, 1)
+            if old_text == new_text:
+                return jsonify({"success": False, "message": "Patch did not change the file."}), 400
+            content = new_text
+        elif content == "":
+            return jsonify({
+                "success": False,
+                "message": "Please provide replacement content or a patch.",
+            }), 400
+
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content)
+        _reload_runtime_for_path(path)
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully updated {path}",
+            "path": path,
+            "backup_available": True,
+        })
+    except Exception as e:
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(old_text)
+        try:
+            _reload_runtime_for_path(path)
+        except Exception:
+            pass
+        if created_backup:
+            code_write_backups.pop(path, None)
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/agent/code/restore", methods=["POST"])
+def agent_code_restore_file():
+    """Restore the last backup created by ``/api/agent/code/write`` for a file."""
+    data = request.get_json() or {}
+    path = data.get("path", "")
+
+    if not path:
+        return jsonify({"success": False, "message": "Please provide a file path."}), 400
+
+    full = _safe_code_path(path)
+    if full is None:
+        return jsonify({"success": False, "message": f"Path not allowed: {path}"}), 403
+
+    if path not in code_write_backups:
+        return jsonify({
+            "success": False,
+            "message": f"No backup available for {path}.",
+        }), 404
+
+    try:
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(code_write_backups[path])
+        _reload_runtime_for_path(path)
+        del code_write_backups[path]
+        return jsonify({
+            "success": True,
+            "message": f"Successfully restored {path}",
+            "path": path,
+            "backup_available": False,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/agent/code/debug_logs", methods=["GET", "DELETE"])
+def agent_code_debug_logs():
+    """Retrieve or clear the captured debug/print logs."""
+    global debug_output
+    if request.method == "DELETE":
+        debug_output.truncate(0)
+        debug_output.seek(0)
+        return jsonify({"success": True, "message": "Debug logs cleared."})
+
+    logs = debug_output.getvalue()
+    return jsonify({"success": True, "logs": logs})
 
 
 if __name__ == "__main__":

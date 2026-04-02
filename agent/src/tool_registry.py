@@ -89,6 +89,61 @@ def register_code_reading_tools(
             handler=lambda payload: game_client.search_code(payload["pattern"]),
         )
     )
+    registry.register(
+        Tool(
+            name="code_write_file",
+            description="Modify or overwrite a source code file. Use 'patch' for search-and-replace or 'content' for full overwrite.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "patch": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                            "replace": {"type": "string"},
+                        }
+                    },
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.write_code_file(
+                payload["path"],
+                content=payload.get("content", ""),
+                patch=payload.get("patch"),
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_read_debug_logs",
+            description="Read the captured stdout/print logs from the game server.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "clear": {"type": "boolean"},
+                },
+            },
+            handler=lambda payload: game_client.read_debug_logs(
+                clear=payload.get("clear", False)
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_restore_file",
+            description="Restore the last backup for a source code file previously changed with code_write_file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.restore_code_file(payload["path"]),
+        )
+    )
 
 
 def register_standard_game_tools(

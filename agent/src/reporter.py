@@ -96,6 +96,33 @@ class Reporter:
                     "",
                 ]
             )
+        lines.extend(["## Step Trace", ""])
+        if not report.steps:
+            lines.append("No steps recorded.")
+        for record in report.steps:
+            lines.extend(
+                [
+                    f"### Step {record.step}",
+                    f"- Tool: {record.action.tool}",
+                    f"- Action: {record.action.command}",
+                    f"- Expected: {record.action.expected_outcome}",
+                    f"- Success: {record.observation.success}",
+                    "- Feedback:",
+                    "```text",
+                    record.observation.message or "",
+                    "```",
+                ]
+            )
+            if record.notes:
+                lines.extend(
+                    [
+                        "- Notes:",
+                        "```text",
+                        record.notes,
+                        "```",
+                    ]
+                )
+            lines.append("")
         if report.summary:
             lines.extend(["## Summary", report.summary, ""])
         return "\n".join(lines)

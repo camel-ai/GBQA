@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
@@ -91,14 +92,20 @@ class Orchestrator:
                 break
             action = plan.action
 
-            # Auto-trigger code lookup when bug confidence is high
+            # Auto-trigger code lookup + white-box debug when bug confidence is high
             auto_code_note = ""
+            auto_debug_note = ""
             if (
                 action.bug_exist
                 and action.confidence >= self._confidence_threshold
                 and self._has_code_tools()
             ):
-                auto_code_note = self._auto_code_lookup(action)
+                lookup_result = self._auto_code_lookup(action)
+                auto_code_note = lookup_result["note"]
+                if lookup_result.get("file_path") and self._has_write_tools():
+                    auto_debug_note = self._auto_white_box_debug(
+                        action, game_session_id, lookup_result
+                    )
 
             is_code_tool = action.tool.startswith("code_")
             raw_response = self._invoke_tool(action, game_session_id)
@@ -119,7 +126,7 @@ class Orchestrator:
                 observation=current_observation,
                 planner_prompt=plan.prompt,
                 planner_output=plan.output,
-                notes=auto_code_note,
+                notes="\n".join(filter(None, [auto_code_note, auto_debug_note])),
             )
             report.steps.append(record)
 
@@ -284,6 +291,15 @@ class Orchestrator:
             payload = self._parse_code_read_params(action.command)
         elif action.tool == "code_search":
             payload = {"pattern": action.command}
+        elif action.tool == "code_write_file":
+            try:
+                payload = self._parse_code_write_params(action.command)
+            except ValueError as exc:
+                return {"success": False, "message": str(exc)}
+        elif action.tool == "code_read_debug_logs":
+            payload = {"clear": action.command.strip().lower() == "clear"}
+        elif action.tool == "code_restore_file":
+            payload = {"path": action.command.strip()}
         else:
             payload = {"game_id": game_session_id, "command": action.command}
         return self._tool_registry.invoke(action.tool, payload)
@@ -299,6 +315,40 @@ class Orchestrator:
                 "end_line": int(match.group(3)),
             }
         return {"path": command.strip()}
+
+    @staticmethod
+    def _parse_code_write_params(command: str) -> Dict[str, Any]:
+        """Parse ``"path:search->replace"`` or JSON from command."""
+        cmd = command.strip()
+        if cmd.startswith("{"):
+            try:
+                return json.loads(cmd)
+            except Exception as exc:
+                raise ValueError(f"Invalid JSON payload for code_write_file: {exc}") from exc
+
+        # Format: path:search_text->replace_text
+        # Split on first ":" to isolate the file path, then on first "->"
+        # to separate search / replace.  This is more robust than a single
+        # regex when the search or replace text itself contains ":" or "->".
+        colon_idx = cmd.find(":")
+        if colon_idx == -1:
+            raise ValueError(
+                "Invalid code_write_file command. Use 'path:old_text->new_text' or a JSON payload."
+            )
+        path = cmd[:colon_idx]
+        rest = cmd[colon_idx + 1:]
+        arrow_idx = rest.find("->")
+        if arrow_idx == -1:
+            raise ValueError(
+                "Invalid code_write_file command. Use 'path:old_text->new_text' or a JSON payload."
+            )
+        return {
+            "path": path,
+            "patch": {
+                "search": rest[:arrow_idx],
+                "replace": rest[arrow_idx + 2:],
+            },
+        }
 
     @staticmethod
     def _format_code_response(raw: Dict[str, Any]) -> str:
@@ -318,6 +368,13 @@ class Orchestrator:
                 f"  {m['path']}:{m['line']}  {m['text']}" for m in raw["matches"]
             ]
             return f"Search results for '{raw.get('pattern', '')}':\n" + "\n".join(lines)
+        if "logs" in raw:
+            logs = raw["logs"]
+            if not logs.strip():
+                return "Debug logs are empty."
+            return f"--- Debug Logs ---\n{logs}\n------------------"
+        if "message" in raw:
+            return str(raw["message"])
         return str(raw)
 
     _KNOWN_GAME_VERBS = frozenset({
@@ -330,28 +387,42 @@ class Orchestrator:
         """Return True when code-reading tools are registered."""
         return any(t.name == "code_search" for t in self._tool_registry.list_tools())
 
-    def _auto_code_lookup(self, action: Action) -> str:
+    def _has_write_tools(self) -> bool:
+        """Return True when white-box debug tools are registered."""
+        names = {t.name for t in self._tool_registry.list_tools()}
+        return "code_write_file" in names and "code_restore_file" in names
+
+    def _auto_code_lookup(self, action: Action) -> Dict[str, Any]:
         """Auto-trigger code search + read when the planner reports a high-confidence bug.
 
-        Workflow:
-          1. Derive a search query from the game command verb (e.g. "combine" → "def handle_combine").
-          2. Search the game source via ``code_search``.
-          3. If there are matches, read ±15 lines around the first match via ``code_read_file``.
-          4. Return the combined result as a text note (stored in ``StepRecord.notes``).
+        Returns a dict with keys:
+          - note: formatted text for StepRecord.notes
+          - file_path: path of the first match (or None)
+          - match_line: line number of the first match (or None)
+          - handler_signature: the matched line text (or None)
+          - verb: the extracted game verb
         """
         query = self._extract_code_search_query(action)
+        empty = {"note": "", "file_path": None, "match_line": None,
+                 "handler_signature": None, "verb": ""}
         if not query:
-            return ""
+            return empty
 
-        # Step 1: search for the relevant handler
+        verb = action.command.strip().lower().split()[0] if action.command.strip() else ""
+
         search_response = self._tool_registry.invoke("code_search", {"pattern": query})
         search_text = self._format_code_response(search_response)
 
-        # Step 2: read surrounding context of the first match
         read_text = ""
+        file_path = None
+        match_line = None
+        handler_signature = None
         matches = search_response.get("matches", [])
         if matches:
             first = matches[0]
+            file_path = first["path"]
+            match_line = first["line"]
+            handler_signature = first["text"]
             start = max(1, first["line"] - 15)
             end = first["line"] + 15
             read_response = self._tool_registry.invoke("code_read_file", {
@@ -364,7 +435,13 @@ class Orchestrator:
         parts = [f"[Auto code lookup for '{query}']", search_text]
         if read_text:
             parts.append(read_text)
-        return "\n".join(parts)
+        return {
+            "note": "\n".join(parts),
+            "file_path": file_path,
+            "match_line": match_line,
+            "handler_signature": handler_signature,
+            "verb": verb,
+        }
 
     @classmethod
     def _extract_code_search_query(cls, action: Action) -> str:
@@ -374,6 +451,73 @@ class Orchestrator:
         if verb in cls._KNOWN_GAME_VERBS:
             return f"def handle_{verb}"
         return cmd if len(cmd) <= 40 else cmd[:40]
+
+    def _auto_white_box_debug(
+        self,
+        action: Action,
+        game_session_id: str,
+        lookup_result: Dict[str, Any],
+    ) -> str:
+        """Auto-trigger white-box debugging: inject print → replay command → read logs → restore.
+
+        Only called when ``_auto_code_lookup`` found a matching handler.
+        """
+        file_path = lookup_result["file_path"]
+        signature = lookup_result["handler_signature"]
+        verb = lookup_result["verb"]
+        if not file_path or not signature:
+            return ""
+
+        # Build the debug print line (8-space indent to match method body)
+        debug_print = f'        print(f"[AUTO_DEBUG] handle_{verb} called, command={{command}}")'
+        patch_search = signature
+        patch_replace = f"{signature}\n{debug_print}"
+
+        parts = [f"[Auto white-box debug for handle_{verb}]"]
+
+        # Clear old logs first
+        self._tool_registry.invoke("code_read_debug_logs", {"clear": True})
+
+        restore_needed = False
+        try:
+            # 1. Inject debug print
+            write_resp = self._tool_registry.invoke("code_write_file", {
+                "path": file_path,
+                "patch": {"search": patch_search, "replace": patch_replace},
+            })
+            if not write_resp.get("success", False):
+                parts.append(f"Write failed: {write_resp.get('message', 'unknown error')}")
+                return "\n".join(parts)
+            restore_needed = True
+            parts.append(f"Injected debug print into {file_path}")
+
+            # 2. Replay the game command
+            game_resp = self._tool_registry.invoke(
+                "game_command",
+                {"game_id": game_session_id, "command": action.command},
+            )
+            game_msg = game_resp.get("message", str(game_resp))
+            parts.append(f"Replay '{action.command}': {game_msg[:200]}")
+
+            # 3. Read debug logs
+            log_resp = self._tool_registry.invoke("code_read_debug_logs", {"clear": False})
+            logs = log_resp.get("logs", "")
+            if logs.strip():
+                parts.append(f"Debug output:\n{logs.strip()}")
+            else:
+                parts.append("Debug output: (empty)")
+        finally:
+            # 4. Always restore
+            if restore_needed:
+                try:
+                    restore_resp = self._tool_registry.invoke(
+                        "code_restore_file", {"path": file_path}
+                    )
+                    parts.append(f"Restored {file_path}: {restore_resp.get('message', '')}")
+                except Exception:
+                    parts.append(f"WARNING: failed to restore {file_path}")
+
+        return "\n".join(parts)
 
     @staticmethod
     def _is_fatal_llm_error(error: str) -> bool:

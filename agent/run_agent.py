@@ -145,7 +145,7 @@ def main() -> None:
         load_persistent_long_term=memory_config.get("load_persistent_long_term", False),
     )
 
-    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api"
+    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api/agent"
     game_client = create_http_game_client(
         GameClientConfig(
             base_url=game_base_url,
