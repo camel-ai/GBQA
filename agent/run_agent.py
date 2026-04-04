@@ -12,16 +12,16 @@ from src.bug_detector import BugDetector
 from src.camel_runtime import resolve_model_platform
 from src.config import load_config
 from src.evaluator import Evaluator
-from src.game_clients import GameClientConfig, create_http_game_client
+from src.execution_backends import build_execution_backend, resolve_backend_spec
 from src.ground_truth import resolve_ground_truth_path
 from src.llm_client import LlmClient
 from src.memory import MemoryManager
+from src.operator import Operator
 from src.orchestrator import Orchestrator
 from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
-from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools
 
 
 def main() -> None:
@@ -64,6 +64,16 @@ def main() -> None:
     prompt_loader = PromptLoader(prompt_dir)
     prompts = prompt_loader.load_bundle()
     planner = ActionPlanner(llm_client, prompts)
+    operator_config = config.get_section("operator")
+    operator = Operator(
+        llm_client,
+        prompts.operator,
+        max_retries=operator_config.get("max_retries", 2),
+        retryable_error_kinds=operator_config.get(
+            "retryable_error_kinds",
+            ["tool_not_found", "element_not_found", "timeout", "not_visible"],
+        ),
+    )
 
     bug_config = config.get_section("bug_detection")
     detector = BugDetector(
@@ -145,22 +155,14 @@ def main() -> None:
         load_persistent_long_term=memory_config.get("load_persistent_long_term", False),
     )
 
-    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api/agent"
-    game_client = create_http_game_client(
-        GameClientConfig(
-            base_url=game_base_url,
-            timeout=config.get_section("llm").get("timeout", 60),
-        )
-    )
-    registry = ToolRegistry()
-    register_standard_game_tools(registry, game_client)
-    if config.get_section("agent").get("enable_code_reading", False):
-        register_code_reading_tools(registry, game_client)
+    backend = build_execution_backend(config, args.game, game_config)
+    backend_spec = resolve_backend_spec(config)
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
         game_id=args.game,
-        tool_registry=registry,
+        execution_backend=backend,
+        operator=operator,
         planner=planner,
         memory=memory,
         detector=detector,
@@ -179,41 +181,41 @@ def main() -> None:
         "profile",
         "You are testing a text-based adventure game. Focus on exploration, items, and puzzle logic.",
     )
-    try:
-        report = orchestrator.run(game_profile)
-        report.metadata["llm"] = {
-            "model": model,
-            "platform": resolved_platform,
-            "temperature": llm_config.get("temperature"),
-            "max_tokens": llm_config.get("max_tokens"),
-            "timeout": llm_config.get("timeout"),
-            "message_window_size": llm_config.get("message_window_size", 6),
-            "reset_between_turns": llm_config.get("reset_between_turns", True),
-            "context_token_limit": llm_client.runtime_config.context_token_limit,
-        }
-        report.metadata["game"] = {
-            "name": args.game,
-            "port": game_config.get("port"),
-            "base_url": game_base_url,
-            "have_ground_truth": bool(game_config.get("ground_truth", False)),
-            "profile": game_profile,
-        }
-        report.metadata["agent"] = {
-            "max_steps": max_steps,
-            "max_consecutive_failures": max_consecutive_failures,
-            "reflection_threshold": reflection_threshold,
-            "reflection_interval": reflection_interval,
-            "summary_interval": summary_interval,
-            "confidence_threshold": confidence_threshold,
-            "auto_summarize": config.get_section("agent").get("auto_summarize", True),
-            "summary_threshold": config.get_section("agent").get("summary_threshold", 15),
-            "camel_memory_history": str(memory.chat_history_path),
-        }
-        paths = reporter.write_report(report)
-        print(f"Report saved: {paths['json']}")
-        print(f"Markdown saved: {paths['markdown']}")
-    finally:
-        game_client.close()
+    report = orchestrator.run(game_profile)
+    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api"
+    report.metadata["llm"] = {
+        "model": model,
+        "platform": resolved_platform,
+        "temperature": llm_config.get("temperature"),
+        "max_tokens": llm_config.get("max_tokens"),
+        "timeout": llm_config.get("timeout"),
+        "message_window_size": llm_config.get("message_window_size", 6),
+        "reset_between_turns": llm_config.get("reset_between_turns", True),
+        "context_token_limit": llm_client.runtime_config.context_token_limit,
+    }
+    report.metadata["game"] = {
+        "name": args.game,
+        "port": game_config.get("port"),
+        "base_url": game_base_url,
+        "backend_type": backend_spec.backend_type,
+        "have_ground_truth": bool(game_config.get("ground_truth", False)),
+        "profile": game_profile,
+    }
+    report.metadata["agent"] = {
+        "max_steps": max_steps,
+        "max_consecutive_failures": max_consecutive_failures,
+        "reflection_threshold": reflection_threshold,
+        "reflection_interval": reflection_interval,
+        "summary_interval": summary_interval,
+        "confidence_threshold": confidence_threshold,
+        "auto_summarize": config.get_section("agent").get("auto_summarize", True),
+        "summary_threshold": config.get_section("agent").get("summary_threshold", 15),
+        "camel_memory_history": str(memory.chat_history_path),
+        "operator_max_retries": operator_config.get("max_retries", 2),
+    }
+    paths = reporter.write_report(report)
+    print(f"Report saved: {paths['json']}")
+    print(f"Markdown saved: {paths['markdown']}")
 
 
 if __name__ == "__main__":

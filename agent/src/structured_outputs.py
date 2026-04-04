@@ -42,6 +42,24 @@ class ReflectionDecision(BaseModel):
         return float(value)
 
 
+class OperatorCallDecision(BaseModel):
+    """One normalized call produced by the operator."""
+
+    kind: str = Field(min_length=1)
+    ref: str = ""
+    target: str = ""
+    text: str = ""
+    url: str = ""
+    duration_ms: int = Field(default=0, ge=0)
+
+
+class OperatorDecision(BaseModel):
+    """Operator output schema."""
+
+    rationale: str = ""
+    calls: List[OperatorCallDecision] = Field(default_factory=list)
+
+
 class BugReviewItem(BaseModel):
     """One LLM-reviewed bug finding."""
 
