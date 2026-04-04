@@ -180,11 +180,9 @@ class PlaywrightMcpExecutionBackend:
             attempt.per_call_results = per_call_results
             attempt.success = True
             attempt.final_status = "completed"
-            attempt.suspected_origin = "environment"
             observation.execution = {
                 "attempts": [self._attempt_to_dict(attempt)],
                 "diagnostics": {"backend_type": self.backend_type},
-                "suspected_origin": "environment",
             }
             return BackendExecutionResult(
                 observation=observation,
@@ -247,7 +245,6 @@ class PlaywrightMcpExecutionBackend:
                     "backend_type": self.backend_type,
                     "per_call_results": per_call_results or [],
                 },
-                "suspected_origin": "environment",
             },
         )
 
@@ -468,7 +465,7 @@ class PlaywrightMcpExecutionBackend:
 
     @staticmethod
     def _attempt_to_dict(attempt: ExecutionAttempt) -> Dict[str, Any]:
-        return {
+        payload = {
             "attempt": attempt.attempt,
             "translated_calls": [
                 {
@@ -486,6 +483,8 @@ class PlaywrightMcpExecutionBackend:
             "retry_reason": attempt.retry_reason,
             "success": attempt.success,
             "final_status": attempt.final_status,
-            "suspected_origin": attempt.suspected_origin,
             "error": attempt.error,
         }
+        if attempt.suspected_origin:
+            payload["suspected_origin"] = attempt.suspected_origin
+        return payload

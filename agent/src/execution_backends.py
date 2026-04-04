@@ -69,7 +69,6 @@ class GameClientExecutionBackend:
             execution={
                 "attempts": [],
                 "diagnostics": {"backend_type": self.backend_type},
-                "suspected_origin": "environment",
             },
         )
         return SessionHandle(
@@ -159,7 +158,8 @@ class GameClientExecutionBackend:
         attempt.per_call_results = [{"kind": call.kind, "success": True}]
         attempt.success = bool(payload.get("success", False))
         attempt.final_status = "completed" if attempt.success else "environment_failure"
-        attempt.suspected_origin = "environment"
+        if not attempt.success:
+            attempt.suspected_origin = "environment"
         normalized = self._normalize_payload(
             payload,
             execution={
@@ -168,7 +168,11 @@ class GameClientExecutionBackend:
                     "backend_type": self.backend_type,
                     "request_type": request.request_type,
                 },
-                "suspected_origin": "environment",
+                **(
+                    {"suspected_origin": "environment"}
+                    if not attempt.success
+                    else {}
+                ),
             },
         )
         return BackendExecutionResult(
@@ -195,7 +199,7 @@ class GameClientExecutionBackend:
 
     @staticmethod
     def _attempt_to_dict(attempt: ExecutionAttempt) -> Dict[str, Any]:
-        return {
+        payload = {
             "attempt": attempt.attempt,
             "translated_calls": [
                 {
@@ -212,9 +216,11 @@ class GameClientExecutionBackend:
             "retry_reason": attempt.retry_reason,
             "success": attempt.success,
             "final_status": attempt.final_status,
-            "suspected_origin": attempt.suspected_origin,
             "error": attempt.error,
         }
+        if attempt.suspected_origin:
+            payload["suspected_origin"] = attempt.suspected_origin
+        return payload
 
 
 def resolve_backend_spec(config: Config) -> ExecutionBackendSpec:

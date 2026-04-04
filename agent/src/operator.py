@@ -235,7 +235,11 @@ class Operator:
             retry_reason=retry_reason,
             success=observation.success,
             final_status="completed" if observation.success else "failed",
-            suspected_origin=str(execution.get("suspected_origin", "ambiguous")),
+            suspected_origin=(
+                ""
+                if observation.success
+                else str(execution.get("suspected_origin", "ambiguous"))
+            ),
             error=str(diagnostics.get("error", "")),
         )
 
@@ -250,8 +254,10 @@ class Operator:
         diagnostics = dict(execution.get("diagnostics", {}))
         diagnostics["attempt_count"] = len(attempts)
         execution["diagnostics"] = diagnostics
-        if attempts:
+        if attempts and attempts[-1].suspected_origin:
             execution["suspected_origin"] = attempts[-1].suspected_origin
+        else:
+            execution.pop("suspected_origin", None)
         result.observation.execution = execution
         return result
 
@@ -313,7 +319,6 @@ class Operator:
             execution={
                 "attempts": [],
                 "diagnostics": {"source": "describe_capabilities"},
-                "suspected_origin": "environment",
             },
         )
         return BackendExecutionResult(

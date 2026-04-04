@@ -73,7 +73,7 @@ class BugDetector:
     def inspect(self, action: Action, observation: Observation) -> List[BugFinding]:
         """Inspect an observation with deterministic rules and CAMEL review."""
         execution_origin = str(
-            (observation.execution or {}).get("suspected_origin", "environment")
+            (observation.execution or {}).get("suspected_origin", "")
         )
         if execution_origin == "execution":
             return []
@@ -119,7 +119,7 @@ class BugDetector:
         if observation.success:
             return False
         execution_origin = str(
-            (observation.execution or {}).get("suspected_origin", "environment")
+            (observation.execution or {}).get("suspected_origin", "")
         )
         if execution_origin == "execution":
             return False

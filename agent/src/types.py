@@ -72,7 +72,7 @@ class ExecutionAttempt:
     retry_reason: str = ""
     success: bool = False
     final_status: str = ""
-    suspected_origin: str = "ambiguous"
+    suspected_origin: str = ""
     error: str = ""
 
 

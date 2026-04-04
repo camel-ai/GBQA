@@ -284,9 +284,9 @@ class Orchestrator:
         consecutive_failures: int,
     ) -> bool:
         suspected_origin = str(
-            (observation.execution or {}).get("suspected_origin", "environment")
+            (observation.execution or {}).get("suspected_origin", "")
         )
-        if suspected_origin == "execution":
+        if not observation.success and suspected_origin == "execution":
             return False
         if action.bug_exist and action.confidence >= self._confidence_threshold:
             return True
@@ -295,7 +295,7 @@ class Orchestrator:
         return (
             self._reflection_interval > 0
             and (step - last_reflection_step) >= self._reflection_interval
-            and suspected_origin in {"environment", "ambiguous"}
+            and (observation.success or suspected_origin in {"environment", "ambiguous", ""})
         )
 
     def _promote_reflection_bug(
