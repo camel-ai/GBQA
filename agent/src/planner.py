@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from camel.messages import BaseMessage
+from PIL import Image
 
 from .llm_client import LlmClient
 from .prompts import PromptBundle, render_prompt
@@ -67,17 +68,22 @@ class ActionPlanner:
         planner_prompt: str,
         image_paths: Any,
     ) -> str | BaseMessage:
-        valid_paths = []
+        images = []
         for item in image_paths or []:
             path = Path(str(item)).expanduser()
-            if path.exists():
-                valid_paths.append(str(path))
-        if not valid_paths:
+            if not path.exists():
+                continue
+            try:
+                with Image.open(path) as image:
+                    images.append(image.copy())
+            except OSError:
+                continue
+        if not images:
             return planner_prompt
         return BaseMessage.make_user_message(
             role_name="Planner",
             content=planner_prompt,
-            image_list=valid_paths,
+            image_list=images,
         )
 
     @staticmethod

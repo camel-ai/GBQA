@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 from camel.messages import BaseMessage
+from PIL import Image
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -47,7 +48,7 @@ class LlmClientStub:
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         screenshot_path = Path(tmpdir) / "observation.png"
-        screenshot_path.write_bytes(b"fake-image")
+        Image.new("RGB", (4, 4), color="white").save(screenshot_path)
 
         llm_client = LlmClientStub()
         planner = ActionPlanner(
@@ -70,7 +71,8 @@ def main() -> None:
 
         prompt = llm_client.agent.last_prompt
         assert isinstance(prompt, BaseMessage)
-        assert prompt.image_list == [str(screenshot_path)]
+        assert len(prompt.image_list or []) == 1
+        assert getattr(prompt.image_list[0], "size", None) == (4, 4)
         assert "Attached screenshots" in (prompt.content or "")
         print("planner multimodal smoke test passed")
 
