@@ -10,7 +10,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from src.orchestrator import Orchestrator
-from src.types import Action
+from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
 
 class PlannerStub:
@@ -27,20 +27,39 @@ class PlannerStub:
         )()
 
 
-class ToolRegistryStub:
-    def __init__(self) -> None:
-        self.calls = []
+class BackendStub:
+    backend_type = "game_client"
 
-    def invoke(self, name, payload):  # noqa: ANN001
-        self.calls.append((name, payload))
-        if name == "game_new":
-            return {
-                "game_id": "test-session",
-                "success": True,
-                "message": "Initial room description",
-                "state": {},
-            }
-        raise AssertionError("game_command should not be invoked after planner error")
+    def start_session(self, run_context):  # noqa: ANN001
+        del run_context
+        return SessionHandle(
+            session_id="test-session",
+            backend_type=self.backend_type,
+            initial_observation=Observation(
+                success=True,
+                message="Initial room description",
+                state={},
+                summary="Initial room description",
+            ),
+        )
+
+    def describe_capabilities(self, session, refresh=False):  # noqa: ANN001
+        del session, refresh
+        return CapabilityDescriptor(
+            planner_summary="command-based backend",
+            operator_context={"translation_mode": "transparent_command"},
+        )
+
+    def execute(self, session, request):  # noqa: ANN001
+        raise AssertionError("execute should not be invoked after planner error")
+
+    def close_session(self, session):  # noqa: ANN001
+        del session
+
+
+class OperatorStub:
+    def execute(self, **kwargs):  # noqa: ANN003
+        raise AssertionError("operator should not be invoked after planner error")
 
 
 class MemoryStub:
@@ -71,7 +90,8 @@ class ReporterStub:
 def main() -> None:
     orchestrator = Orchestrator(
         game_id="dark-castle",
-        tool_registry=ToolRegistryStub(),
+        execution_backend=BackendStub(),
+        operator=OperatorStub(),
         planner=PlannerStub(),
         memory=MemoryStub(),
         detector=None,
