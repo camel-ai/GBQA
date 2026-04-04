@@ -29,10 +29,15 @@ class Reporter:
         return self._run_dir
 
     def log_step(self, record: StepRecord) -> None:
+        summary = record.observation.summary or record.observation.message
         payload = {
             "type": "trace",
             "step": record.step,
-            "text": f"Step {record.step}: {record.action.command} -> {record.observation.message}",
+            "planner_action": record.action.command,
+            "capability_summary": record.capability_summary,
+            "observation_summary": summary,
+            "execution": record.observation.execution,
+            "text": f"Step {record.step}: {record.action.command} -> {summary}",
         }
         self._events.append(payload)
         self._append_jsonl(payload)
@@ -133,6 +138,9 @@ class Reporter:
         print(record.planner_prompt)
         print("[planner.output]")
         print(record.planner_output)
+        if record.observation.execution:
+            print("[operator.execution]")
+            print(json.dumps(record.observation.execution, ensure_ascii=False, indent=2))
         if record.reflection_prompt or record.reflection_output:
             print("[reflection.prompt]")
             print(record.reflection_prompt)
@@ -175,6 +183,8 @@ class Reporter:
                     "planner": {
                         "prompt": record.planner_prompt,
                         "output": record.planner_output,
+                        "action": record.action.command,
+                        "capability_summary": record.capability_summary,
                     },
                     "environment": {
                         "tool": record.action.tool,
@@ -182,8 +192,13 @@ class Reporter:
                         "rationale": record.action.rationale,
                         "expected_outcome": record.action.expected_outcome,
                         "feedback": record.observation.message,
+                        "summary": record.observation.summary,
                         "success": record.observation.success,
                         "game_over": record.observation.game_over,
+                        "state": record.observation.state,
+                        "env_state": record.observation.env_state,
+                        "artifacts": record.observation.artifacts,
+                        "execution": record.observation.execution,
                         "bug_exist": record.action.bug_exist,
                         "confidence": record.action.confidence,
                         "explanation": record.action.explanation,
