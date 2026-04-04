@@ -181,6 +181,7 @@ server.*
 *.temp
 tmp/
 temp/
+.playwright-mcp/
 
 
 # ========================================
