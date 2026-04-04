@@ -20,9 +20,11 @@ Now, by considering the above context, decide the next action. Follow these rule
 - Use only one action per step.
 - The action should be concrete and directly executable by an operator.
 - Prefer actions that explore new rooms, inspect items, read visible state, or validate rules.
+- If the attached screenshots reveal useful visual evidence that is not fully captured in text, use that evidence in your planning.
 - Regularly verify world-state consistency after state-changing actions such as take, drop, open, close, unlock, or combine.
 - If you see a potential inconsistency, try to reproduce it.
 - If you need the backend capability description again, use 'describe_capabilities'.
+- If visual confirmation would help, you may request an action that captures a screenshot.
 - Do not treat an ordinary blocked action, unmet prerequisite, or unsupported verb as a bug by itself.
 - If two or more attempts at the same idea fail, pivot to a different object, room, or verification strategy instead of trying more verb variants.
 - Only report a bug when you have concrete evidence of contradiction, hidden-information leakage, impossible state, or a state description that failed to update after an action.

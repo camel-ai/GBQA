@@ -125,7 +125,7 @@ class PlaywrightMcpExecutionBackend:
         planner_summary = (
             "You are operating a browser UI through an operator. "
             "You can request clicks on visible buttons or controls, type text into inputs, "
-            "press keys, wait for the page to update, and read the current page snapshot. "
+            "press keys, wait for the page to update, capture screenshots, and read the current page snapshot. "
             "Use describe_capabilities if you need this summary again."
         )
         return CapabilityDescriptor(
@@ -139,6 +139,7 @@ class PlaywrightMcpExecutionBackend:
                     "type",
                     "press",
                     "wait",
+                    "screenshot",
                     "snapshot",
                 ],
                 "available_tools": tool_names,
@@ -154,6 +155,7 @@ class PlaywrightMcpExecutionBackend:
     ) -> BackendExecutionResult:
         client = self._client(session)
         per_call_results: List[Dict[str, Any]] = []
+        screenshot_artifacts: List[Dict[str, Any]] = []
         attempt = ExecutionAttempt(
             attempt=1,
             translated_calls=request.calls,
@@ -164,6 +166,17 @@ class PlaywrightMcpExecutionBackend:
                 tool_name, arguments = self._map_call(call)
                 tool_result = self._call_tool(client, tool_name, arguments)
                 tool_error = self._tool_result_error(tool_result)
+                screenshot_path = ""
+                if call.kind == "screenshot":
+                    screenshot_path = str(arguments.get("filename", "")).strip()
+                    if screenshot_path:
+                        screenshot_artifacts.append(
+                            {
+                                "path": screenshot_path,
+                                "mime_type": "image/png",
+                                "label": call.target or "current page",
+                            }
+                        )
                 per_call_results.append(
                     {
                         "kind": call.kind,
@@ -172,11 +185,16 @@ class PlaywrightMcpExecutionBackend:
                         "arguments": arguments,
                         "is_error": bool(tool_result.get("isError", False)),
                         "result_excerpt": self._result_excerpt(tool_result),
+                        "artifact_path": screenshot_path,
                     }
                 )
                 if tool_error:
                     raise McpProtocolError(tool_error)
-            observation = self._snapshot_observation(client, per_call_results=per_call_results)
+            observation = self._snapshot_observation(
+                client,
+                per_call_results=per_call_results,
+                screenshots=screenshot_artifacts,
+            )
             attempt.per_call_results = per_call_results
             attempt.success = True
             attempt.final_status = "completed"
@@ -228,17 +246,21 @@ class PlaywrightMcpExecutionBackend:
         client: Any,
         *,
         per_call_results: Optional[List[Dict[str, Any]]] = None,
+        screenshots: Optional[List[Dict[str, Any]]] = None,
     ) -> Observation:
         snapshot = self._call_tool(client, self._settings.snapshot_tool, {})
         snapshot_text = self._extract_text(snapshot)
         env_state = self._extract_env_state(snapshot_text)
+        artifacts = {"snapshot": snapshot}
+        if screenshots:
+            artifacts["screenshots"] = screenshots
         return Observation(
             success=True,
             message=snapshot_text,
             state={},
             summary=snapshot_text or "Browser observation captured.",
             env_state=env_state,
-            artifacts={"snapshot": snapshot},
+            artifacts=artifacts,
             execution={
                 "attempts": [],
                 "diagnostics": {
@@ -271,9 +293,25 @@ class PlaywrightMcpExecutionBackend:
             return self._settings.press_tool, {"key": call.text or call.target}
         if call.kind == "wait":
             return self._settings.wait_tool, {"time": call.duration_ms or 1000}
+        if call.kind == "screenshot":
+            filename = self._screenshot_filename(call)
+            arguments: Dict[str, Any] = {"filename": filename}
+            if call.ref:
+                arguments["ref"] = call.ref
+                arguments["element"] = call.target or "target element"
+            return self._settings.screenshot_tool, arguments
         if call.kind == "snapshot":
             return self._settings.snapshot_tool, {}
         raise McpProtocolError(f"Unsupported call kind: {call.kind}")
+
+    def _screenshot_filename(self, call: ExecutionCall) -> str:
+        output_dir = Path(self._settings.screenshot_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", (call.target or "page").strip()).strip("-")
+        if not stem:
+            stem = "page"
+        filename = f"{stem}-{uuid4().hex[:8]}.png"
+        return str((output_dir / filename).resolve())
 
     @staticmethod
     def _client(session: SessionHandle) -> Any:
