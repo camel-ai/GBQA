@@ -297,7 +297,10 @@ class Orchestrator:
             except ValueError as exc:
                 return {"success": False, "message": str(exc)}
         elif action.tool == "code_read_debug_logs":
-            payload = {"clear": action.command.strip().lower() == "clear"}
+            payload = {
+                "clear": action.command.strip().lower() == "clear",
+                "game_id": game_session_id,
+            }
         elif action.tool == "code_restore_file":
             payload = {"path": action.command.strip()}
         else:
@@ -385,10 +388,14 @@ class Orchestrator:
 
     def _has_code_tools(self) -> bool:
         """Return True when code-reading tools are registered."""
+        if not hasattr(self._tool_registry, "list_tools"):
+            return False
         return any(t.name == "code_search" for t in self._tool_registry.list_tools())
 
     def _has_write_tools(self) -> bool:
         """Return True when white-box debug tools are registered."""
+        if not hasattr(self._tool_registry, "list_tools"):
+            return False
         names = {t.name for t in self._tool_registry.list_tools()}
         return "code_write_file" in names and "code_restore_file" in names
 
@@ -450,7 +457,8 @@ class Orchestrator:
         verb = cmd.split()[0] if cmd else ""
         if verb in cls._KNOWN_GAME_VERBS:
             return f"def handle_{verb}"
-        return cmd if len(cmd) <= 40 else cmd[:40]
+        literal_query = cmd if len(cmd) <= 40 else cmd[:40]
+        return re.escape(literal_query)
 
     def _auto_white_box_debug(
         self,
@@ -476,7 +484,10 @@ class Orchestrator:
         parts = [f"[Auto white-box debug for handle_{verb}]"]
 
         # Clear old logs first
-        self._tool_registry.invoke("code_read_debug_logs", {"clear": True})
+        self._tool_registry.invoke(
+            "code_read_debug_logs",
+            {"clear": True, "game_id": game_session_id},
+        )
 
         restore_needed = False
         try:
@@ -500,7 +511,10 @@ class Orchestrator:
             parts.append(f"Replay '{action.command}': {game_msg[:200]}")
 
             # 3. Read debug logs
-            log_resp = self._tool_registry.invoke("code_read_debug_logs", {"clear": False})
+            log_resp = self._tool_registry.invoke(
+                "code_read_debug_logs",
+                {"clear": False, "game_id": game_session_id},
+            )
             logs = log_resp.get("logs", "")
             if logs.strip():
                 parts.append(f"Debug output:\n{logs.strip()}")
@@ -562,7 +576,39 @@ class Orchestrator:
             "recent_trace": recent_trace,
             "current_observation": observation_text,
             "turn": observation.turn or 0,
+            "code_tools_prompt_section": self._build_code_tools_prompt_section(),
         }
+
+    def _build_code_tools_prompt_section(self) -> str:
+        if not self._has_code_tools():
+            return (
+                "## Available Tools:\n"
+                "- game_command (default): Send a command to the game.\n\n"
+                "Code-reading and white-box debugging tools are disabled for this run. "
+                "Do not choose any `code_*` tool."
+            )
+
+        return (
+            '## White-box Debugging:\n'
+            'You have the ability to perform "White-box Debugging" by modifying the game\'s source code. '
+            "This is a powerful method to gather information or verify internal logic:\n"
+            "- Use `code_write_file` to insert `print()` statements into handlers or logic checks.\n"
+            "- Use `code_read_debug_logs` to see the output of your `print()` statements after running a `game_command`.\n"
+            "- Use `code_restore_file` after debugging so the environment returns to its original state.\n"
+            '- Example: If you suspect a "take" condition is wrong, insert `print(f"DEBUG: can_take={result}")` in `actions.py`, run `take item`, and then check logs.\n'
+            "- Only use `code_write_file` with `path:old_text->new_text` or a valid JSON payload.\n"
+            "- Restore any temporary debug edits once you have gathered the needed information.\n\n"
+            "## Available Tools:\n"
+            "- game_command (default): Send a command to the game.\n"
+            "- code_list_files: List all source code files in the game.\n"
+            "- code_read_file: Read a source file. Format: `path` or `path:start-end`.\n"
+            "- code_search: Search for a pattern in source code.\n"
+            "- code_write_file: Modify a source file. Format: `path:old_text->new_text` (replaces first match) or use a full JSON string if overwriting.\n"
+            "- code_read_debug_logs: Read the captured `stdout/print` logs for the current game session. Put \"read\" or \"clear\" in command.\n"
+            "- code_restore_file: Restore a file previously modified with `code_write_file`. Put the file path in `command`.\n\n"
+            "Use code tools ONLY when you have a concrete hypothesis to verify via source code.\n"
+            "Do not speculatively browse code. Prefer gameplay-based verification first."
+        )
 
     def _build_hud_text(self, observation: Observation) -> str:
         state = observation.state or {}

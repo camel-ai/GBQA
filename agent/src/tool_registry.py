@@ -46,7 +46,7 @@ def register_code_reading_tools(
     registry: ToolRegistry,
     game_client: GameClient,
 ) -> None:
-    """Register tools for reading game source code."""
+    """Register code tools for listing, reading, searching, writing, restoring, and reading debug logs."""
     registry.register(
         Tool(
             name="code_list_files",
@@ -123,9 +123,11 @@ def register_code_reading_tools(
                 "type": "object",
                 "properties": {
                     "clear": {"type": "boolean"},
+                    "game_id": {"type": "string"},
                 },
             },
             handler=lambda payload: game_client.read_debug_logs(
+                payload.get("game_id", ""),
                 clear=payload.get("clear", False)
             ),
         )

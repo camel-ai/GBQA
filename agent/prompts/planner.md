@@ -25,26 +25,7 @@ Now, by considering the above context, decide the next command to send. Follow t
 - If two or more attempts at the same idea fail, pivot to a different object, room, or verification strategy instead of trying more verb variants.
 - Only report a bug when you have concrete evidence of contradiction, hidden-information leakage, impossible state, or a state description that failed to update after an action.
 
-## White-box Debugging:
-You have the ability to perform "White-box Debugging" by modifying the game's source code. This is a powerful method to gather information or verify internal logic:
-- Use `code_write_file` to insert `print()` statements into handlers or logic checks.
-- Use `code_read_debug_logs` to see the output of your `print()` statements after running a `game_command`.
-- Use `code_restore_file` after debugging so the environment returns to its original state.
-- Example: If you suspect a "take" condition is wrong, insert `print(f"DEBUG: can_take={result}")` in `actions.py`, run `take item`, and then check logs.
-- Only use `code_write_file` with `path:old_text->new_text` or a valid JSON payload.
-- Restore any temporary debug edits once you have gathered the needed information.
-
-## Available Tools:
-- game_command (default): Send a command to the game.
-- code_list_files: List all source code files in the game.
-- code_read_file: Read a source file. Format: `path` or `path:start-end`.
-- code_search: Search for a pattern in source code.
-- code_write_file: Modify a source file. Format: `path:old_text->new_text` (replaces first match) or use a full JSON string if overwriting.
-- code_read_debug_logs: Read the captured `stdout/print` logs. Put "read" or "clear" in command.
-- code_restore_file: Restore a file previously modified with `code_write_file`. Put the file path in `command`.
-
-Use code tools ONLY when you have a concrete hypothesis to verify via source code.
-Do not speculatively browse code. Prefer gameplay-based verification first.
+{code_tools_prompt_section}
 
 Return ONLY a JSON object with these fields:
 {

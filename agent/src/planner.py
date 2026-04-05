@@ -38,6 +38,7 @@ class ActionPlanner:
             "recent_trace": context.get("recent_trace", ""),
             "current_observation": context.get("current_observation", ""),
             "turn": str(context.get("turn", "")),
+            "code_tools_prompt_section": context.get("code_tools_prompt_section", ""),
         }
         planner_prompt = render_prompt(self._prompts.planner, variables)
         response = self._agent.run(

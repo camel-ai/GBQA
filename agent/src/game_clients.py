@@ -35,7 +35,7 @@ class GameClient(Protocol):
     ) -> Dict[str, Any]:
         ...
 
-    def read_debug_logs(self, clear: bool = False) -> Dict[str, Any]:
+    def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
         ...
 
     def restore_code_file(self, path: str) -> Dict[str, Any]:
@@ -60,14 +60,14 @@ class HttpGameClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._session = requests.Session()
-        
+
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
         retry_strategy = Retry(
             total=10,
             backoff_factor=1,
-            status_forcelist=[404, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "DELETE"]
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self._session.mount("http://", adapter)
@@ -150,12 +150,13 @@ class HttpGameClient:
         response.raise_for_status()
         return response.json()
 
-    def read_debug_logs(self, clear: bool = False) -> Dict[str, Any]:
+    def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
         """Retrieve the captured debug/print logs."""
         method = "DELETE" if clear else "GET"
         response = self._session.request(
             method,
             f"{self._base_url}/code/debug_logs",
+            params={"game_id": game_id},
             timeout=self._timeout,
         )
         if response.status_code >= 400:

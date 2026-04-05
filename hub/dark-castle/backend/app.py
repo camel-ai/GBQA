@@ -6,9 +6,12 @@ Expose the game backend to the web frontend and agent clients.
 import os
 import re
 import secrets
+import builtins
+import contextvars
 import sys
 import io
 import importlib
+import threading
 from datetime import datetime
 
 from flask import Flask, jsonify, request, send_from_directory, session
@@ -18,12 +21,13 @@ from game.engine import GameEngine, create_new_game, game_sessions
 from game.logger import GameLogger
 
 CODE_ROOT = os.path.dirname(os.path.abspath(__file__))
+CODE_ROOT_REAL = os.path.realpath(CODE_ROOT)
 _ALLOWED_EXTENSIONS = {".py", ".json"}
 _SKIP_DIRS = {"__pycache__", "venv", ".venv", "node_modules", ".git", "path"}
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 
-# Debug log buffer for agent-based debugging
+# Debug log buffers for agent-based debugging.
 class DebugBuffer(io.StringIO):
     def write(self, s):
         if s.strip():
@@ -31,23 +35,65 @@ class DebugBuffer(io.StringIO):
             super().write(f"[{timestamp}] {s.rstrip()}\n")
         else:
             super().write(s)
+        return len(s)
 
-debug_output = DebugBuffer()
+debug_outputs: dict[str, DebugBuffer] = {}
+debug_outputs_lock = threading.Lock()
+active_debug_game_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "active_debug_game_id", default=None
+)
 code_write_backups: dict[str, str] = {}
-# Redirect stdout to capture print statements
-original_stdout = sys.stdout
+original_print = builtins.print
 
-class Tee(object):
-    def __init__(self, *files):
-        self.files = files
-    def write(self, obj):
-        for f in self.files:
-            f.write(obj)
-    def flush(self):
-        for f in self.files:
-            f.flush()
 
-sys.stdout = Tee(original_stdout, debug_output)
+def _get_debug_buffer(game_id: str) -> DebugBuffer:
+    with debug_outputs_lock:
+        return debug_outputs.setdefault(game_id, DebugBuffer())
+
+
+def _clear_debug_buffer(game_id: str) -> None:
+    buffer = _get_debug_buffer(game_id)
+    buffer.truncate(0)
+    buffer.seek(0)
+
+
+def _read_debug_buffer(game_id: str) -> str:
+    return _get_debug_buffer(game_id).getvalue()
+
+
+class _DebugCapture:
+    """Context manager that scopes captured print output to a game id."""
+
+    def __init__(self, game_id: str) -> None:
+        self._game_id = game_id
+        self._token: contextvars.Token[str | None] | None = None
+
+    def __enter__(self) -> None:
+        self._token = active_debug_game_id.set(self._game_id)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._token is not None:
+            active_debug_game_id.reset(self._token)
+
+
+def _debug_print(*args, **kwargs):
+    """Mirror normal print behavior while capturing agent debug output per game."""
+    original_print(*args, **kwargs)
+    game_id = active_debug_game_id.get()
+    if not game_id:
+        return
+
+    target = kwargs.get("file")
+    if target not in (None, sys.stdout, sys.stderr):
+        return
+
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\n")
+    text = sep.join(str(arg) for arg in args) + end
+    _get_debug_buffer(game_id).write(text)
+
+
+builtins.print = _debug_print
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 app.secret_key = secrets.token_hex(32)
@@ -174,6 +220,7 @@ def health_check():
 def agent_new_game():
     """Create a new agent-driven game without relying on browser session state."""
     game_id, engine = create_new_game()
+    _clear_debug_buffer(game_id)
     intro = engine._get_initial_response()
 
     return jsonify(
@@ -202,7 +249,8 @@ def agent_command():
         return jsonify({"success": False, "message": "Please provide a command."}), 400
 
     engine = game_sessions[game_id]
-    result = engine.process_command(data["command"])
+    with _DebugCapture(game_id):
+        result = engine.process_command(data["command"])
     result["full_state"] = engine.get_state()["full_state"]
     return jsonify(result)
 
@@ -263,7 +311,10 @@ def _safe_code_path(requested: str) -> str | None:
     if ".." in cleaned.split("/"):
         return None
     full = os.path.realpath(os.path.join(CODE_ROOT, cleaned))
-    if not full.startswith(os.path.realpath(CODE_ROOT)):
+    try:
+        if os.path.commonpath([full, CODE_ROOT_REAL]) != CODE_ROOT_REAL:
+            return None
+    except ValueError:
         return None
     _, ext = os.path.splitext(full)
     if ext not in _ALLOWED_EXTENSIONS:
@@ -409,7 +460,11 @@ def agent_code_write_file():
     full = _safe_code_path(path)
     if full is None:
         return jsonify({"success": False, "message": f"Path not allowed: {path}"}), 403
+    if not os.path.isfile(full):
+        return jsonify({"success": False, "message": f"File not found: {path}"}), 404
 
+    old_text = ""
+    created_backup = False
     try:
         with open(full, "r", encoding="utf-8") as f:
             old_text = f.read()
@@ -443,10 +498,12 @@ def agent_code_write_file():
             "backup_available": True,
         })
     except Exception as e:
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(old_text)
+        if old_text:
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(old_text)
         try:
-            _reload_runtime_for_path(path)
+            if old_text:
+                _reload_runtime_for_path(path)
         except Exception:
             pass
         if created_backup:
@@ -488,17 +545,30 @@ def agent_code_restore_file():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _get_debug_logs_game_id() -> str:
+    """Return the game id used to scope debug log access."""
+    return (request.args.get("game_id") or "").strip()
+
+
 @app.route("/api/agent/code/debug_logs", methods=["GET", "DELETE"])
 def agent_code_debug_logs():
-    """Retrieve or clear the captured debug/print logs."""
-    global debug_output
-    if request.method == "DELETE":
-        debug_output.truncate(0)
-        debug_output.seek(0)
-        return jsonify({"success": True, "message": "Debug logs cleared."})
+    """Retrieve or clear the captured debug/print logs for a specific game."""
+    game_id = _get_debug_logs_game_id()
+    if not game_id:
+        return jsonify({"success": False, "message": "Please provide a game_id."}), 400
 
-    logs = debug_output.getvalue()
-    return jsonify({"success": True, "logs": logs})
+    if request.method == "DELETE":
+        _clear_debug_buffer(game_id)
+        return jsonify(
+            {
+                "success": True,
+                "message": f"Debug logs cleared for game_id '{game_id}'.",
+                "game_id": game_id,
+            }
+        )
+
+    logs = _read_debug_buffer(game_id)
+    return jsonify({"success": True, "game_id": game_id, "logs": logs})
 
 
 if __name__ == "__main__":
@@ -513,4 +583,4 @@ if __name__ == "__main__":
 +============================================================+
 """
     )
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)
