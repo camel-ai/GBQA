@@ -182,6 +182,9 @@ server.*
 tmp/
 temp/
 
+# Hub sourcing generated outputs
+hub/catalog/
+
 
 # ========================================
 # Backup files

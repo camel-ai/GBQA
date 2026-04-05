@@ -1,0 +1,10 @@
+{
+  "response": {
+    "apps": [
+      {
+        "appid": 12345,
+        "name": "Open Factory"
+      }
+    ]
+  }
+}

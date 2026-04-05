@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "id": 101,
+      "full_name": "acme/retro-blaster",
+      "name": "retro-blaster",
+      "description": "A polished single-player arcade shooter with a full campaign and save support.",
+      "homepage": "https://retro.example.com",
+      "html_url": "https://github.com/acme/retro-blaster",
+      "license": {
+        "spdx_id": "MIT"
+      },
+      "topics": [
+        "game",
+        "arcade",
+        "desktop",
+        "singleplayer"
+      ],
+      "stargazers_count": 128,
+      "watchers_count": 128
+    }
+  ]
+}

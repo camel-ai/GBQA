@@ -1,0 +1,18 @@
+{
+  "appnews": {
+    "newsitems": [
+      {
+        "title": "Update 1.2",
+        "contents": "Fixed conveyor belts dropping items after reload. Fixed the build planner UI clipping at 1440p. Added a new soundtrack track.",
+        "date": 1761955200,
+        "url": "https://store.steampowered.com/news/app/12345/view/1"
+      },
+      {
+        "title": "Update 1.1",
+        "contents": "Fixed a soft lock when confirming the tutorial skip dialog.",
+        "date": 1756684800,
+        "url": "https://store.steampowered.com/news/app/12345/view/2"
+      }
+    ]
+  }
+}
