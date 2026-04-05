@@ -15,7 +15,7 @@ from src.structured_outputs import OperatorDecision, PlannerDecision, Reflection
 def main() -> None:
     planner = PlannerDecision.model_validate(
         {
-            "command": "look",
+            "action": "look",
             "bug_confidence": "",
         }
     )
@@ -39,6 +39,7 @@ def main() -> None:
         }
     )
 
+    assert planner.action == "look"
     assert planner.bug_confidence == 0.0
     assert reflection.bug_confidence == 0.0
     assert operator.calls[0].kind == "click"

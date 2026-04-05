@@ -13,6 +13,11 @@ from src.camel_runtime import resolve_model_platform
 from src.config import load_config
 from src.evaluator import Evaluator
 from src.execution_backends import build_execution_backend, resolve_backend_spec
+from src.game_clients import (
+    GameClientConfig,
+    create_http_code_tool_provider,
+    create_http_runtime_log_provider,
+)
 from src.ground_truth import resolve_ground_truth_path
 from src.llm_client import LlmClient
 from src.memory import MemoryManager
@@ -22,6 +27,14 @@ from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
+from src.tool_registry import (
+    ToolInvocationResult,
+    ToolRegistry,
+    register_code_tools,
+    register_game_action_tool,
+    register_runtime_log_tool,
+)
+from src.types import Action
 
 
 def main() -> None:
@@ -171,12 +184,76 @@ def main() -> None:
     )
 
     backend = build_execution_backend(config, args.game, game_config)
+    tool_registry = ToolRegistry()
+
+    def _handle_game_action(payload, runtime_context):  # noqa: ANN001
+        action_text = str(payload.get("action", "")).strip()
+        planner_action = runtime_context.get("planner_action")
+        source_action = (
+            planner_action
+            if isinstance(planner_action, Action)
+            else Action(command=action_text, tool="game_action")
+        )
+        result = operator.execute(
+            action=Action(
+                command=action_text,
+                tool="game_action",
+                rationale=source_action.rationale,
+                expected_outcome=source_action.expected_outcome,
+                bug_exist=source_action.bug_exist,
+                confidence=source_action.confidence,
+                explanation=source_action.explanation,
+            ),
+            current_observation=runtime_context["current_observation"],
+            capability=runtime_context["capability"],
+            session=runtime_context["session"],
+            backend=backend,
+        )
+        return ToolInvocationResult(
+            observation=result.observation,
+            refreshed_capability=result.refreshed_capability,
+        )
+
+    register_game_action_tool(tool_registry, _handle_game_action)
+
+    code_tool_config = config.get_section("code_tool_provider")
+    if code_tool_config.get("enabled", False):
+        code_tool_base_url = str(code_tool_config.get("base_url", "")).strip()
+        if not code_tool_base_url:
+            raise ValueError("code_tool_provider.base_url is required when enabled=true")
+        register_code_tools(
+            tool_registry,
+            create_http_code_tool_provider(
+                GameClientConfig(
+                    base_url=code_tool_base_url,
+                    timeout=int(code_tool_config.get("timeout", 60)),
+                )
+            ),
+        )
+
+    runtime_log_config = config.get_section("runtime_log_provider")
+    if runtime_log_config.get("enabled", False) and backend_spec.backend_type == "game_client":
+        runtime_log_base_url = str(runtime_log_config.get("base_url", "")).strip()
+        if not runtime_log_base_url:
+            raise ValueError(
+                "runtime_log_provider.base_url is required when enabled=true"
+            )
+        register_runtime_log_tool(
+            tool_registry,
+            create_http_runtime_log_provider(
+                GameClientConfig(
+                    base_url=runtime_log_base_url,
+                    timeout=int(runtime_log_config.get("timeout", 60)),
+                )
+            ),
+        )
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
         game_id=args.game,
         execution_backend=backend,
         operator=operator,
+        tool_registry=tool_registry,
         planner=planner,
         memory=memory,
         detector=detector,

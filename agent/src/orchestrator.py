@@ -16,6 +16,7 @@ from .operator import Operator
 from .planner import ActionPlanner
 from .reflection import ReflectionAnalyzer
 from .reporter import Reporter
+from .tool_registry import ToolRegistry
 from .types import BugFinding, Observation, RunReport, StepRecord
 
 
@@ -27,6 +28,7 @@ class Orchestrator:
         game_id: str,
         execution_backend: ExecutionBackend,
         operator: Operator,
+        tool_registry: ToolRegistry,
         planner: ActionPlanner,
         memory: MemoryManager,
         detector: Optional[BugDetector],
@@ -43,6 +45,7 @@ class Orchestrator:
         self._game_id = game_id
         self._execution_backend = execution_backend
         self._operator = operator
+        self._tool_registry = tool_registry
         self._planner = planner
         self._memory = memory
         self._detector = detector
@@ -115,21 +118,12 @@ class Orchestrator:
                     break
 
                 action = plan.action
-                execution_result = self._operator.execute(
+                current_observation, capability = self._invoke_planner_tool(
                     action=action,
                     current_observation=current_observation,
                     capability=capability,
                     session=session,
-                    backend=self._execution_backend,
                 )
-                refreshed_capability = getattr(
-                    execution_result,
-                    "refreshed_capability",
-                    None,
-                )
-                if refreshed_capability is not None:
-                    capability = refreshed_capability
-                current_observation = execution_result.observation
 
                 record = StepRecord(
                     step=step,
@@ -141,9 +135,10 @@ class Orchestrator:
                 )
                 report.steps.append(record)
 
+                is_game_action = action.tool == "game_action"
                 findings = (
                     self._detector.inspect(action, current_observation)
-                    if self._detector
+                    if self._detector and is_game_action
                     else []
                 )
                 for bug in findings:
@@ -151,14 +146,17 @@ class Orchestrator:
                     self._memory.record_bug(bug, step)
                     self._reporter.log_bug(bug, step)
 
-                if current_observation.success:
-                    consecutive_failures = 0
-                elif self._detector and self._detector.is_benign_failure(current_observation):
-                    consecutive_failures = 0
-                else:
-                    consecutive_failures += 1
+                if is_game_action:
+                    if current_observation.success:
+                        consecutive_failures = 0
+                    elif self._detector and self._detector.is_benign_failure(
+                        current_observation
+                    ):
+                        consecutive_failures = 0
+                    else:
+                        consecutive_failures += 1
 
-                should_reflect = self._should_reflect(
+                should_reflect = is_game_action and self._should_reflect(
                     action=action,
                     observation=current_observation,
                     findings=findings,
@@ -382,7 +380,7 @@ class Orchestrator:
             "observation_images": self._observation_images(observation),
             "execution_diagnostics": execution_diagnostics,
             "turn": observation.turn or 0,
-            "code_tools_prompt_section": self._build_code_tools_prompt_section(),
+            "available_tools_prompt_section": self._tool_registry.render_prompt_section(),
         }
 
     @staticmethod
@@ -418,11 +416,49 @@ class Orchestrator:
                 image_paths.append(path)
         return image_paths
 
+    def _invoke_planner_tool(
+        self,
+        *,
+        action: Any,
+        current_observation: Observation,
+        capability: Any,
+        session: Any,
+    ) -> tuple[Observation, Any]:
+        try:
+            payload = self._tool_registry.parse_action(action.tool, action.command)
+            result = self._tool_registry.invoke(
+                action.tool,
+                payload,
+                {
+                    "planner_action": action,
+                    "current_observation": current_observation,
+                    "capability": capability,
+                    "session": session,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._tool_failure_observation(action, exc), capability
+        refreshed_capability = result.refreshed_capability or capability
+        return result.observation, refreshed_capability
+
     @staticmethod
-    def _build_code_tools_prompt_section() -> str:
-        return (
-            "## Available Tools:\n"
-            "- game_command (default): Send a command to the game.\n\n"
-            "Code-reading and white-box debugging tools are not available through this "
-            "execution path yet. Do not choose any `code_*` tool."
+    def _tool_failure_observation(action: Any, exc: Exception) -> Observation:
+        error_text = str(exc)
+        return Observation(
+            success=False,
+            message=error_text,
+            state={},
+            summary=f"Tool invocation failure for {action.tool}: {error_text}",
+            env_state={},
+            artifacts={},
+            execution={
+                "attempts": [],
+                "diagnostics": {
+                    "tool": action.tool,
+                    "error": error_text,
+                    "error_kind": "tool_invocation_error",
+                    "exception_type": type(exc).__name__,
+                },
+                "suspected_origin": "execution",
+            },
         )
