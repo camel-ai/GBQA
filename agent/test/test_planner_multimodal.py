@@ -30,8 +30,8 @@ class AgentStub:
             "Response",
             (),
             {
-                "parsed": PlannerDecision(command="look"),
-                "content": '{"command":"look"}',
+                "parsed": PlannerDecision(action="look"),
+                "content": '{"action":"look"}',
                 "error": "",
             },
         )()

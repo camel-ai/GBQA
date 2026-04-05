@@ -30,26 +30,14 @@ def _build_sample_context() -> Dict[str, str]:
         "current_artifacts": "",
         "execution_diagnostics": "{}",
         "turn": "2",
-        "code_tools_prompt_section": """## White-box Debugging:
-You have the ability to perform "White-box Debugging" by modifying the game's source code. This is a powerful method to gather information or verify internal logic:
-- Use `code_write_file` to insert `print()` statements into handlers or logic checks.
-- Use `code_read_debug_logs` to see the output of your `print()` statements after running a `game_command`.
-- Use `code_restore_file` after debugging so the environment returns to its original state.
-- Example: If you suspect a "take" condition is wrong, insert `print(f"DEBUG: can_take={result}")` in `actions.py`, run `take item`, and then check logs.
-- Only use `code_write_file` with `path:old_text->new_text` or a valid JSON payload.
-- Restore any temporary debug edits once you have gathered the needed information.
-
-## Available Tools:
-- game_command (default): Send a command to the game.
-- code_list_files: List all source code files in the game.
-- code_read_file: Read a source file. Format: `path` or `path:start-end`.
-- code_search: Search for a pattern in source code.
-- code_write_file: Modify a source file. Format: `path:old_text->new_text` (replaces first match) or use a full JSON string if overwriting.
-- code_read_debug_logs: Read the captured `stdout/print` logs for the current game session. Put "read" or "clear" in command.
-- code_restore_file: Restore a file previously modified with `code_write_file`. Put the file path in `command`.
-
-Use code tools ONLY when you have a concrete hypothesis to verify via source code.
-Do not speculatively browse code. Prefer gameplay-based verification first.""",
+        "available_tools_prompt_section": """## Available Tools:
+- game_action: Execute one semantic gameplay action through the operator and active execution backend. Format: `semantic action string`.
+- code_list_files: List available source code files for the current game. Format: `any non-empty text (ignored)`.
+- code_read_file: Read a source file, optionally with a line range. Format: `path or path:start-end`.
+- code_search: Search source code using a regex pattern. Format: `pattern`.
+- code_write_file: Modify a source file using JSON payload or path:old_text->new_text patch shorthand. Format: `JSON string or path:old_text->new_text`.
+- code_restore_file: Restore a file previously modified by code_write_file. Format: `path`.
+- code_read_debug_logs: Read or clear runtime debug logs for the current active game session. Format: `read or clear`.""",
     }
 
 
@@ -109,7 +97,7 @@ def _build_live_context() -> Dict[str, str]:
         "current_artifacts": "",
         "execution_diagnostics": "{}",
         "turn": turn,
-        "code_tools_prompt_section": _build_sample_context()["code_tools_prompt_section"],
+        "available_tools_prompt_section": _build_sample_context()["available_tools_prompt_section"],
     }
 
 
@@ -123,7 +111,7 @@ def _load_context() -> Dict[str, str]:
 
 
 def main() -> None:
-    prompt_dir = os.path.join("prompts")
+    prompt_dir = os.path.join(ROOT_DIR, "prompts")
     loader = PromptLoader(prompt_dir)
     prompts = loader.load_bundle()
 

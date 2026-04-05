@@ -43,7 +43,10 @@ class ActionPlanner:
             "current_observation": context.get("current_observation", ""),
             "current_artifacts": context.get("current_artifacts", ""),
             "turn": str(context.get("turn", "")),
-            "code_tools_prompt_section": context.get("code_tools_prompt_section", ""),
+            "available_tools_prompt_section": context.get(
+                "available_tools_prompt_section",
+                context.get("code_tools_prompt_section", ""),
+            ),
         }
         planner_prompt = render_prompt(self._prompts.planner, variables)
         prompt_input = self._build_prompt_input(
@@ -88,15 +91,16 @@ class ActionPlanner:
 
     @staticmethod
     def _to_action(decision: PlannerDecision | None) -> Action:
-        if decision is None or not decision.command.strip():
+        if decision is None or not decision.action.strip():
             return Action(
                 command="look",
+                tool="game_action",
                 rationale="Fallback command due to invalid model output.",
                 expected_outcome="Refresh the room description.",
             )
         return Action(
-            command=decision.command.strip(),
-            tool=decision.tool.strip() or "game_command",
+            command=decision.action.strip(),
+            tool=decision.tool.strip() or "game_action",
             rationale=decision.rationale.strip(),
             expected_outcome=decision.expected_outcome.strip(),
             bug_exist=decision.bug_exist,

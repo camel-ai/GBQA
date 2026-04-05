@@ -11,6 +11,7 @@ if ROOT_DIR not in sys.path:
 
 from src.execution_backends import GameClientExecutionBackend
 from src.operator import Operator
+from src.tool_registry import ToolInvocationResult, ToolRegistry, register_game_action_tool
 from src.types import Action, Observation
 
 
@@ -52,12 +53,36 @@ def main() -> None:
     session = backend.start_session({})
     capability = backend.describe_capabilities(session)
     operator = Operator(DummyLlmClient(), "unused prompt")
-    result = operator.execute(
-        action=Action(command="describe_capabilities"),
-        current_observation=Observation(success=True, message="", state={}, summary=""),
-        capability=capability,
-        session=session,
-        backend=backend,
+    registry = ToolRegistry()
+
+    def handle_game_action(payload, runtime_context):  # noqa: ANN001
+        result = operator.execute(
+            action=Action(command=payload["action"], tool="game_action"),
+            current_observation=runtime_context["current_observation"],
+            capability=runtime_context["capability"],
+            session=runtime_context["session"],
+            backend=backend,
+        )
+        return ToolInvocationResult(
+            observation=result.observation,
+            refreshed_capability=result.refreshed_capability,
+        )
+
+    register_game_action_tool(registry, handle_game_action)
+    result = registry.invoke(
+        "game_action",
+        {"action": "describe_capabilities"},
+        {
+            "current_observation": Observation(
+                success=True,
+                message="",
+                state={},
+                summary="",
+            ),
+            "capability": capability,
+            "session": session,
+            "planner_action": Action(command="describe_capabilities", tool="game_action"),
+        },
     )
 
     assert result.observation.success is True

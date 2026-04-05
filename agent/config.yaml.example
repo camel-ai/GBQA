@@ -25,7 +25,6 @@ agent:
   confidence_threshold: 0.7
   verbose: true
   prompt_dir: "prompts"
-  enable_code_reading: false  # Enable code reading tools for the agent
 
 # Execution backend
 execution_backend:
@@ -53,6 +52,18 @@ operator:
     - "element_not_found"
     - "timeout"
     - "not_visible"
+
+# Optional white-box source-code tools
+code_tool_provider:
+  enabled: false
+  base_url: ""  # Example: http://localhost:5000/api/agent
+  timeout: 60
+
+# Optional runtime debug-log tools
+runtime_log_provider:
+  enabled: false
+  base_url: ""  # Example: http://localhost:5000/api/agent
+  timeout: 60  # Used with the current game_client session; no planner-supplied game_id.
 
 # Memory settings
 memory:
