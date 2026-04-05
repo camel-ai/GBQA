@@ -178,6 +178,21 @@ class Operator:
                 )
                 for item in response.parsed.calls
             ]
+            supported_call_kinds = set(
+                capability.operator_context.get("supported_call_kinds", [])
+            )
+            unsupported_call_kinds = sorted(
+                {
+                    item.kind
+                    for item in calls
+                    if supported_call_kinds and item.kind not in supported_call_kinds
+                }
+            )
+            if unsupported_call_kinds:
+                raise OperatorTranslationError(
+                    "Operator translation produced unsupported call kinds for this backend: "
+                    + ", ".join(unsupported_call_kinds)
+                )
             required_ref_kinds = set(
                 capability.operator_context.get("requires_ref_for_kinds", [])
             )

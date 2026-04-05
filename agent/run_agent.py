@@ -57,6 +57,21 @@ def main() -> None:
     game_config = config.get_game(args.game)
     if not game_config:
         raise ValueError(f"Unknown game: {args.game}")
+    backend_spec = resolve_backend_spec(config)
+    port = game_config.get("port")
+    configured_frontend_url = str(
+        game_config.get("frontend_url") or backend_spec.settings.get("frontend_url") or ""
+    ).strip()
+    if port is None and not configured_frontend_url:
+        raise ValueError(
+            f"Game config for '{args.game}' must provide at least one of 'port' or 'frontend_url'"
+        )
+    game_base_url = str(game_config.get("base_url") or "").strip()
+    if not game_base_url and port is not None:
+        game_base_url = f"http://localhost:{port}/api/agent"
+    frontend_url = configured_frontend_url
+    if not frontend_url and port is not None:
+        frontend_url = f"http://localhost:{port}"
 
     prompt_dir = config.resolve_path(
         config.get_section("agent").get("prompt_dir", "prompts")
@@ -156,7 +171,6 @@ def main() -> None:
     )
 
     backend = build_execution_backend(config, args.game, game_config)
-    backend_spec = resolve_backend_spec(config)
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
@@ -182,20 +196,6 @@ def main() -> None:
         "You are testing a text-based adventure game. Focus on exploration, items, and puzzle logic.",
     )
     report = orchestrator.run(game_profile)
-    port = game_config.get("port")
-    configured_frontend_url = str(
-        game_config.get("frontend_url") or backend_spec.settings.get("frontend_url") or ""
-    ).strip()
-    if port is None and not configured_frontend_url:
-        raise ValueError(
-            f"Game config for '{args.game}' must provide at least one of 'port' or 'frontend_url'"
-        )
-    game_base_url = str(game_config.get("base_url") or "").strip()
-    if not game_base_url and port is not None:
-        game_base_url = f"http://localhost:{port}/api/agent"
-    frontend_url = configured_frontend_url
-    if not frontend_url and port is not None:
-        frontend_url = f"http://localhost:{port}"
     report.metadata["llm"] = {
         "model": model,
         "platform": resolved_platform,

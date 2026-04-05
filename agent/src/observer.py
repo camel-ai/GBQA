@@ -42,15 +42,18 @@ class ObservationParser:
         room_name = str(room.get("name", "")).strip()
         exits = room.get("exits", [])
         exit_text = ", ".join(str(item) for item in exits) if isinstance(exits, list) else ""
-        inventory = state.get("inventory", [])
+        has_inventory = isinstance(state, dict) and "inventory" in state
+        inventory = state.get("inventory") if has_inventory else None
         inventory_count = len(inventory) if isinstance(inventory, list) else 0
-        light_source_text = ObservationParser._light_source_text(inventory)
+        light_source_text = (
+            ObservationParser._light_source_text(inventory) if has_inventory else ""
+        )
         can_see = state.get("can_see", None)
         visibility_text = "on" if can_see else "off" if can_see is not None else "unknown"
         hud_parts = []
         if room_name:
             hud_parts.append(f"current room={room_name}")
-        if inventory_count or isinstance(inventory, list):
+        if has_inventory:
             hud_parts.append(f"inventory load={inventory_count}/6")
         if isinstance(payload.get("turn"), int):
             hud_parts.append(f"current turn={payload['turn']}")

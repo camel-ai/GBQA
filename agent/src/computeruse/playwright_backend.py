@@ -294,8 +294,9 @@ class PlaywrightMcpExecutionBackend:
         if call.kind == "press":
             return self._settings.press_tool, {"key": call.text or call.target}
         if call.kind == "wait":
+            duration_ms = call.duration_ms if call.duration_ms is not None else 1000
             return self._settings.wait_tool, {
-                "time": max(call.duration_ms or 1000, 0) / 1000.0
+                "time": max(duration_ms, 0) / 1000.0
             }
         if call.kind == "screenshot":
             filename = self._screenshot_filename(call)
