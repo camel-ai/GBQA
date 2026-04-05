@@ -21,14 +21,14 @@ You are planning the next single action for the game-testing agent.
 Now, by considering the above context, decide the next step. Follow these rules:
 - Choose exactly one tool from the available tools above.
 - Provide exactly one `action` string for that chosen tool.
-- For `game_action`, the `action` should be one single, concrete, directly executable gameplay step in natural language.
-- For `code_*` tools, the `action` should follow that tool's required input format.
+- The `action` must match the selected tool's required format exactly.
+- Keep the chosen `action` concrete enough to be executed immediately, not just high-level strategy.
 - Prefer actions that explore new rooms, inspect items, read visible state, or validate rules.
 - If the attached screenshots reveal useful visual evidence that is not fully captured in text, use that evidence in your planning.
 - Regularly verify world-state consistency after state-changing actions such as take, drop, open, close, unlock, or combine.
 - If you see a potential inconsistency, try to reproduce it.
-- If you need the backend capability description again, use 'describe_capabilities'.
-- If visual confirmation would help, you may request an action that captures a screenshot.
+- Use only the capabilities and action formats explicitly described in the available-tools section below.
+- If visual confirmation would help and a relevant tool is available, you may use it.
 - Do not treat an ordinary blocked action, unmet prerequisite, or unsupported verb as a bug by itself.
 - If two or more attempts at the same idea fail, pivot to a different object, room, or verification strategy instead of trying more verb variants.
 - Only report a bug when you have concrete evidence of contradiction, hidden-information leakage, impossible state, or a state description that failed to update after an action.
