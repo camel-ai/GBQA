@@ -118,7 +118,7 @@ class GameClientExecutionBackend:
                 summary="No executable calls were produced for this step.",
                 env_state={},
                 execution={
-                    "attempts": [attempt.__dict__],
+                    "attempts": [self._attempt_to_dict(attempt)],
                     "diagnostics": {"error": "empty_execution_request"},
                     "suspected_origin": "execution",
                 },
@@ -144,7 +144,7 @@ class GameClientExecutionBackend:
                 summary=f"Execution failure while sending command: {exc}",
                 env_state={},
                 execution={
-                    "attempts": [attempt.__dict__],
+                    "attempts": [self._attempt_to_dict(attempt)],
                     "diagnostics": {"error": str(exc), "backend_type": self.backend_type},
                     "suspected_origin": "execution",
                 },

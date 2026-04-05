@@ -182,9 +182,17 @@ def main() -> None:
         "You are testing a text-based adventure game. Focus on exploration, items, and puzzle logic.",
     )
     report = orchestrator.run(game_profile)
-    game_base_url = game_config.get("base_url") or (
-        f"http://localhost:{game_config['port']}/api/agent"
+    port = game_config.get("port")
+    if port is None:
+        raise ValueError(f"Game config for '{args.game}' is missing required 'port'")
+    game_base_url = str(game_config.get("base_url") or "").strip() or (
+        f"http://localhost:{port}/api/agent"
     )
+    frontend_url = str(
+        game_config.get("frontend_url")
+        or backend_spec.settings.get("frontend_url")
+        or f"http://localhost:{port}"
+    ).strip()
     report.metadata["llm"] = {
         "model": model,
         "platform": resolved_platform,
@@ -199,6 +207,7 @@ def main() -> None:
         "name": args.game,
         "port": game_config.get("port"),
         "base_url": game_base_url,
+        "frontend_url": frontend_url,
         "backend_type": backend_spec.backend_type,
         "have_ground_truth": bool(game_config.get("ground_truth", False)),
         "profile": game_profile,

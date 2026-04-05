@@ -80,7 +80,24 @@ class Operator:
                     self._translation_failure_result(str(exc)),
                     attempts,
                 )
-            result = backend.execute(session, request)
+            try:
+                result = backend.execute(session, request)
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(
+                    ExecutionAttempt(
+                        attempt=operator_attempt,
+                        translated_calls=request.calls,
+                        retry_reason=retry_reason,
+                        success=False,
+                        final_status="backend_exception",
+                        suspected_origin="execution",
+                        error=str(exc),
+                    )
+                )
+                return self._merge_attempts(
+                    self._backend_exception_result(exc),
+                    attempts,
+                )
             attempt = self._coerce_attempt(
                 request=request,
                 result=result,
@@ -302,6 +319,36 @@ class Operator:
             diagnostics={
                 "error": error_text,
                 "error_kind": "translation_error",
+            },
+        )
+
+    @staticmethod
+    def _backend_exception_result(exc: Exception) -> BackendExecutionResult:
+        error_text = str(exc)
+        observation = Observation(
+            success=False,
+            message=error_text,
+            state={},
+            summary=f"Execution backend raised an unexpected exception: {error_text}",
+            env_state={},
+            artifacts={},
+            execution={
+                "attempts": [],
+                "diagnostics": {
+                    "error": error_text,
+                    "error_kind": "backend_exception",
+                    "exception_type": type(exc).__name__,
+                },
+                "suspected_origin": "execution",
+            },
+        )
+        return BackendExecutionResult(
+            observation=observation,
+            attempts=[],
+            diagnostics={
+                "error": error_text,
+                "error_kind": "backend_exception",
+                "exception_type": type(exc).__name__,
             },
         )
 

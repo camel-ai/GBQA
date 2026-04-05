@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import json
 import subprocess
 import threading
@@ -32,8 +33,11 @@ class StdioMcpClient:
         self._startup_timeout = startup_timeout
         self._process: subprocess.Popen[bytes] | None = None
         self._reader: threading.Thread | None = None
+        self._stderr_reader: threading.Thread | None = None
         self._messages: Queue[Dict[str, Any]] = Queue()
         self._next_id = 1
+        self._stderr_lines: deque[str] = deque(maxlen=200)
+        self._stderr_lock = threading.Lock()
 
     def start(self) -> None:
         if self._process is not None:
@@ -47,6 +51,11 @@ class StdioMcpClient:
         )
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
+        self._stderr_reader = threading.Thread(
+            target=self._read_stderr_loop,
+            daemon=True,
+        )
+        self._stderr_reader.start()
         self.initialize()
         self.notify("notifications/initialized", {})
 
@@ -152,7 +161,7 @@ class StdioMcpClient:
         return_code = process.poll()
         if return_code is None:
             return
-        stderr_text = self._read_stderr(process)
+        stderr_text = self._recent_stderr()
         detail = (
             f"MCP process exited with code {return_code} while waiting for {method}."
         )
@@ -160,17 +169,23 @@ class StdioMcpClient:
             detail = f"{detail} stderr: {stderr_text}"
         raise McpProtocolError(detail)
 
-    @staticmethod
-    def _read_stderr(process: subprocess.Popen[bytes]) -> str:
-        if process.stderr is None:
-            return ""
-        try:
-            raw = process.stderr.read()
-        except Exception:  # noqa: BLE001
-            return ""
-        if not raw:
-            return ""
-        return raw.decode("utf-8", errors="replace").strip()
+    def _read_stderr_loop(self) -> None:
+        if not self._process or not self._process.stderr:
+            return
+        stderr = self._process.stderr
+        while True:
+            raw_line = stderr.readline()
+            if not raw_line:
+                return
+            text = raw_line.decode("utf-8", errors="replace").rstrip()
+            if not text:
+                continue
+            with self._stderr_lock:
+                self._stderr_lines.append(text)
+
+    def _recent_stderr(self) -> str:
+        with self._stderr_lock:
+            return "\n".join(self._stderr_lines).strip()
 
 
 def default_mcp_cwd(root_path: str) -> str:

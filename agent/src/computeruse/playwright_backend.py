@@ -50,6 +50,8 @@ class PlaywrightMcpExecutionBackend:
         *,
         client_factory: Optional[Callable[[], StdioMcpClient]] = None,
     ) -> None:
+        if not settings.command:
+            raise ValueError("Playwright MCP command must not be empty")
         self._settings = settings
         self._client_factory = client_factory or (
             lambda: StdioMcpClient(
@@ -95,21 +97,25 @@ class PlaywrightMcpExecutionBackend:
     def start_session(self, run_context: Dict[str, Any]) -> SessionHandle:
         del run_context
         client = self._client_factory()
-        client.start()
-        tools = client.list_tools()
-        self._call_tool(
-            client,
-            self._settings.navigate_tool,
-            {"url": self._settings.frontend_url},
-        )
-        initial_observation = self._snapshot_observation(client)
-        return SessionHandle(
-            session_id=str(uuid4()),
-            backend_type=self.backend_type,
-            raw={"client": client, "tools": tools},
-            metadata={"frontend_url": self._settings.frontend_url},
-            initial_observation=initial_observation,
-        )
+        try:
+            client.start()
+            tools = client.list_tools()
+            self._call_tool(
+                client,
+                self._settings.navigate_tool,
+                {"url": self._settings.frontend_url},
+            )
+            initial_observation = self._snapshot_observation(client)
+            return SessionHandle(
+                session_id=str(uuid4()),
+                backend_type=self.backend_type,
+                raw={"client": client, "tools": tools},
+                metadata={"frontend_url": self._settings.frontend_url},
+                initial_observation=initial_observation,
+            )
+        except Exception:
+            client.close()
+            raise
 
     def describe_capabilities(
         self,
@@ -200,40 +206,33 @@ class PlaywrightMcpExecutionBackend:
             attempt.final_status = "completed"
             observation.execution = {
                 "attempts": [self._attempt_to_dict(attempt)],
-                "diagnostics": {"backend_type": self.backend_type},
+                "diagnostics": {
+                    "backend_type": self.backend_type,
+                    "per_call_results": per_call_results,
+                },
             }
             return BackendExecutionResult(
                 observation=observation,
                 attempts=[attempt],
-                diagnostics={"backend_type": self.backend_type},
-            )
-        except McpProtocolError as exc:
-            error_text = str(exc)
-            error_kind = self._error_kind(error_text)
-            attempt.per_call_results = per_call_results
-            attempt.error = error_text
-            attempt.suspected_origin = "execution"
-            observation = Observation(
-                success=False,
-                message=error_text,
-                state={},
-                summary=f"Execution failure in Playwright MCP: {error_text}",
-                env_state={},
-                artifacts={},
-                execution={
-                    "attempts": [self._attempt_to_dict(attempt)],
-                    "diagnostics": {
-                        "backend_type": self.backend_type,
-                        "error": error_text,
-                        "error_kind": error_kind,
-                    },
-                    "suspected_origin": "execution",
+                diagnostics={
+                    "backend_type": self.backend_type,
+                    "per_call_results": per_call_results,
                 },
             )
-            return BackendExecutionResult(
-                observation=observation,
-                attempts=[attempt],
-                diagnostics={"backend_type": self.backend_type, "error": error_text},
+        except McpProtocolError as exc:
+            return self._execution_failure_result(
+                attempt=attempt,
+                per_call_results=per_call_results,
+                error_text=str(exc),
+                error_kind=self._error_kind(str(exc)),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._execution_failure_result(
+                attempt=attempt,
+                per_call_results=per_call_results,
+                error_text=str(exc),
+                error_kind="backend_exception",
+                exception_type=type(exc).__name__,
             )
 
     def close_session(self, session: SessionHandle) -> None:
@@ -249,6 +248,9 @@ class PlaywrightMcpExecutionBackend:
         screenshots: Optional[List[Dict[str, Any]]] = None,
     ) -> Observation:
         snapshot = self._call_tool(client, self._settings.snapshot_tool, {})
+        snapshot_error = self._tool_result_error(snapshot)
+        if snapshot_error:
+            raise McpProtocolError(snapshot_error)
         snapshot_text = self._extract_text(snapshot)
         env_state = self._extract_env_state(snapshot_text)
         artifacts = {"snapshot": snapshot}
@@ -292,7 +294,9 @@ class PlaywrightMcpExecutionBackend:
         if call.kind == "press":
             return self._settings.press_tool, {"key": call.text or call.target}
         if call.kind == "wait":
-            return self._settings.wait_tool, {"time": call.duration_ms or 1000}
+            return self._settings.wait_tool, {
+                "time": max(call.duration_ms or 1000, 0) / 1000.0
+            }
         if call.kind == "screenshot":
             filename = self._screenshot_filename(call)
             arguments: Dict[str, Any] = {"filename": filename}
@@ -500,6 +504,45 @@ class PlaywrightMcpExecutionBackend:
         if text:
             return text[:500]
         return json.dumps(payload, ensure_ascii=False)[:500]
+
+    def _execution_failure_result(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        per_call_results: List[Dict[str, Any]],
+        error_text: str,
+        error_kind: str,
+        exception_type: str = "",
+    ) -> BackendExecutionResult:
+        attempt.per_call_results = per_call_results
+        attempt.error = error_text
+        attempt.suspected_origin = "execution"
+        diagnostics: Dict[str, Any] = {
+            "backend_type": self.backend_type,
+            "error": error_text,
+            "error_kind": error_kind,
+            "per_call_results": per_call_results,
+        }
+        if exception_type:
+            diagnostics["exception_type"] = exception_type
+        observation = Observation(
+            success=False,
+            message=error_text,
+            state={},
+            summary=f"Execution failure in Playwright MCP: {error_text}",
+            env_state={},
+            artifacts={},
+            execution={
+                "attempts": [self._attempt_to_dict(attempt)],
+                "diagnostics": diagnostics,
+                "suspected_origin": "execution",
+            },
+        )
+        return BackendExecutionResult(
+            observation=observation,
+            attempts=[attempt],
+            diagnostics=diagnostics,
+        )
 
     @staticmethod
     def _attempt_to_dict(attempt: ExecutionAttempt) -> Dict[str, Any]:
