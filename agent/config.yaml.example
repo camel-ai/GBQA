@@ -25,6 +25,7 @@ agent:
   confidence_threshold: 0.7
   verbose: true
   prompt_dir: "prompts"
+  enable_code_reading: false  # Enable code reading tools for the agent
 
 # Memory settings
 memory:

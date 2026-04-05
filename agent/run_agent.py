@@ -21,7 +21,7 @@ from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
-from src.tool_registry import ToolRegistry, register_standard_game_tools
+from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools
 
 
 def main() -> None:
@@ -145,7 +145,7 @@ def main() -> None:
         load_persistent_long_term=memory_config.get("load_persistent_long_term", False),
     )
 
-    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api"
+    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api/agent"
     game_client = create_http_game_client(
         GameClientConfig(
             base_url=game_base_url,
@@ -154,6 +154,8 @@ def main() -> None:
     )
     registry = ToolRegistry()
     register_standard_game_tools(registry, game_client)
+    if config.get_section("agent").get("enable_code_reading", False):
+        register_code_reading_tools(registry, game_client)
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(

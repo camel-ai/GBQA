@@ -42,6 +42,112 @@ class ToolRegistry:
         return self._tools[name].invoke(payload)
 
 
+def register_code_reading_tools(
+    registry: ToolRegistry,
+    game_client: GameClient,
+) -> None:
+    """Register code tools for listing, reading, searching, writing, restoring, and reading debug logs."""
+    registry.register(
+        Tool(
+            name="code_list_files",
+            description="List all source code files in the game.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda _: game_client.list_code_files(),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_read_file",
+            description="Read the content of a source code file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.read_code_file(
+                payload["path"],
+                start_line=int(payload.get("start_line", 0)),
+                end_line=int(payload.get("end_line", 0)),
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_search",
+            description="Search for a pattern across game source code files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                },
+                "required": ["pattern"],
+            },
+            handler=lambda payload: game_client.search_code(payload["pattern"]),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_write_file",
+            description="Modify or overwrite a source code file. Use 'patch' for search-and-replace or 'content' for full overwrite.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "patch": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                            "replace": {"type": "string"},
+                        }
+                    },
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.write_code_file(
+                payload["path"],
+                content=payload.get("content", ""),
+                patch=payload.get("patch"),
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_read_debug_logs",
+            description="Read the captured stdout/print logs from the game server.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "clear": {"type": "boolean"},
+                    "game_id": {"type": "string"},
+                },
+            },
+            handler=lambda payload: game_client.read_debug_logs(
+                payload.get("game_id", ""),
+                clear=payload.get("clear", False)
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="code_restore_file",
+            description="Restore the last backup for a source code file previously changed with code_write_file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            handler=lambda payload: game_client.restore_code_file(payload["path"]),
+        )
+    )
+
+
 def register_standard_game_tools(
     registry: ToolRegistry,
     game_client: GameClient,

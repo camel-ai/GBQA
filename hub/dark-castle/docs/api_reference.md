@@ -144,6 +144,196 @@ Response example:
 GET /api/agent/state/<game_id>
 ```
 
+### 2.4 List Source Code Files
+
+```http
+GET /api/agent/code/files
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "files": [
+    {"path": "app.py", "size": 11222},
+    {"path": "game/engine.py", "size": 7767},
+    {"path": "game/actions.py", "size": 29959},
+    {"path": "game/world.py", "size": 13574},
+    {"path": "game/parser.py", "size": 7204},
+    {"path": "game/data/rooms.json", "size": 9406},
+    {"path": "game/data/items.json", "size": 14198}
+  ]
+}
+```
+
+### 2.5 Read a Source Code File
+
+```http
+POST /api/agent/code/read
+```
+
+Request body:
+
+```json
+{
+  "path": "game/engine.py",
+  "start_line": 1,
+  "end_line": 20
+}
+```
+
+`start_line` and `end_line` are optional. When omitted the full file is returned.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "path": "game/engine.py",
+  "content": "   1  \"\"\"...\n   2  ...",
+  "start_line": 1,
+  "end_line": 20,
+  "total_lines": 227
+}
+```
+
+### 2.6 Search Source Code
+
+```http
+POST /api/agent/code/search
+```
+
+Request body:
+
+```json
+{
+  "pattern": "def handle_combine",
+  "max_results": 30
+}
+```
+
+`pattern` supports Python regex. `max_results` defaults to 30.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "pattern": "def handle_combine",
+  "matches": [
+    {
+      "path": "game/actions.py",
+      "line": 562,
+      "text": "    def handle_combine(self, command: ParsedCommand) -> ActionResult:"
+    }
+  ],
+  "total": 1
+}
+```
+
+### 2.7 Write / Patch a Source Code File
+
+```http
+POST /api/agent/code/write
+```
+
+Request body (patch mode — search-and-replace):
+
+```json
+{
+  "path": "game/actions.py",
+  "patch": {
+    "search": "    def handle_take(self, command: ParsedCommand) -> ActionResult:",
+    "replace": "    def handle_take(self, command: ParsedCommand) -> ActionResult:\n        print(f\"DEBUG: target={command.target}\")"
+  }
+}
+```
+
+Request body (full overwrite):
+
+```json
+{
+  "path": "game/actions.py",
+  "content": "...full file content..."
+}
+```
+
+A backup of the original file is created on the first write. The server hot-reloads
+the affected module so changes take effect immediately for all active game sessions.
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Successfully updated game/actions.py",
+  "path": "game/actions.py",
+  "backup_available": true
+}
+```
+
+### 2.8 Read / Clear Debug Logs
+
+Captured `print()` output from the game server process.
+
+**Read logs:**
+
+```http
+GET /api/agent/code/debug_logs
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "logs": "[14:23:01.456] DEBUG: target=matches\n"
+}
+```
+
+**Clear logs:**
+
+```http
+DELETE /api/agent/code/debug_logs
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Debug logs cleared."
+}
+```
+
+### 2.9 Restore a Source Code File
+
+Restore a file to its original state before any `code/write` modifications.
+
+```http
+POST /api/agent/code/restore
+```
+
+Request body:
+
+```json
+{
+  "path": "game/actions.py"
+}
+```
+
+Response example:
+
+```json
+{
+  "success": true,
+  "message": "Successfully restored game/actions.py",
+  "path": "game/actions.py",
+  "backup_available": false
+}
+```
+
 ## 3. Log Endpoints
 
 ### 3.1 List Logs
@@ -321,4 +511,4 @@ playGame();
 
 ---
 
-Document version: `1.0.0`
+Document version: `1.2.0`

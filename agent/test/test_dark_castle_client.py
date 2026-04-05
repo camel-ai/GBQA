@@ -14,7 +14,7 @@ from src.game_clients import DarkCastleGameClient
 
 def main() -> None:
     base_url = os.getenv("DARK_CASTLE_BASE_URL") or os.getenv(
-        "CASTLE_BASE_URL", "http://localhost:5000/api"
+        "CASTLE_BASE_URL", "http://localhost:5000/api/agent"
     )
     client = DarkCastleGameClient(base_url)
     data = client.new_game()

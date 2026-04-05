@@ -25,8 +25,11 @@ Now, by considering the above context, decide the next command to send. Follow t
 - If two or more attempts at the same idea fail, pivot to a different object, room, or verification strategy instead of trying more verb variants.
 - Only report a bug when you have concrete evidence of contradiction, hidden-information leakage, impossible state, or a state description that failed to update after an action.
 
+{code_tools_prompt_section}
+
 Return ONLY a JSON object with these fields:
 {
+  "tool": "<game_command|code_list_files|code_read_file|code_search|code_write_file|code_read_debug_logs|code_restore_file>",
   "rationale": "<short reason>",
   "command": "<string>",
   "expected_outcome": "<what you expect to observe>",

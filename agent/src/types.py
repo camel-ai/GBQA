@@ -11,6 +11,7 @@ class Action:
     """Represents a single action to send to the game."""
 
     command: str
+    tool: str = "game_command"
     rationale: str = ""
     expected_outcome: str = ""
     bug_exist: bool = False
