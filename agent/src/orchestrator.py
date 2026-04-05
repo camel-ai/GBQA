@@ -385,6 +385,7 @@ class Orchestrator:
             "code_tools_prompt_section": self._build_code_tools_prompt_section(),
         }
 
+    @staticmethod
     def _artifact_summary(observation: Observation) -> str:
         screenshots = observation.artifacts.get("screenshots", [])
         if not isinstance(screenshots, list) or not screenshots:

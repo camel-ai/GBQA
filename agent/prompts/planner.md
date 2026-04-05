@@ -12,6 +12,9 @@ You are planning the next single action for the game-testing agent.
 ## Current Observation (most recent response message):
 {current_observation}
 
+## Current Artifacts:
+{current_artifacts}
+
 ## Current Turn:
 {turn}
 
@@ -33,7 +36,7 @@ Now, by considering the above context, decide the next action. Follow these rule
 
 Return ONLY a JSON object with these fields:
 {
-  "tool": "<game_command|code_list_files|code_read_file|code_search|code_write_file|code_read_debug_logs|code_restore_file>",
+  "tool": "<tool name from the available tools above>",
   "rationale": "<short reason>",
   "command": "<single action string>",
   "expected_outcome": "<what you expect to observe>",

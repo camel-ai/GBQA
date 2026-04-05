@@ -182,7 +182,9 @@ def main() -> None:
         "You are testing a text-based adventure game. Focus on exploration, items, and puzzle logic.",
     )
     report = orchestrator.run(game_profile)
-    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api"
+    game_base_url = game_config.get("base_url") or (
+        f"http://localhost:{game_config['port']}/api/agent"
+    )
     report.metadata["llm"] = {
         "model": model,
         "platform": resolved_platform,

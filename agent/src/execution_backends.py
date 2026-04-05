@@ -241,7 +241,9 @@ def build_execution_backend(
     """Build the configured execution backend."""
     spec = resolve_backend_spec(config)
     if spec.backend_type == "game_client":
-        base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api"
+        base_url = game_config.get("base_url") or (
+            f"http://localhost:{game_config['port']}/api/agent"
+        )
         client = create_http_game_client(
             GameClientConfig(
                 base_url=base_url,

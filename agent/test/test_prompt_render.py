@@ -27,6 +27,7 @@ def _build_sample_context() -> Dict[str, str]:
             "Step 2: take torch -> You picked up a torch."
         ),
         "current_observation": "A dark corridor lies ahead.",
+        "current_artifacts": "",
         "execution_diagnostics": "{}",
         "turn": "2",
         "code_tools_prompt_section": """## White-box Debugging:
@@ -105,6 +106,7 @@ def _build_live_context() -> Dict[str, str]:
         "memory_summary": "",
         "recent_trace": f"Step 1: look -> {message}",
         "current_observation": combined_observation,
+        "current_artifacts": "",
         "execution_diagnostics": "{}",
         "turn": turn,
         "code_tools_prompt_section": _build_sample_context()["code_tools_prompt_section"],
