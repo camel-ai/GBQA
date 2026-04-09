@@ -19,6 +19,7 @@ from flask_cors import CORS
 
 from game.engine import GameEngine, create_new_game, game_sessions
 from game.logger import GameLogger
+from log_analyzer import LogAnalyzer
 
 CODE_ROOT = os.path.dirname(os.path.abspath(__file__))
 CODE_ROOT_REAL = os.path.realpath(CODE_ROOT)
@@ -548,6 +549,59 @@ def agent_code_restore_file():
 def _get_debug_logs_game_id() -> str:
     """Return the game id used to scope debug log access."""
     return (request.args.get("game_id") or "").strip()
+
+
+log_analyzer = LogAnalyzer()
+
+
+@app.route("/api/agent/logs/analyze", methods=["POST"])
+def agent_logs_analyze():
+    """Run anomaly detection on the current game session log."""
+    data = request.get_json() or {}
+    game_id = data.get("game_id", "").strip()
+    if not game_id:
+        return jsonify({"success": False, "message": "Please provide a game_id."}), 400
+
+    if game_id not in game_sessions:
+        return jsonify({"success": False, "message": "Invalid game_id."}), 400
+
+    engine = game_sessions[game_id]
+    if not engine.logger:
+        return jsonify({"success": False, "message": "No active log for this game."}), 404
+
+    session_data = engine.logger.session_data
+    debug_output = ""
+    if data.get("include_debug_output", False):
+        debug_output = _read_debug_buffer(game_id)
+
+    analysis = log_analyzer.analyze_session(session_data, debug_output)
+    return jsonify({"success": True, "game_id": game_id, "analysis": analysis})
+
+
+@app.route("/api/agent/logs/filtered", methods=["POST"])
+def agent_logs_filtered():
+    """Return a filtered/paginated view of session commands."""
+    data = request.get_json() or {}
+    game_id = data.get("game_id", "").strip()
+    if not game_id:
+        return jsonify({"success": False, "message": "Please provide a game_id."}), 400
+
+    if game_id not in game_sessions:
+        return jsonify({"success": False, "message": "Invalid game_id."}), 400
+
+    engine = game_sessions[game_id]
+    if not engine.logger:
+        return jsonify({"success": False, "message": "No active log for this game."}), 404
+
+    session_data = engine.logger.session_data
+    result = log_analyzer.filter_commands(
+        session_data,
+        start_turn=int(data.get("start_turn", 0)),
+        end_turn=int(data.get("end_turn", 0)),
+        failures_only=bool(data.get("failures_only", False)),
+        limit=int(data.get("limit", 50)),
+    )
+    return jsonify({"success": True, "game_id": game_id, **result})
 
 
 @app.route("/api/agent/code/debug_logs", methods=["GET", "DELETE"])

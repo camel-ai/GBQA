@@ -29,7 +29,7 @@ Now, by considering the above context, decide the next command to send. Follow t
 
 Return ONLY a JSON object with these fields:
 {
-  "tool": "<game_command|code_list_files|code_read_file|code_search|code_write_file|code_read_debug_logs|code_restore_file>",
+  "tool": "<game_command|code_list_files|code_read_file|code_search|code_write_file|code_read_debug_logs|code_restore_file|log_analyze|log_get_session>",
   "rationale": "<short reason>",
   "command": "<string>",
   "expected_outcome": "<what you expect to observe>",

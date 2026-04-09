@@ -26,6 +26,8 @@ agent:
   verbose: true
   prompt_dir: "prompts"
   enable_code_reading: false  # Enable code reading tools for the agent
+  enable_log_analysis: false  # Enable log analysis tools for the agent
+  log_analysis_interval: 20   # Auto-trigger log analysis every N steps
 
 # Memory settings
 memory:

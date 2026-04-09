@@ -148,6 +148,55 @@ def register_code_reading_tools(
     )
 
 
+def register_log_tools(
+    registry: ToolRegistry,
+    game_client: GameClient,
+) -> None:
+    """Register log analysis tools for session log inspection."""
+    registry.register(
+        Tool(
+            name="log_analyze",
+            description="Run anomaly detection on the current game session log and debug output.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "game_id": {"type": "string"},
+                    "include_debug_output": {"type": "boolean"},
+                },
+                "required": ["game_id"],
+            },
+            handler=lambda payload: game_client.analyze_log(
+                payload["game_id"],
+                include_debug_output=payload.get("include_debug_output", True),
+            ),
+        )
+    )
+    registry.register(
+        Tool(
+            name="log_get_session",
+            description="Retrieve filtered/paginated session commands from the game log.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "game_id": {"type": "string"},
+                    "start_turn": {"type": "integer"},
+                    "end_turn": {"type": "integer"},
+                    "failures_only": {"type": "boolean"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["game_id"],
+            },
+            handler=lambda payload: game_client.get_session_log(
+                payload["game_id"],
+                start_turn=int(payload.get("start_turn", 0)),
+                end_turn=int(payload.get("end_turn", 0)),
+                failures_only=bool(payload.get("failures_only", False)),
+                limit=int(payload.get("limit", 50)),
+            ),
+        )
+    )
+
+
 def register_standard_game_tools(
     registry: ToolRegistry,
     game_client: GameClient,

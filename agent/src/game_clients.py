@@ -41,6 +41,22 @@ class GameClient(Protocol):
     def restore_code_file(self, path: str) -> Dict[str, Any]:
         ...
 
+    def analyze_log(
+        self, game_id: str, *, include_debug_output: bool = False
+    ) -> Dict[str, Any]:
+        ...
+
+    def get_session_log(
+        self,
+        game_id: str,
+        *,
+        start_turn: int = 0,
+        end_turn: int = 0,
+        failures_only: bool = False,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        ...
+
     def close(self) -> None:
         ...
 
@@ -169,6 +185,48 @@ class HttpGameClient:
         response = self._session.post(
             f"{self._base_url}/code/restore",
             json={"path": path},
+            timeout=self._timeout,
+        )
+        if response.status_code >= 400:
+            return response.json()
+        response.raise_for_status()
+        return response.json()
+
+    def analyze_log(
+        self, game_id: str, *, include_debug_output: bool = False
+    ) -> Dict[str, Any]:
+        """Trigger server-side log analysis for a game session."""
+        response = self._session.post(
+            f"{self._base_url}/logs/analyze",
+            json={"game_id": game_id, "include_debug_output": include_debug_output},
+            timeout=self._timeout,
+        )
+        if response.status_code >= 400:
+            return response.json()
+        response.raise_for_status()
+        return response.json()
+
+    def get_session_log(
+        self,
+        game_id: str,
+        *,
+        start_turn: int = 0,
+        end_turn: int = 0,
+        failures_only: bool = False,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Retrieve filtered/paginated session commands."""
+        payload: Dict[str, Any] = {"game_id": game_id}
+        if start_turn > 0:
+            payload["start_turn"] = start_turn
+        if end_turn > 0:
+            payload["end_turn"] = end_turn
+        if failures_only:
+            payload["failures_only"] = True
+        payload["limit"] = limit
+        response = self._session.post(
+            f"{self._base_url}/logs/filtered",
+            json=payload,
             timeout=self._timeout,
         )
         if response.status_code >= 400:
