@@ -154,7 +154,6 @@ def register_log_tools(
     analyzer: "LogAnalyzer",
 ) -> None:
     """Register log analysis tools that fetch raw data from the server and analyze locally."""
-    from .log_analyzer import LogAnalyzer as _LA  # noqa: F811 — for type check only
 
     def _handle_log_analyze(payload: dict) -> dict:
         game_id = payload["game_id"]
@@ -167,46 +166,38 @@ def register_log_tools(
             debug_resp = game_client.read_debug_logs(game_id)
             debug_output = debug_resp.get("logs", "")
         analysis = analyzer.analyze_session(session_data, debug_output)
-        return {"success": True, "game_id": game_id, "analysis": analysis}
 
-    def _handle_log_get_session(payload: dict) -> dict:
-        game_id = payload["game_id"]
-        log_resp = game_client.get_current_log(game_id)
-        if not log_resp.get("success", False):
-            return log_resp
-        session_data = log_resp.get("data", {})
-        result = analyzer.filter_commands(
-            session_data,
-            start_turn=int(payload.get("start_turn", 0)),
-            end_turn=int(payload.get("end_turn", 0)),
-            failures_only=bool(payload.get("failures_only", False)),
-            limit=int(payload.get("limit", 50)),
+        # Optional: include filtered commands in the same response
+        filtered = None
+        has_filter = any(
+            payload.get(k) for k in ("start_turn", "end_turn", "failures_only", "limit")
         )
-        return {"success": True, "game_id": game_id, **result}
+        if has_filter:
+            filtered = analyzer.filter_commands(
+                session_data,
+                start_turn=int(payload.get("start_turn", 0)),
+                end_turn=int(payload.get("end_turn", 0)),
+                failures_only=bool(payload.get("failures_only", False)),
+                limit=int(payload.get("limit", 50)),
+            )
+
+        result: dict = {"success": True, "game_id": game_id, "analysis": analysis}
+        if filtered is not None:
+            result["filtered_commands"] = filtered
+        return result
 
     registry.register(
         Tool(
             name="log_analyze",
-            description="Run anomaly detection on the current game session log and debug output.",
+            description=(
+                "Run anomaly detection on the current game session log and debug output. "
+                "Optionally filter commands by turn range or failure status."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "game_id": {"type": "string"},
                     "include_debug_output": {"type": "boolean"},
-                },
-                "required": ["game_id"],
-            },
-            handler=_handle_log_analyze,
-        )
-    )
-    registry.register(
-        Tool(
-            name="log_get_session",
-            description="Retrieve filtered/paginated session commands from the game log.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "game_id": {"type": "string"},
                     "start_turn": {"type": "integer"},
                     "end_turn": {"type": "integer"},
                     "failures_only": {"type": "boolean"},
@@ -214,7 +205,7 @@ def register_log_tools(
                 },
                 "required": ["game_id"],
             },
-            handler=_handle_log_get_session,
+            handler=_handle_log_analyze,
         )
     )
 

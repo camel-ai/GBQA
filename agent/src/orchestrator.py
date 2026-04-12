@@ -337,8 +337,19 @@ class Orchestrator:
                 "game_id": game_session_id,
                 "include_debug_output": True,
             }
-        elif action.tool == "log_get_session":
-            payload = self._parse_log_get_session_params(action.command, game_session_id)
+            # Parse optional filter params from command text
+            cmd_text = action.command.strip()
+            if cmd_text.lower() == "failures":
+                payload["failures_only"] = True
+            elif cmd_text.startswith("{"):
+                try:
+                    extra = json.loads(cmd_text)
+                    if isinstance(extra, dict):
+                        for k in ("start_turn", "end_turn", "failures_only", "limit"):
+                            if k in extra:
+                                payload[k] = extra[k]
+                except (json.JSONDecodeError, ValueError):
+                    pass
         else:
             payload = {"game_id": game_session_id, "command": action.command}
         return self._tool_registry.invoke(action.tool, payload)
@@ -602,9 +613,10 @@ class Orchestrator:
         """Format a log-tool API response into readable text."""
         if not raw.get("success", False):
             return f"[Log tool error] {raw.get('message', 'Unknown error')}"
+        parts: List[str] = []
         if "analysis" in raw:
             analysis = raw["analysis"]
-            parts = [analysis.get("summary", "")]
+            parts.append(analysis.get("summary", ""))
             for anomaly in analysis.get("anomalies", []):
                 parts.append(
                     f"  [{anomaly['severity']}] {anomaly['type']}: {anomaly['description']}"
@@ -612,36 +624,21 @@ class Orchestrator:
             debug = analysis.get("debug_findings", {})
             if debug.get("error_count", 0) > 0:
                 parts.append(f"Server errors: {debug['error_count']}")
-            return "\n".join(parts)
-        if "commands" in raw:
-            cmds = raw["commands"]
-            if not cmds:
-                return "No commands match the filter."
-            lines = [f"Showing {raw.get('returned_commands', len(cmds))} of {raw.get('filtered_total', '?')} commands:"]
-            for c in cmds:
-                status = "OK" if c.get("response", {}).get("success", True) else "FAIL"
-                lines.append(f"  T{c.get('turn', '?')}: [{status}] {c.get('command', '')}")
-            return "\n".join(lines)
-        if "message" in raw:
-            return str(raw["message"])
-        return str(raw)
-
-    @staticmethod
-    def _parse_log_get_session_params(command: str, game_session_id: str) -> Dict[str, Any]:
-        """Parse log_get_session command text into tool payload."""
-        payload: Dict[str, Any] = {"game_id": game_session_id}
-        cmd = command.strip().lower()
-        if cmd == "failures":
-            payload["failures_only"] = True
-        elif cmd:
-            try:
-                parsed = json.loads(command.strip())
-                if isinstance(parsed, dict):
-                    payload.update(parsed)
-                    payload["game_id"] = game_session_id
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return payload
+        if "filtered_commands" in raw:
+            fc = raw["filtered_commands"]
+            cmds = fc.get("commands", [])
+            if cmds:
+                parts.append(f"Filtered commands ({fc.get('returned_commands', len(cmds))} of {fc.get('filtered_total', '?')}):")
+                for c in cmds:
+                    status = "OK" if c.get("response", {}).get("success", True) else "FAIL"
+                    parts.append(f"  T{c.get('turn', '?')}: [{status}] {c.get('command', '')}")
+            else:
+                parts.append("No commands match the filter.")
+        if not parts:
+            if "message" in raw:
+                return str(raw["message"])
+            return str(raw)
+        return "\n".join(parts)
 
     @staticmethod
     def _is_fatal_llm_error(error: str) -> bool:
@@ -728,9 +725,9 @@ class Orchestrator:
             "\n\n## Log Analysis:\n"
             "You can analyze the game session log to identify anomalies and patterns:\n"
             "- `log_analyze`: Run anomaly detection on the session log (detects failed streaks, "
-            "state inconsistencies, repeated commands, error patterns, time gaps).\n"
-            "- `log_get_session`: Retrieve filtered session commands. Use `failures` to see only "
-            "failed commands, or a JSON object with start_turn/end_turn/limit.\n"
+            "state inconsistencies, repeated commands, error patterns, time gaps). "
+            "Optionally pass `failures` in command to filter failed commands only, "
+            "or a JSON object with start_turn/end_turn/failures_only/limit to filter commands.\n"
         )
 
     def _build_hud_text(self, observation: Observation) -> str:
