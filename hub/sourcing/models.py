@@ -1,4 +1,4 @@
-"""Typed models for the Hub sourcing pipeline."""
+"""Typed models for the Hub software-project sourcing pipeline."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 
 def _serialize(value: Any) -> Any:
+    """Recursively convert nested dataclasses into JSON-serializable objects."""
     if isinstance(value, list):
         return [_serialize(item) for item in value]
     if isinstance(value, dict):
@@ -15,15 +16,16 @@ def _serialize(value: Any) -> Any:
 
 
 class SerializableModel:
-    """Common JSON serialization helpers for dataclasses."""
+    """Base helper for JSON serialization."""
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dictionary."""
         return _serialize(asdict(self))
 
 
 @dataclass(slots=True)
 class ProvenanceRecord(SerializableModel):
-    """Fetched source metadata for reproducibility."""
+    """Store fetched-source metadata for reproducibility."""
 
     url: str
     sha256: str
@@ -33,105 +35,121 @@ class ProvenanceRecord(SerializableModel):
 
 @dataclass(slots=True)
 class CapabilityMatrix(SerializableModel):
-    """Hard-filter and feasibility signals for a candidate."""
+    """Describe hard-filter signals and inferred architecture."""
 
-    is_free: bool = False
     has_public_source: bool = False
-    has_historical_builds: bool = False
-    has_version_trail: bool = False
-    has_patch_notes: bool = False
-    has_official_patch_notes: bool = False
-    runnable_locally: bool = False
-    blocks_archival_replay: bool = False
+    has_release_history: bool = False
+    has_fix_releases: bool = False
+    has_recoverable_baseline: bool = False
+    has_tracked_issue_closure: bool = False
+    has_frontend: bool = False
+    has_backend: bool = False
+    has_database: bool = False
+    interaction_mode: str = "unknown"
     evidence: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "CapabilityMatrix":
+        """Create a capability matrix from serialized data."""
         return cls(
-            is_free=bool(payload.get("is_free", False)),
             has_public_source=bool(payload.get("has_public_source", False)),
-            has_historical_builds=bool(payload.get("has_historical_builds", False)),
-            has_version_trail=bool(payload.get("has_version_trail", False)),
-            has_patch_notes=bool(payload.get("has_patch_notes", False)),
-            has_official_patch_notes=bool(
-                payload.get("has_official_patch_notes", False)
+            has_release_history=bool(payload.get("has_release_history", False)),
+            has_fix_releases=bool(payload.get("has_fix_releases", False)),
+            has_recoverable_baseline=bool(
+                payload.get("has_recoverable_baseline", False)
             ),
-            runnable_locally=bool(payload.get("runnable_locally", False)),
-            blocks_archival_replay=bool(payload.get("blocks_archival_replay", False)),
+            has_tracked_issue_closure=bool(
+                payload.get("has_tracked_issue_closure", False)
+            ),
+            has_frontend=bool(payload.get("has_frontend", False)),
+            has_backend=bool(payload.get("has_backend", False)),
+            has_database=bool(payload.get("has_database", False)),
+            interaction_mode=str(payload.get("interaction_mode", "unknown")),
             evidence=dict(payload.get("evidence", {})),
         )
 
 
 @dataclass(slots=True)
-class VersionRecord(SerializableModel):
-    """Recoverable version artifact information."""
+class EngagementMetrics(SerializableModel):
+    """Store GitHub engagement and contributor activity signals."""
 
-    version: str
-    published_at: str
-    artifact_url: str
-    artifact_kind: str = "archive"
-    notes_url: str = ""
-    source_url: str = ""
-    accessible: bool = True
-    checksum: str = ""
+    stars: int = 0
+    forks: int = 0
+    issue_count: int = 0
+    pull_request_count: int = 0
+    contributor_count: int = 0
+    release_count: int = 0
+    tag_count: int = 0
+    open_issue_count: int = 0
+    days_since_last_push: Optional[int] = None
+    release_cadence_days: Optional[float] = None
+    workability_score: float = 0.0
 
     @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "VersionRecord":
+    def from_dict(cls, payload: Dict[str, Any]) -> "EngagementMetrics":
+        """Create engagement metrics from serialized data."""
         return cls(
-            version=str(payload.get("version", "")),
-            published_at=str(payload.get("published_at", "")),
-            artifact_url=str(payload.get("artifact_url", "")),
-            artifact_kind=str(payload.get("artifact_kind", "archive")),
-            notes_url=str(payload.get("notes_url", "")),
-            source_url=str(payload.get("source_url", "")),
-            accessible=bool(payload.get("accessible", True)),
-            checksum=str(payload.get("checksum", "")),
+            stars=int(payload.get("stars", 0)),
+            forks=int(payload.get("forks", 0)),
+            issue_count=int(payload.get("issue_count", 0)),
+            pull_request_count=int(payload.get("pull_request_count", 0)),
+            contributor_count=int(payload.get("contributor_count", 0)),
+            release_count=int(payload.get("release_count", 0)),
+            tag_count=int(payload.get("tag_count", 0)),
+            open_issue_count=int(payload.get("open_issue_count", 0)),
+            days_since_last_push=payload.get("days_since_last_push"),
+            release_cadence_days=payload.get("release_cadence_days"),
+            workability_score=float(payload.get("workability_score", 0.0)),
         )
 
 
 @dataclass(slots=True)
-class PatchRecord(SerializableModel):
-    """Official patch note or changelog entry."""
+class ReleaseRecord(SerializableModel):
+    """Store GitHub release metadata and bug-fix evidence."""
 
-    patch_id: str
-    version: str
+    release_id: str
+    tag_name: str
     title: str
     published_at: str
     notes_url: str
     body: str
-    is_official: bool = True
+    artifact_urls: List[str] = field(default_factory=list)
+    has_bug_fix_evidence: bool = False
 
     @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "PatchRecord":
+    def from_dict(cls, payload: Dict[str, Any]) -> "ReleaseRecord":
+        """Create a release record from serialized data."""
         return cls(
-            patch_id=str(payload.get("patch_id", "")),
-            version=str(payload.get("version", "")),
+            release_id=str(payload.get("release_id", "")),
+            tag_name=str(payload.get("tag_name", "")),
             title=str(payload.get("title", "")),
             published_at=str(payload.get("published_at", "")),
             notes_url=str(payload.get("notes_url", "")),
             body=str(payload.get("body", "")),
-            is_official=bool(payload.get("is_official", True)),
+            artifact_urls=list(payload.get("artifact_urls", [])),
+            has_bug_fix_evidence=bool(payload.get("has_bug_fix_evidence", False)),
         )
 
 
 @dataclass(slots=True)
-class VersionPair(SerializableModel):
-    """Selected baseline/fix version pair for benchmark construction."""
+class ReleasePair(SerializableModel):
+    """Store a recoverable baseline/fix release pair."""
 
     baseline_version: str
     baseline_artifact: str
     fix_version: str
-    patch_id: str
+    release_id: str
     patch_published_at: str
     recovery_method: str
 
     @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "VersionPair":
+    def from_dict(cls, payload: Dict[str, Any]) -> "ReleasePair":
+        """Create a release pair from serialized data."""
         return cls(
             baseline_version=str(payload.get("baseline_version", "")),
             baseline_artifact=str(payload.get("baseline_artifact", "")),
             fix_version=str(payload.get("fix_version", "")),
-            patch_id=str(payload.get("patch_id", "")),
+            release_id=str(payload.get("release_id", "")),
             patch_published_at=str(payload.get("patch_published_at", "")),
             recovery_method=str(payload.get("recovery_method", "")),
         )
@@ -139,29 +157,26 @@ class VersionPair(SerializableModel):
 
 @dataclass(slots=True)
 class ScoreBreakdown(SerializableModel):
-    """Selection score and hard-filter outcome."""
+    """Store weighted selection scores and hard-filter outcome."""
 
-    access_licensing: float = 0.0
-    version_patch_quality: float = 0.0
-    historical_build_recoverability: float = 0.0
-    complexity_fit: float = 0.0
-    maintenance_cadence: float = 0.0
-    documentation_quality: float = 0.0
+    source_access: float = 0.0
+    release_evidence: float = 0.0
+    engineering_activity: float = 0.0
+    architecture_fit: float = 0.0
+    metadata_quality: float = 0.0
     total: float = 0.0
     accepted: bool = False
     hard_filter_failures: List[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "ScoreBreakdown":
+        """Create a score breakdown from serialized data."""
         return cls(
-            access_licensing=float(payload.get("access_licensing", 0.0)),
-            version_patch_quality=float(payload.get("version_patch_quality", 0.0)),
-            historical_build_recoverability=float(
-                payload.get("historical_build_recoverability", 0.0)
-            ),
-            complexity_fit=float(payload.get("complexity_fit", 0.0)),
-            maintenance_cadence=float(payload.get("maintenance_cadence", 0.0)),
-            documentation_quality=float(payload.get("documentation_quality", 0.0)),
+            source_access=float(payload.get("source_access", 0.0)),
+            release_evidence=float(payload.get("release_evidence", 0.0)),
+            engineering_activity=float(payload.get("engineering_activity", 0.0)),
+            architecture_fit=float(payload.get("architecture_fit", 0.0)),
+            metadata_quality=float(payload.get("metadata_quality", 0.0)),
             total=float(payload.get("total", 0.0)),
             accepted=bool(payload.get("accepted", False)),
             hard_filter_failures=list(payload.get("hard_filter_failures", [])),
@@ -169,114 +184,154 @@ class ScoreBreakdown(SerializableModel):
 
 
 @dataclass(slots=True)
-class CandidateGame(SerializableModel):
-    """Normalized candidate game metadata across providers."""
+class SoftwareProjectCandidate(SerializableModel):
+    """Represent a candidate GitHub software project."""
 
-    game_id: str
-    title: str
+    environment_id: str
+    project_name: str
     provider: str
-    provider_id: str
-    slug: str
-    summary: str
-    homepage_url: str
-    source_repo_url: str
-    license: str
-    runtime_kind: str
-    tags: List[str] = field(default_factory=list)
-    versions: List[VersionRecord] = field(default_factory=list)
-    patches: List[PatchRecord] = field(default_factory=list)
+    repo_full_name: str
+    github_url: str
+    owner: str
+    default_branch: str
+    about: str
+    topics: List[str] = field(default_factory=list)
+    license: str = ""
+    clone_url: str = ""
+    languages: Dict[str, int] = field(default_factory=dict)
     capabilities: CapabilityMatrix = field(default_factory=CapabilityMatrix)
+    engagement: EngagementMetrics = field(default_factory=EngagementMetrics)
+    releases: List[ReleaseRecord] = field(default_factory=list)
+    selected_release_pair: Optional[ReleasePair] = None
+    artifact_urls: List[str] = field(default_factory=list)
+    release_notes_url: str = ""
     score: float = 0.0
     score_breakdown: Optional[ScoreBreakdown] = None
-    complexity: str = "medium"
-    selected_version_pair: Optional[VersionPair] = None
-    artifact_urls: List[str] = field(default_factory=list)
-    patch_notes_url: str = ""
-    provenance: List[ProvenanceRecord] = field(default_factory=list)
     rejection_reasons: List[str] = field(default_factory=list)
+    provenance: List[ProvenanceRecord] = field(default_factory=list)
+    dedupe_key: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "CandidateGame":
+    def from_dict(cls, payload: Dict[str, Any]) -> "SoftwareProjectCandidate":
+        """Create a candidate from serialized data."""
         score_breakdown = payload.get("score_breakdown")
-        version_pair = payload.get("selected_version_pair")
+        selected_release_pair = payload.get("selected_release_pair")
         return cls(
-            game_id=str(payload.get("game_id", "")),
-            title=str(payload.get("title", "")),
+            environment_id=str(payload.get("environment_id", "")),
+            project_name=str(payload.get("project_name", "")),
             provider=str(payload.get("provider", "")),
-            provider_id=str(payload.get("provider_id", "")),
-            slug=str(payload.get("slug", "")),
-            summary=str(payload.get("summary", "")),
-            homepage_url=str(payload.get("homepage_url", "")),
-            source_repo_url=str(payload.get("source_repo_url", "")),
+            repo_full_name=str(payload.get("repo_full_name", "")),
+            github_url=str(payload.get("github_url", "")),
+            owner=str(payload.get("owner", "")),
+            default_branch=str(payload.get("default_branch", "")),
+            about=str(payload.get("about", "")),
+            topics=list(payload.get("topics", [])),
             license=str(payload.get("license", "")),
-            runtime_kind=str(payload.get("runtime_kind", "")),
-            tags=list(payload.get("tags", [])),
-            versions=[
-                VersionRecord.from_dict(item)
-                for item in payload.get("versions", [])
-                if isinstance(item, dict)
-            ],
-            patches=[
-                PatchRecord.from_dict(item)
-                for item in payload.get("patches", [])
-                if isinstance(item, dict)
-            ],
+            clone_url=str(payload.get("clone_url", "")),
+            languages=dict(payload.get("languages", {})),
             capabilities=CapabilityMatrix.from_dict(
-                payload.get("capabilities", {}) if isinstance(payload, dict) else {}
+                dict(payload.get("capabilities", {}))
             ),
+            engagement=EngagementMetrics.from_dict(dict(payload.get("engagement", {}))),
+            releases=[
+                ReleaseRecord.from_dict(item)
+                for item in payload.get("releases", [])
+                if isinstance(item, dict)
+            ],
+            selected_release_pair=(
+                ReleasePair.from_dict(selected_release_pair)
+                if isinstance(selected_release_pair, dict)
+                else None
+            ),
+            artifact_urls=list(payload.get("artifact_urls", [])),
+            release_notes_url=str(payload.get("release_notes_url", "")),
             score=float(payload.get("score", 0.0)),
             score_breakdown=(
                 ScoreBreakdown.from_dict(score_breakdown)
                 if isinstance(score_breakdown, dict)
                 else None
             ),
-            complexity=str(payload.get("complexity", "medium")),
-            selected_version_pair=(
-                VersionPair.from_dict(version_pair)
-                if isinstance(version_pair, dict)
-                else None
-            ),
-            artifact_urls=list(payload.get("artifact_urls", [])),
-            patch_notes_url=str(payload.get("patch_notes_url", "")),
+            rejection_reasons=list(payload.get("rejection_reasons", [])),
             provenance=[
                 ProvenanceRecord(**item)
                 for item in payload.get("provenance", [])
                 if isinstance(item, dict)
             ],
-            rejection_reasons=list(payload.get("rejection_reasons", [])),
+            dedupe_key=str(payload.get("dedupe_key", "")),
             extra=dict(payload.get("extra", {})),
         )
 
 
 @dataclass(slots=True)
-class CandidateManifest(SerializableModel):
-    """Published manifest consumed by later Hub import steps."""
+class SoftwareProjectManifest(SerializableModel):
+    """Represent a published software-project manifest."""
 
-    game_id: str
-    title: str
+    environment_id: str
+    project_name: str
     provider: str
-    runtime_kind: str
-    homepage_url: str
-    source_repo_url: str
+    repo_full_name: str
+    github_url: str
+    clone_url: str
+    owner: str
+    default_branch: str
+    about: str
+    topics: List[str]
     license: str
-    free_access: bool
-    historical_build_access: bool
-    selected_version_pair: VersionPair
+    languages: Dict[str, int]
+    capabilities: CapabilityMatrix
+    engagement: EngagementMetrics
+    selected_release_pair: ReleasePair
     score: float
     score_breakdown: ScoreBreakdown
-    patch_notes_url: str
+    release_notes_url: str
     artifact_urls: List[str]
     ground_truth_path: str
+    clone_hint: str
+    sandbox_hint: str
+    dedupe_key: str
+    issue_verification: Optional[Dict[str, Any]] = None
 
 
 @dataclass(slots=True)
 class GroundTruthBundle(SerializableModel):
-    """Published bug bundle derived from patch notes."""
+    """Represent a generated bug-ground-truth bundle."""
 
-    game_name: str
-    game_title: str
+    project_name: str
+    repo_full_name: str
     bug_version: str
     total_bugs: int
-    patch_notes_url: str
+    release_notes_url: str
     bugs: List[Dict[str, Any]]
+
+
+@dataclass(slots=True)
+class DedupeRecord(SerializableModel):
+    """Represent one saved release-pair record."""
+
+    dedupe_key: str
+    repo_full_name: str
+    project_name: str
+    release_id: str
+    baseline_version: str
+    fix_version: str
+    manifest_path: str
+    saved_at: str
+
+
+@dataclass(slots=True)
+class CatalogLedger(SerializableModel):
+    """Represent the persisted dedupe ledger."""
+
+    records: List[DedupeRecord] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "CatalogLedger":
+        """Create a ledger from serialized data."""
+        return cls(
+            records=[
+                DedupeRecord(**item)
+                for item in payload.get("records", [])
+                if isinstance(item, dict)
+            ]
+        )

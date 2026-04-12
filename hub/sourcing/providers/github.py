@@ -1,203 +1,396 @@
-"""GitHub provider adapter."""
+"""GitHub provider for source-code-available software projects."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
 from urllib.parse import quote
 
-from ..models import CandidateGame, CapabilityMatrix, PatchRecord, VersionRecord
-from ..utils import clean_text, extract_version, has_fix_language, slugify, version_sort_key
+from ..camel_github import CamelGithubToolkitAdapter
+from ..fetcher import FetchError
+from ..models import (
+    CapabilityMatrix,
+    EngagementMetrics,
+    ReleaseRecord,
+    SoftwareProjectCandidate,
+)
+from ..utils import (
+    build_dedupe_key,
+    clean_text,
+    days_since,
+    extract_version,
+    has_fix_language,
+    infer_architecture,
+    release_cadence_days,
+    slugify,
+)
 from .base import ProviderAdapter
 
 
-class GitHubProvider(ProviderAdapter):
-    """Discover open-source games from GitHub repositories."""
+class GithubSoftwareProjectProvider(ProviderAdapter):
+    """Discover GitHub software projects with release-based bug evidence."""
 
     name = "github"
     _API_ROOT = "https://api.github.com"
 
-    def default_headers(self) -> Dict[str, str]:
+    def __init__(self, **kwargs) -> None:
+        """Initialize the GitHub provider and optional CAMEL adapter."""
+        super().__init__(**kwargs)
+        self._camel_toolkit = CamelGithubToolkitAdapter.create(
+            self.env("GITHUB_TOKEN") or self.env("GITHUB_ACCESS_TOKEN")
+        )
+
+    def default_headers(self) -> dict[str, str]:
+        """Return GitHub-specific HTTP headers."""
         headers = super().default_headers()
-        token = self.env("GITHUB_TOKEN")
+        token = self.env("GITHUB_TOKEN") or self.env("GITHUB_ACCESS_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
         headers["Accept"] = "application/vnd.github+json"
         return headers
 
-    def discover(self, limit: int | None = None) -> List[CandidateGame]:
+    def discover(
+        self,
+        limit: int | None = None,
+        *,
+        page: int = 1,
+    ) -> list[SoftwareProjectCandidate]:
+        """Discover source-code-available software projects from GitHub."""
         count = limit or self.config.limit
         query = quote(self.config.github_query, safe="")
         search_url = (
             f"{self._API_ROOT}/search/repositories?q={query}"
-            f"&sort=updated&order=desc&per_page={count}"
+            f"&sort={self.config.github_search_sort}"
+            f"&order=desc&per_page={count}&page={page}"
         )
-        provenance: List = []
+        provenance = []
         data = self.fetch_json(search_url, provenance)
-        items = data.get("items", [])
-        candidates: List[CandidateGame] = []
+        items = data.get("items", []) if isinstance(data, dict) else []
+        candidates: list[SoftwareProjectCandidate] = []
         for item in items[:count]:
             candidates.append(self._build_candidate(item, provenance))
         return candidates
 
     def _build_candidate(
         self,
-        payload: Dict[str, Any],
-        inherited_provenance: List,
-    ) -> CandidateGame:
+        payload: dict[str, object],
+        inherited_provenance: list,
+    ) -> SoftwareProjectCandidate:
+        """Build one normalized software-project candidate."""
         provenance = list(inherited_provenance)
-        full_name = clean_text(payload.get("full_name", ""))
-        releases = self.fetch_json(
-            f"{self._API_ROOT}/repos/{full_name}/releases?per_page=20",
+        repo_full_name = clean_text(str(payload.get("full_name", "")))
+        repo_data = self.fetch_json(f"{self._API_ROOT}/repos/{repo_full_name}", provenance)
+        repo = repo_data if isinstance(repo_data, dict) else {}
+        releases_data = self.fetch_json(
+            f"{self._API_ROOT}/repos/{repo_full_name}/releases?per_page=30",
             provenance,
         )
-        tags = self.fetch_json(
-            f"{self._API_ROOT}/repos/{full_name}/tags?per_page=20",
+        tags_data = self.fetch_json(
+            f"{self._API_ROOT}/repos/{repo_full_name}/tags?per_page=30",
             provenance,
+        )
+        languages_data = self.fetch_json(
+            f"{self._API_ROOT}/repos/{repo_full_name}/languages",
+            provenance,
+        )
+        contributors_data, contributors_metadata_complete = self._fetch_contributors(
+            repo_full_name=repo_full_name,
+            provenance=provenance,
+        )
+        issues_data, issues_metadata_complete = self._fetch_search_issue_totals(
+            repo_full_name=repo_full_name,
+            search_kind="issue",
+            provenance=provenance,
+        )
+        pulls_data, pulls_metadata_complete = self._fetch_search_issue_totals(
+            repo_full_name=repo_full_name,
+            search_kind="pr",
+            provenance=provenance,
         )
 
-        release_items = releases if isinstance(releases, list) else []
-        tag_items = tags if isinstance(tags, list) else []
-        versions = self._build_versions(payload, release_items, tag_items)
-        patches = self._build_patches(release_items)
-        artifact_urls = [item.artifact_url for item in versions if item.artifact_url]
-        runtime_kind = self._detect_runtime(payload, artifact_urls)
+        releases = self._build_releases(releases_data)
+        tags = tags_data if isinstance(tags_data, list) else []
+        languages = (
+            {str(key): int(value) for key, value in languages_data.items()}
+            if isinstance(languages_data, dict)
+            else {}
+        )
+        file_paths = self._fetch_file_paths(
+            repo_full_name=repo_full_name,
+            default_branch=clean_text(str(repo.get("default_branch", "main"))),
+            provenance=provenance,
+        )
+        architecture = infer_architecture(
+            file_paths=file_paths,
+            languages=languages,
+            topics=[str(item) for item in repo.get("topics", [])],
+        )
+        engagement = self._build_engagement(
+            repo=repo,
+            releases=releases,
+            tags=tags,
+            contributors=contributors_data if isinstance(contributors_data, list) else [],
+            issues=issues_data if isinstance(issues_data, dict) else {},
+            pulls=pulls_data if isinstance(pulls_data, dict) else {},
+        )
         capabilities = CapabilityMatrix(
-            is_free=True,
-            has_public_source=True,
-            has_historical_builds=len(versions) >= 2,
-            has_version_trail=len(versions) >= 2,
-            has_patch_notes=bool(patches),
-            has_official_patch_notes=bool(patches),
-            runnable_locally=True,
-            blocks_archival_replay=False,
+            has_public_source=bool(repo_full_name),
+            has_release_history=len(releases) >= 2 or len(tags) >= 2,
+            has_fix_releases=any(item.has_bug_fix_evidence for item in releases),
+            has_recoverable_baseline=False,
+            has_frontend=bool(architecture["has_frontend"]),
+            has_backend=bool(architecture["has_backend"]),
+            has_database=bool(architecture["has_database"]),
+            interaction_mode=str(architecture["interaction_mode"]),
             evidence={
-                "stars": str(payload.get("stargazers_count", 0)),
-                "repo": str(payload.get("html_url", "")),
+                "architecture_source": (
+                    "camel_github_toolkit"
+                    if self._camel_toolkit.is_available
+                    else "github_tree_api"
+                ),
+                **{
+                    str(key): str(value)
+                    for key, value in dict(architecture["evidence"]).items()
+                },
             },
         )
-        return CandidateGame(
-            game_id=slugify(clean_text(payload.get("name", full_name))),
-            title=clean_text(payload.get("name", full_name)),
+        github_url = clean_text(str(repo.get("html_url", "")))
+        project_name = clean_text(str(repo.get("name", repo_full_name)))
+        return SoftwareProjectCandidate(
+            environment_id=slugify(repo_full_name),
+            project_name=project_name,
             provider=self.name,
-            provider_id=str(payload.get("id", full_name)),
-            slug=slugify(clean_text(payload.get("name", full_name))),
-            summary=clean_text(payload.get("description", "")),
-            homepage_url=clean_text(payload.get("homepage", "") or payload.get("html_url", "")),
-            source_repo_url=clean_text(payload.get("html_url", "")),
+            repo_full_name=repo_full_name,
+            github_url=github_url,
+            owner=clean_text(str((repo.get("owner") or {}).get("login", ""))),
+            default_branch=clean_text(str(repo.get("default_branch", "main"))),
+            about=clean_text(str(repo.get("description", ""))),
+            topics=[
+                clean_text(str(item))
+                for item in repo.get("topics", [])
+                if clean_text(str(item))
+            ],
             license=clean_text(
-                (payload.get("license") or {}).get("spdx_id", "")
-                if isinstance(payload.get("license"), dict)
+                str((repo.get("license") or {}).get("spdx_id", ""))
+                if isinstance(repo.get("license"), dict)
                 else ""
             ),
-            runtime_kind=runtime_kind,
-            tags=[
-                clean_text(topic)
-                for topic in payload.get("topics", [])
-                if clean_text(str(topic))
-            ],
-            versions=versions,
-            patches=patches,
+            clone_url=clean_text(str(repo.get("clone_url", ""))),
+            languages=languages,
             capabilities=capabilities,
-            artifact_urls=artifact_urls,
-            patch_notes_url=patches[0].notes_url if patches else "",
+            engagement=engagement,
+            releases=releases,
+            artifact_urls=[
+                url
+                for release in releases
+                for url in release.artifact_urls
+            ],
+            release_notes_url=releases[-1].notes_url if releases else "",
             provenance=provenance,
+            dedupe_key=build_dedupe_key(repo_full_name, ""),
             extra={
-                "full_name": full_name,
-                "stars": payload.get("stargazers_count", 0),
-                "watchers": payload.get("watchers_count", 0),
+                "tag_count": len(tags),
+                "homepage": clean_text(str(repo.get("homepage", ""))),
+                "camel_github_toolkit_available": self._camel_toolkit.is_available,
+                "camel_github_toolkit_reason": self._camel_toolkit.availability_reason,
+                "contributors_metadata_complete": contributors_metadata_complete,
+                "issues_metadata_complete": issues_metadata_complete,
+                "pulls_metadata_complete": pulls_metadata_complete,
             },
         )
 
-    def _build_versions(
-        self,
-        repo: Dict[str, Any],
-        releases: List[Dict[str, Any]],
-        tags: List[Dict[str, Any]],
-    ) -> List[VersionRecord]:
-        versions: List[VersionRecord] = []
-        seen = set()
-        for release in releases:
-            version = extract_version(
-                clean_text(release.get("tag_name", "") or release.get("name", ""))
-            )
-            if not version or version in seen:
+    def _build_releases(self, payload: object) -> list[ReleaseRecord]:
+        """Convert GitHub releases into normalized release records."""
+        if not isinstance(payload, list):
+            return []
+        releases: list[ReleaseRecord] = []
+        for item in payload:
+            if not isinstance(item, dict):
                 continue
-            asset_url = ""
-            assets = release.get("assets", [])
-            if isinstance(assets, list) and assets:
-                asset_url = clean_text(
-                    assets[0].get("browser_download_url", "")
-                    if isinstance(assets[0], dict)
-                    else ""
-                )
-            artifact_url = asset_url or clean_text(
-                release.get("zipball_url", "") or release.get("tarball_url", "")
-            )
-            versions.append(
-                VersionRecord(
-                    version=version,
-                    published_at=clean_text(release.get("published_at", "")),
-                    artifact_url=artifact_url,
-                    artifact_kind="release_asset" if asset_url else "source_archive",
-                    notes_url=clean_text(release.get("html_url", "")),
-                    source_url=clean_text(repo.get("html_url", "")),
-                    accessible=bool(artifact_url),
-                )
-            )
-            seen.add(version)
-        for tag in tags:
-            version = extract_version(clean_text(tag.get("name", "")))
-            if not version or version in seen:
-                continue
-            archive_url = clean_text(
-                (tag.get("zipball_url") or "")
-                or f"{clean_text(repo.get('html_url', ''))}/archive/refs/tags/{tag.get('name', '')}.zip"
-            )
-            versions.append(
-                VersionRecord(
-                    version=version,
-                    published_at="",
-                    artifact_url=archive_url,
-                    artifact_kind="tag_archive",
-                    notes_url="",
-                    source_url=clean_text(repo.get("html_url", "")),
-                    accessible=bool(archive_url),
-                )
-            )
-            seen.add(version)
-        return sorted(versions, key=lambda item: version_sort_key(item.version))
-
-    def _build_patches(self, releases: List[Dict[str, Any]]) -> List[PatchRecord]:
-        patches: List[PatchRecord] = []
-        for release in releases:
-            body = clean_text(release.get("body", ""))
-            if not body or not has_fix_language(body):
-                continue
-            version = extract_version(
-                clean_text(release.get("tag_name", "") or release.get("name", ""))
-            )
-            patches.append(
-                PatchRecord(
-                    patch_id=slugify(
-                        f"github-{release.get('tag_name', '') or release.get('name', '')}"
-                    ),
-                    version=version,
-                    title=clean_text(release.get("name", "") or release.get("tag_name", "")),
-                    published_at=clean_text(release.get("published_at", "")),
-                    notes_url=clean_text(release.get("html_url", "")),
+            asset_urls = []
+            assets = item.get("assets", [])
+            if isinstance(assets, list):
+                for asset in assets:
+                    if isinstance(asset, dict):
+                        url = clean_text(str(asset.get("browser_download_url", "")))
+                        if url:
+                            asset_urls.append(url)
+            if not asset_urls:
+                for key in ("zipball_url", "tarball_url"):
+                    url = clean_text(str(item.get(key, "")))
+                    if url:
+                        asset_urls.append(url)
+            body = str(item.get("body", "") or "").replace("\r\n", "\n").replace("\r", "\n")
+            releases.append(
+                ReleaseRecord(
+                    release_id=clean_text(str(item.get("tag_name", "") or item.get("name", ""))),
+                    tag_name=clean_text(str(item.get("tag_name", ""))),
+                    title=clean_text(str(item.get("name", "") or item.get("tag_name", ""))),
+                    published_at=clean_text(str(item.get("published_at", ""))),
+                    notes_url=clean_text(str(item.get("html_url", ""))),
                     body=body,
-                    is_official=True,
+                    artifact_urls=asset_urls,
+                    has_bug_fix_evidence=has_fix_language(body),
                 )
             )
-        return sorted(patches, key=lambda item: item.published_at, reverse=True)
+        return sorted(releases, key=lambda item: item.published_at)
+
+    def _build_engagement(
+        self,
+        *,
+        repo: dict[str, object],
+        releases: list[ReleaseRecord],
+        tags: list[object],
+        contributors: list[object],
+        issues: dict[str, object],
+        pulls: dict[str, object],
+    ) -> EngagementMetrics:
+        """Build engagement and workability metrics."""
+        stars = int(repo.get("stargazers_count", 0))
+        forks = int(repo.get("forks_count", 0))
+        contributor_count = len(contributors)
+        issue_count = int(issues.get("total_count", 0))
+        pull_request_count = int(pulls.get("total_count", 0))
+        days_since_last_push = days_since(clean_text(str(repo.get("pushed_at", ""))))
+        cadence = release_cadence_days([item.published_at for item in releases])
+        workability_score = self._workability_score(
+            stars=stars,
+            contributor_count=contributor_count,
+            issue_count=issue_count,
+            pull_request_count=pull_request_count,
+            days_since_last_push=days_since_last_push,
+            release_count=len(releases),
+        )
+        return EngagementMetrics(
+            stars=stars,
+            forks=forks,
+            issue_count=issue_count,
+            pull_request_count=pull_request_count,
+            contributor_count=contributor_count,
+            release_count=len(releases),
+            tag_count=len(tags),
+            open_issue_count=int(repo.get("open_issues_count", 0)),
+            days_since_last_push=days_since_last_push,
+            release_cadence_days=cadence,
+            workability_score=workability_score,
+        )
 
     @staticmethod
-    def _detect_runtime(payload: Dict[str, Any], artifact_urls: List[str]) -> str:
-        topics = " ".join(str(item).lower() for item in payload.get("topics", []))
-        if any(tag in topics for tag in ("html5", "browser", "phaser", "webgl", "threejs")):
-            return "web"
-        if any(url.lower().endswith(ext) for url in artifact_urls for ext in (".exe", ".msi", ".dmg")):
-            return "native_desktop"
-        if any(tag in topics for tag in ("unity", "godot", "unreal", "desktop")):
-            return "native_desktop"
-        return "source_project"
+    def _workability_score(
+        *,
+        stars: int,
+        contributor_count: int,
+        issue_count: int,
+        pull_request_count: int,
+        days_since_last_push: int | None,
+        release_count: int,
+    ) -> float:
+        """Estimate whether one repository looks active and workable."""
+        star_score = min(stars / 200.0, 1.0) * 30.0
+        contributor_score = min(contributor_count / 15.0, 1.0) * 20.0
+        issue_score = min(issue_count / 100.0, 1.0) * 15.0
+        pr_score = min(pull_request_count / 50.0, 1.0) * 15.0
+        release_score = min(release_count / 10.0, 1.0) * 10.0
+        recency_score = 0.0
+        if days_since_last_push is not None:
+            if days_since_last_push <= 90:
+                recency_score = 10.0
+            elif days_since_last_push <= 365:
+                recency_score = 6.0
+            elif days_since_last_push <= 730:
+                recency_score = 2.0
+        return round(
+            star_score
+            + contributor_score
+            + issue_score
+            + pr_score
+            + release_score
+            + recency_score,
+            2,
+        )
+
+    def _fetch_file_paths(
+        self,
+        *,
+        repo_full_name: str,
+        default_branch: str,
+        provenance: list,
+    ) -> list[str]:
+        """Return repository file paths using CAMEL when available, else REST."""
+        if self._camel_toolkit.is_available:
+            file_paths = self._camel_toolkit.get_all_file_paths(repo_full_name)
+            if file_paths:
+                return file_paths
+        tree_url = (
+            f"{self._API_ROOT}/repos/{repo_full_name}/git/trees/"
+            f"{quote(default_branch, safe='')}?recursive=1"
+        )
+        tree_payload = self.fetch_json(tree_url, provenance)
+        if not isinstance(tree_payload, dict):
+            return []
+        items = tree_payload.get("tree", [])
+        if not isinstance(items, list):
+            return []
+        return [
+            clean_text(str(item.get("path", "")))
+            for item in items
+            if isinstance(item, dict)
+            and item.get("type") == "blob"
+            and clean_text(str(item.get("path", "")))
+        ]
+
+    def _fetch_contributors(
+        self,
+        *,
+        repo_full_name: str,
+        provenance: list,
+    ) -> tuple[list[object], bool]:
+        """Fetch contributors, tolerating GitHub's large-history contributor overflow."""
+        url = (
+            f"{self._API_ROOT}/repos/{repo_full_name}/contributors?per_page=30&anon=1"
+        )
+        try:
+            payload = self.fetch_json(url, provenance)
+        except FetchError as exc:
+            if self._is_nonfatal_contributors_error(exc):
+                return [], False
+            raise
+        if isinstance(payload, list):
+            return payload, True
+        return [], True
+
+    def _fetch_search_issue_totals(
+        self,
+        *,
+        repo_full_name: str,
+        search_kind: str,
+        provenance: list,
+    ) -> tuple[dict[str, object], bool]:
+        """Fetch issue or pull-request totals, tolerating transient network failures."""
+        url = (
+            f"{self._API_ROOT}/search/issues?"
+            f"q={quote(f'repo:{repo_full_name} is:{search_kind}', safe='')}"
+        )
+        try:
+            payload = self.fetch_json(url, provenance)
+        except FetchError as exc:
+            if self._is_nonfatal_search_metadata_error(exc):
+                return {"total_count": 0}, False
+            raise
+        if isinstance(payload, dict):
+            return payload, True
+        return {"total_count": 0}, True
+
+    @staticmethod
+    def _is_nonfatal_contributors_error(exc: FetchError) -> bool:
+        """Treat GitHub contributor-list overflow as non-fatal metadata loss."""
+        if exc.status_code != 403:
+            return False
+        body = clean_text(exc.body).lower()
+        return (
+            "contributor list is too large" in body
+            or "too large to list contributors" in body
+        )
+
+    @staticmethod
+    def _is_nonfatal_search_metadata_error(exc: FetchError) -> bool:
+        """Treat transient transport failures on supplemental search metadata as non-fatal."""
+        return exc.status_code is None

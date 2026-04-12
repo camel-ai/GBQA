@@ -1,13 +1,9 @@
-"""Provider registry for Hub sourcing."""
+"""Provider registry for Hub software-project sourcing."""
 
-from .github import GitHubProvider
-from .itch import ItchProvider
-from .steam import SteamProvider
+from .github import GithubSoftwareProjectProvider
 
 PROVIDER_TYPES = {
-    "github": GitHubProvider,
-    "itch": ItchProvider,
-    "steam": SteamProvider,
+    "github": GithubSoftwareProjectProvider,
 }
 
-__all__ = ["GitHubProvider", "ItchProvider", "SteamProvider", "PROVIDER_TYPES"]
+__all__ = ["GithubSoftwareProjectProvider", "PROVIDER_TYPES"]

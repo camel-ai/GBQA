@@ -1,4 +1,4 @@
-"""CLI entrypoint for the Hub sourcing pipeline."""
+"""CLI entrypoint for the Hub software-project sourcing pipeline."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from .auth import (
-    CredentialStore,
-    InteractiveAuthFlow,
-)
+from .auth import CredentialStore, InteractiveAuthFlow
 from .pipeline import SourcingPipeline
 from .providers import PROVIDER_TYPES
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Hub environment sourcing pipeline")
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Hub software-project sourcing pipeline",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("auth", "discover", "score", "select", "publish", "run"):
         subparser = subparsers.add_parser(command)
@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the software-project sourcing CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
     auth_flow = InteractiveAuthFlow(store=CredentialStore())
@@ -85,6 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 allow_partial=args.allow_partial,
                 minimum_score=args.minimum_score,
                 max_candidates=args.max_candidates,
+                minimum_selected=args.minimum_selected,
             )
             all_candidates = pipeline.load_candidates(catalog_path)
             _print_summary("run", selected, all_candidates=all_candidates)
@@ -96,19 +98,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
+    """Attach common CLI arguments to one subcommand parser."""
     parser.add_argument(
         "--output-dir",
-        default=str(Path(__file__).resolve().parents[1] / "catalog"),
+        default=str(Path(__file__).resolve().parents[1] / "environment"),
         help="Catalog output directory.",
     )
     parser.add_argument(
         "--providers",
         nargs="+",
         choices=sorted(PROVIDER_TYPES.keys()),
-        default=sorted(PROVIDER_TYPES.keys()),
+        default=["github"],
         help="Provider adapters to run.",
     )
-    parser.add_argument("--limit", type=int, default=5, help="Per-provider discovery limit.")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Per-provider discovery limit.",
+    )
     parser.add_argument(
         "--allow-partial",
         action="store_true",
@@ -124,11 +132,21 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         "--max-candidates",
         type=int,
         default=None,
-        help="Maximum number of promoted candidates.",
+        help="Maximum number of promoted projects.",
+    )
+    parser.add_argument(
+        "--minimum-selected",
+        type=int,
+        default=None,
+        help=(
+            "During `run`, keep retrieving additional discovery pages until at least "
+            "this many projects are selected or the provider is exhausted."
+        ),
     )
 
 
 def _print_summary(stage: str, candidates, *, all_candidates=None) -> None:
+    """Print a compact JSON summary for one CLI stage."""
     selected = list(candidates)
     discovered = list(all_candidates) if all_candidates is not None else selected
     payload = {
@@ -138,14 +156,14 @@ def _print_summary(stage: str, candidates, *, all_candidates=None) -> None:
         "rejected_count": max(len(discovered) - len(selected), 0),
         "selected": [
             {
-                "game_id": candidate.game_id,
-                "title": candidate.title,
-                "provider": candidate.provider,
+                "environment_id": candidate.environment_id,
+                "project_name": candidate.project_name,
+                "repo_full_name": candidate.repo_full_name,
                 "score": candidate.score,
-                "complexity": candidate.complexity,
-                "homepage_url": candidate.homepage_url,
-                "source_repo_url": candidate.source_repo_url,
-                "patch_notes_url": candidate.patch_notes_url,
+                "interaction_mode": candidate.capabilities.interaction_mode,
+                "github_url": candidate.github_url,
+                "release_notes_url": candidate.release_notes_url,
+                "dedupe_key": candidate.dedupe_key,
             }
             for candidate in selected
         ],
@@ -154,11 +172,12 @@ def _print_summary(stage: str, candidates, *, all_candidates=None) -> None:
     if rejected:
         payload["rejected"] = [
             {
-                "game_id": candidate.game_id,
-                "title": candidate.title,
+                "environment_id": candidate.environment_id,
+                "project_name": candidate.project_name,
+                "repo_full_name": candidate.repo_full_name,
                 "score": candidate.score,
-                "complexity": candidate.complexity,
-                "homepage_url": candidate.homepage_url,
+                "interaction_mode": candidate.capabilities.interaction_mode,
+                "github_url": candidate.github_url,
                 "rejection_reasons": candidate.rejection_reasons,
             }
             for candidate in rejected

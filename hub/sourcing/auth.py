@@ -1,25 +1,24 @@
-"""Interactive credential setup for the Hub sourcing CLI."""
+"""Interactive GitHub credential setup for the software-project sourcing CLI."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 import getpass
 import os
+from pathlib import Path
 import sys
 from typing import Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from .fetcher import FetchError
-from .providers.base import ProviderError
 
 
 PromptFunc = Callable[[str], str]
 PrintFunc = Callable[[str], None]
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True)
 class CredentialField:
-    """Single credential definition."""
+    """Define one interactive credential prompt."""
 
     env_name: str
     display_name: str
@@ -31,39 +30,32 @@ class CredentialField:
 GITHUB_FIELD = CredentialField(
     env_name="GITHUB_TOKEN",
     display_name="GitHub personal access token",
-    docs_url="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
-    required_for="higher GitHub API rate limits during repository, release, and tag discovery",
+    docs_url=(
+        "https://docs.github.com/en/authentication/"
+        "keeping-your-account-and-data-secure/managing-your-personal-access-tokens"
+    ),
+    required_for=(
+        "higher GitHub API rate limits and authenticated access for repository "
+        "metadata, releases, tags, issues, and pull requests"
+    ),
     acquisition_steps=(
         "Sign in to GitHub and open Settings.",
-        "Go to Developer settings -> Personal access tokens.",
-        "Prefer a fine-grained token when possible. GitHub recommends fine-grained tokens.",
-        "Create a token that can read public repository metadata for the repos you want to inspect.",
-        "Copy the token once and paste it into this CLI when prompted.",
-    ),
-)
-
-STEAM_FIELD = CredentialField(
-    env_name="STEAM_WEB_API_KEY",
-    display_name="Steam Web API key",
-    docs_url="https://partner.steamgames.com/doc/webapi_overview/auth",
-    required_for="Steam discovery via partner.steam-api.com",
-    acquisition_steps=(
-        "Sign in to Steamworks with an administrator-capable account.",
-        "Open Users & Permissions -> Manage Groups.",
-        "Create or select a group for Web API access.",
-        "Choose Create WebAPI Key and save the desired permissions.",
-        "Copy the key shown in the group page sidebar and paste it into this CLI.",
+        "Open Developer settings -> Personal access tokens.",
+        "Prefer a fine-grained token when possible.",
+        "Create a token that can read public repository metadata.",
+        "Copy the token once and paste it into this CLI.",
     ),
 )
 
 
 class CredentialStore:
-    """Simple `.env` store scoped to `hub/sourcing`."""
+    """Store local CLI credentials in ``hub/sourcing/.env``."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = path or Path(__file__).resolve().with_name(".env")
 
     def load(self) -> Dict[str, str]:
+        """Load saved credentials."""
         if not self.path.exists():
             return {}
         values: Dict[str, str] = {}
@@ -76,18 +68,21 @@ class CredentialStore:
         return values
 
     def apply(self) -> Dict[str, str]:
+        """Apply saved credentials to the current process environment."""
         values = self.load()
         for key, value in values.items():
             os.environ.setdefault(key, value)
         return values
 
     def write(self, updates: Mapping[str, str]) -> None:
+        """Write one or more credentials into the local store."""
         current = self.load()
         current.update({key: value for key, value in updates.items() if value})
         lines = [f"{key}={value}" for key, value in sorted(current.items())]
         self.path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
     def delete(self, keys: Iterable[str]) -> None:
+        """Remove one or more credentials from the local store."""
         current = self.load()
         for key in keys:
             current.pop(key, None)
@@ -96,7 +91,7 @@ class CredentialStore:
 
 
 class InteractiveAuthFlow:
-    """Terminal-driven credential setup and retry assistance."""
+    """Guide the user through GitHub authentication in the terminal."""
 
     def __init__(
         self,
@@ -113,33 +108,33 @@ class InteractiveAuthFlow:
 
     @staticmethod
     def is_interactive() -> bool:
+        """Return whether the current terminal can prompt interactively."""
         return sys.stdin.isatty() and sys.stdout.isatty()
 
     def bootstrap(self, providers: Sequence[str]) -> None:
+        """Load saved credentials and offer optional setup before networked runs."""
         self.store.apply()
         if not self.is_interactive():
             return
         if "github" in providers and not os.getenv(GITHUB_FIELD.env_name):
             self._print("")
-            self._print("GitHub discovery works without a token, but it is easy to hit the unauthenticated rate limit.")
+            self._print(
+                "GitHub discovery works without a token, but unauthenticated "
+                "requests hit rate limits quickly."
+            )
             self._offer_setup(GITHUB_FIELD, required=False)
-        if "steam" in providers and not os.getenv(STEAM_FIELD.env_name):
-            self._print("")
-            self._print("Steam discovery uses the partner Steam Web API and needs a Steam Web API key.")
-            self._offer_setup(STEAM_FIELD, required=False)
 
     def configure(self, providers: Iterable[str]) -> None:
-        """Explicitly prompt for credential setup for selected providers."""
+        """Run explicit interactive setup for supported providers."""
         self.store.apply()
         if not self.is_interactive():
             return
         for provider in providers:
             if provider == "github":
-                self._offer_setup(GITHUB_FIELD, required=False)
-            elif provider == "steam":
-                self._offer_setup(STEAM_FIELD, required=False)
+                self._offer_setup(GITHUB_FIELD, required=False, force=True)
 
     def recoverable_auth_error(self, exc: Exception) -> bool:
+        """Handle recoverable GitHub authentication errors."""
         if not self.is_interactive():
             return False
         if self._is_github_bad_credentials(exc):
@@ -149,11 +144,7 @@ class InteractiveAuthFlow:
         if self._is_github_rate_limit(exc):
             self._print("")
             self._print("GitHub returned an API rate-limit response.")
-            return self._offer_setup(GITHUB_FIELD, required=True)
-        if self._is_missing_steam_key(exc):
-            self._print("")
-            self._print("Steam discovery cannot continue without `STEAM_WEB_API_KEY`.")
-            return self._offer_setup(STEAM_FIELD, required=True)
+            return self._offer_setup(GITHUB_FIELD, required=True, force=True)
         return False
 
     def _offer_setup(
@@ -173,7 +164,7 @@ class InteractiveAuthFlow:
                 self._print(f"{index}. {step}")
         if not self._yes_no("Enter the key in this terminal now?", default=required):
             if required:
-                self._print(f"Skipping {field.env_name} leaves this provider unavailable.")
+                self._print(f"Skipping {field.env_name} leaves GitHub discovery unavailable.")
             return False
         value = self._secret_prompt(f"Paste {field.env_name}: ").strip()
         if not value:
@@ -191,9 +182,7 @@ class InteractiveAuthFlow:
         return True
 
     def _replace_credential(self, field: CredentialField) -> bool:
-        current = os.getenv(field.env_name, "")
-        if current:
-            self._print(f"An existing value is set for {field.env_name}.")
+        """Replace an invalid saved credential."""
         if self._yes_no("Remove the saved local value before re-entering it?", default=True):
             self.store.delete([field.env_name])
             os.environ.pop(field.env_name, None)
@@ -224,7 +213,3 @@ class InteractiveAuthFlow:
             return False
         haystack = f"{exc.url}\n{exc.body}".lower()
         return "api.github.com" in haystack and "bad credentials" in haystack
-
-    @staticmethod
-    def _is_missing_steam_key(exc: Exception) -> bool:
-        return isinstance(exc, ProviderError) and "STEAM_WEB_API_KEY" in str(exc)

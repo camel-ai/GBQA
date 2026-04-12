@@ -1,126 +1,78 @@
-"""Scoring and hard-filter logic for candidate selection."""
+"""Scoring and hard-filter logic for software-project selection."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List
-
-from .models import CandidateGame, ScoreBreakdown
-from .utils import parse_datetime
+from .models import ScoreBreakdown, SoftwareProjectCandidate
 
 
-def classify_complexity(candidate: CandidateGame) -> str:
-    """Classify gameplay/system complexity into low, medium, or high."""
-    text = " ".join(
-        [candidate.title, candidate.summary, " ".join(candidate.tags)]
-    ).lower()
-    if candidate.capabilities.blocks_archival_replay:
-        return "high"
-    if any(
-        token in text
-        for token in (
-            "multiplayer",
-            "mmo",
-            "anti-cheat",
-            "always online",
-            "live service",
-            "server browser",
-            "dedicated server",
-        )
-    ):
-        return "high"
-    if len(candidate.versions) < 2 or len(candidate.patches) < 1:
-        return "low"
-    if any(token in text for token in ("jam", "prototype", "tutorial", "tiny", "micro")):
-        return "low"
-    return "medium"
-
-
-def hard_filter_failures(candidate: CandidateGame) -> List[str]:
-    """Return the hard-filter rejection reasons for a candidate."""
-    failures: List[str] = []
+def hard_filter_failures(candidate: SoftwareProjectCandidate) -> list[str]:
+    """Return hard-filter failures for one software project."""
+    failures: list[str] = []
     capabilities = candidate.capabilities
-    if not capabilities.is_free:
-        failures.append("not_free")
-    if not (capabilities.has_public_source or capabilities.has_historical_builds):
-        failures.append("no_public_source_or_historical_build")
-    if not capabilities.has_version_trail:
-        failures.append("missing_version_trail")
-    if not capabilities.has_patch_notes:
-        failures.append("missing_patch_notes")
-    if not capabilities.has_official_patch_notes:
-        failures.append("missing_official_patch_notes")
-    if not capabilities.runnable_locally:
-        failures.append("not_runnable_locally")
-    if capabilities.blocks_archival_replay:
-        failures.append("archival_replay_blocked")
+    if not capabilities.has_public_source:
+        failures.append("missing_public_source")
+    if not capabilities.has_release_history:
+        failures.append("missing_release_history")
+    if not capabilities.has_fix_releases:
+        failures.append("missing_bug_fix_release_evidence")
+    if not capabilities.has_recoverable_baseline:
+        failures.append("missing_recoverable_baseline")
+    if candidate.selected_release_pair is not None:
+        if not capabilities.has_tracked_issue_closure:
+            failures.append("tracked_issues_not_closed")
+    if capabilities.interaction_mode == "unknown":
+        failures.append("unsupported_interaction_surface")
+    if candidate.engagement.workability_score < 20.0:
+        failures.append("insufficient_workability")
     return failures
 
 
-def score_candidate(candidate: CandidateGame) -> ScoreBreakdown:
-    """Score a candidate using fixed weighted categories."""
-    candidate.complexity = classify_complexity(candidate)
+def score_candidate(candidate: SoftwareProjectCandidate) -> ScoreBreakdown:
+    """Score one software project with fixed weighted categories."""
     failures = hard_filter_failures(candidate)
-    access = 0.0
-    if candidate.capabilities.is_free:
-        access += 10.0
-    if candidate.capabilities.has_public_source or candidate.license:
-        access += 10.0
-    if candidate.capabilities.runnable_locally:
-        access += 5.0
+    source_access = 25.0 if candidate.capabilities.has_public_source else 0.0
 
-    version_quality = 0.0
-    if candidate.capabilities.has_version_trail:
-        version_quality += 10.0
-    if candidate.capabilities.has_official_patch_notes:
-        version_quality += 10.0
-    version_quality += min(float(len(candidate.patches)), 5.0)
+    release_evidence = 0.0
+    if candidate.capabilities.has_release_history:
+        release_evidence += 10.0
+    release_evidence += min(float(candidate.engagement.release_count), 10.0)
+    if candidate.capabilities.has_fix_releases:
+        release_evidence += 10.0
 
-    historical = 0.0
-    if candidate.capabilities.has_historical_builds:
-        historical = 20.0
-    elif candidate.capabilities.has_public_source:
-        historical = 16.0
+    engineering_activity = min(candidate.engagement.workability_score / 100.0, 1.0) * 20.0
 
-    complexity = 15.0 if candidate.complexity == "medium" else 4.0 if candidate.complexity == "high" else 6.0
+    interaction_mode = candidate.capabilities.interaction_mode
+    if interaction_mode == "mixed":
+        architecture_fit = 15.0
+    elif interaction_mode in {"computer_use", "api_cli"}:
+        architecture_fit = 12.0
+    else:
+        architecture_fit = 0.0
 
-    maintenance = _maintenance_score(candidate)
-    documentation = 0.0
-    if candidate.summary:
-        documentation += 2.0
-    if candidate.homepage_url:
-        documentation += 1.5
-    if candidate.patch_notes_url:
-        documentation += 1.5
+    metadata_quality = 0.0
+    if candidate.about:
+        metadata_quality += 3.0
+    if candidate.topics:
+        metadata_quality += 2.0
+    if candidate.languages:
+        metadata_quality += 2.0
+    if candidate.release_notes_url:
+        metadata_quality += 3.0
 
-    total = access + version_quality + historical + complexity + maintenance + documentation
-    breakdown = ScoreBreakdown(
-        access_licensing=access,
-        version_patch_quality=version_quality,
-        historical_build_recoverability=historical,
-        complexity_fit=complexity,
-        maintenance_cadence=maintenance,
-        documentation_quality=documentation,
-        total=total,
+    total = (
+        source_access
+        + release_evidence
+        + engineering_activity
+        + architecture_fit
+        + metadata_quality
+    )
+    return ScoreBreakdown(
+        source_access=source_access,
+        release_evidence=release_evidence,
+        engineering_activity=engineering_activity,
+        architecture_fit=architecture_fit,
+        metadata_quality=metadata_quality,
+        total=round(total, 2),
         accepted=False,
         hard_filter_failures=failures,
     )
-    return breakdown
-
-
-def _maintenance_score(candidate: CandidateGame) -> float:
-    score = min(float(len(candidate.patches)), 6.0)
-    latest_patch = None
-    for patch in candidate.patches:
-        parsed = parse_datetime(patch.published_at)
-        if parsed is None:
-            continue
-        latest_patch = max(latest_patch, parsed) if latest_patch is not None else parsed
-    if latest_patch is None:
-        return score
-    age_days = (datetime.now(timezone.utc) - latest_patch).days
-    if age_days <= 365:
-        score += 4.0
-    elif age_days <= 730:
-        score += 2.0
-    return min(score, 10.0)

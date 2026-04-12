@@ -1,4 +1,4 @@
-"""Environment sourcing pipeline for Hub."""
+"""Software-project sourcing pipeline for Hub."""
 
 from .pipeline import SourcingPipeline
 
