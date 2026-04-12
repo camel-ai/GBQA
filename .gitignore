@@ -184,6 +184,7 @@ temp/
 
 # Hub sourcing generated outputs
 hub/catalog/
+hub/environment/
 
 
 # ========================================
