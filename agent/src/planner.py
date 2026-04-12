@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict
+
+from camel.messages import BaseMessage
+from PIL import Image
 
 from .llm_client import LlmClient
 from .prompts import PromptBundle, render_prompt
@@ -37,12 +41,17 @@ class ActionPlanner:
             "memory_summary": context.get("memory_summary", ""),
             "recent_trace": context.get("recent_trace", ""),
             "current_observation": context.get("current_observation", ""),
+            "current_artifacts": context.get("current_artifacts", ""),
             "turn": str(context.get("turn", "")),
             "code_tools_prompt_section": context.get("code_tools_prompt_section", ""),
         }
         planner_prompt = render_prompt(self._prompts.planner, variables)
+        prompt_input = self._build_prompt_input(
+            planner_prompt=planner_prompt,
+            image_paths=context.get("observation_images", []),
+        )
         response = self._agent.run(
-            planner_prompt,
+            prompt_input,
             response_format=PlannerDecision,
         )
         action = self._to_action(response.parsed)
@@ -51,6 +60,30 @@ class ActionPlanner:
             prompt=planner_prompt,
             output=response.content,
             error=response.error,
+        )
+
+    @staticmethod
+    def _build_prompt_input(
+        *,
+        planner_prompt: str,
+        image_paths: Any,
+    ) -> str | BaseMessage:
+        images = []
+        for item in image_paths or []:
+            path = Path(str(item)).expanduser()
+            if not path.exists():
+                continue
+            try:
+                with Image.open(path) as image:
+                    images.append(image.copy())
+            except OSError:
+                continue
+        if not images:
+            return planner_prompt
+        return BaseMessage.make_user_message(
+            role_name="Planner",
+            content=planner_prompt,
+            image_list=images,
         )
 
     @staticmethod

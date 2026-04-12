@@ -72,6 +72,12 @@ class BugDetector:
 
     def inspect(self, action: Action, observation: Observation) -> List[BugFinding]:
         """Inspect an observation with deterministic rules and CAMEL review."""
+        execution_origin = str(
+            (observation.execution or {}).get("suspected_origin", "")
+        )
+        if execution_origin == "execution":
+            return []
+
         findings: List[BugFinding] = []
 
         if "response_format" in self._rules:
@@ -111,6 +117,11 @@ class BugDetector:
     def is_benign_failure(cls, observation: Observation) -> bool:
         """Return whether a failed command looks like an expected game refusal."""
         if observation.success:
+            return False
+        execution_origin = str(
+            (observation.execution or {}).get("suspected_origin", "")
+        )
+        if execution_origin == "execution":
             return False
         return cls._is_benign_failure_message(observation.message)
 
@@ -167,7 +178,7 @@ class BugDetector:
     ) -> Optional[BugFinding]:
         if observation.success:
             return None
-        message = (observation.message or "").strip()
+        message = (observation.summary or observation.message or "").strip()
         if not message:
             return BugFinding(
                 title="Command failed without explanation",
@@ -216,7 +227,7 @@ class BugDetector:
                 "Review the candidate findings below and refine them. "
                 "Keep finding_index aligned with the source list.\n\n"
                 f"Action: {action.command}\n"
-                f"Observation message: {observation.message}\n"
+                f"Observation message: {observation.summary or observation.message}\n"
                 f"Findings:\n{summary}"
             ),
             response_format=BugReviewBatch,

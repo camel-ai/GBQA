@@ -181,6 +181,7 @@ server.*
 *.temp
 tmp/
 temp/
+.playwright-mcp/
 
 # Hub sourcing generated outputs
 hub/catalog/
