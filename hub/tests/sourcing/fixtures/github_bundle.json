@@ -1,0 +1,239 @@
+{
+  "search_items": [
+    {
+      "full_name": "acme/flow-ui",
+      "name": "flow-ui"
+    },
+    {
+      "full_name": "acme/api-service",
+      "name": "api-service"
+    },
+    {
+      "full_name": "acme/widget-lib",
+      "name": "widget-lib"
+    }
+  ],
+  "repos": {
+    "acme/flow-ui": {
+      "full_name": "acme/flow-ui",
+      "name": "flow-ui",
+      "html_url": "https://github.com/acme/flow-ui",
+      "clone_url": "https://github.com/acme/flow-ui.git",
+      "owner": {
+        "login": "acme"
+      },
+      "default_branch": "main",
+      "description": "A full-stack workflow product with React UI and FastAPI backend.",
+      "topics": ["frontend", "backend", "react", "fastapi", "postgres"],
+      "license": {
+        "spdx_id": "MIT"
+      },
+      "stargazers_count": 120,
+      "forks_count": 21,
+      "open_issues_count": 14,
+      "pushed_at": "2026-03-15T00:00:00Z"
+    },
+    "acme/api-service": {
+      "full_name": "acme/api-service",
+      "name": "api-service",
+      "html_url": "https://github.com/acme/api-service",
+      "clone_url": "https://github.com/acme/api-service.git",
+      "owner": {
+        "login": "acme"
+      },
+      "default_branch": "main",
+      "description": "A backend-first service with database migrations and public API.",
+      "topics": ["backend", "api", "database", "service"],
+      "license": {
+        "spdx_id": "Apache-2.0"
+      },
+      "stargazers_count": 80,
+      "forks_count": 12,
+      "open_issues_count": 8,
+      "pushed_at": "2026-02-10T00:00:00Z"
+    },
+    "acme/widget-lib": {
+      "full_name": "acme/widget-lib",
+      "name": "widget-lib",
+      "html_url": "https://github.com/acme/widget-lib",
+      "clone_url": "https://github.com/acme/widget-lib.git",
+      "owner": {
+        "login": "acme"
+      },
+      "default_branch": "main",
+      "description": "A small shared widget library.",
+      "topics": ["library", "components"],
+      "license": {
+        "spdx_id": "MIT"
+      },
+      "stargazers_count": 6,
+      "forks_count": 1,
+      "open_issues_count": 1,
+      "pushed_at": "2024-01-10T00:00:00Z"
+    }
+  },
+  "releases": {
+    "acme/flow-ui": [
+      {
+        "tag_name": "v1.0.0",
+        "name": "Version 1.0.0",
+        "published_at": "2025-11-01T00:00:00Z",
+        "html_url": "https://github.com/acme/flow-ui/releases/tag/v1.0.0",
+        "zipball_url": "https://api.github.com/repos/acme/flow-ui/zipball/v1.0.0",
+        "body": "Initial stable release.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/flow-ui-1.0.0.zip"
+          }
+        ]
+      },
+      {
+        "tag_name": "v1.1.0",
+        "name": "Version 1.1.0",
+        "published_at": "2026-02-01T00:00:00Z",
+        "html_url": "https://github.com/acme/flow-ui/releases/tag/v1.1.0",
+        "zipball_url": "https://api.github.com/repos/acme/flow-ui/zipball/v1.1.0",
+        "body": "- Fixed dashboard filter state getting lost after refresh.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/flow-ui-1.1.0.zip"
+          }
+        ]
+      },
+      {
+        "tag_name": "v1.2.0",
+        "name": "Version 1.2.0",
+        "published_at": "2026-03-01T00:00:00Z",
+        "html_url": "https://github.com/acme/flow-ui/releases/tag/v1.2.0",
+        "zipball_url": "https://api.github.com/repos/acme/flow-ui/zipball/v1.2.0",
+        "body": "## Bug Fixes\n- Fixed dashboard filter state getting lost after refresh (#145).\n- Fixed API timeout handling during approval submission (#146).\n- Fixed CSV export escaping in approval history (https://github.com/acme/flow-ui/pull/147).\n## Features\n- Added exports center.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/flow-ui-1.2.0.zip"
+          }
+        ]
+      }
+    ],
+    "acme/api-service": [
+      {
+        "tag_name": "v2.4.0",
+        "name": "Version 2.4.0",
+        "published_at": "2025-10-01T00:00:00Z",
+        "html_url": "https://github.com/acme/api-service/releases/tag/v2.4.0",
+        "zipball_url": "https://api.github.com/repos/acme/api-service/zipball/v2.4.0",
+        "body": "Initial service release.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/api-service-2.4.0.zip"
+          }
+        ]
+      },
+      {
+        "tag_name": "v2.4.1",
+        "name": "Version 2.4.1",
+        "published_at": "2026-01-12T00:00:00Z",
+        "html_url": "https://github.com/acme/api-service/releases/tag/v2.4.1",
+        "zipball_url": "https://api.github.com/repos/acme/api-service/zipball/v2.4.1",
+        "body": "- Fixed auth token validation for expired sessions.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/api-service-2.4.1.zip"
+          }
+        ]
+      },
+      {
+        "tag_name": "v2.5.0",
+        "name": "Version 2.5.0",
+        "published_at": "2026-03-10T00:00:00Z",
+        "html_url": "https://github.com/acme/api-service/releases/tag/v2.5.0",
+        "zipball_url": "https://api.github.com/repos/acme/api-service/zipball/v2.5.0",
+        "body": "### Fixes\n- Fixed migration ordering in tenant bootstrap (#244).\n- Fixed webhook retries for stale tenant credentials (#245).\n### Improvements\n- Added request tracing headers.",
+        "assets": [
+          {
+            "browser_download_url": "https://downloads.example.com/api-service-2.5.0.zip"
+          }
+        ]
+      }
+    ],
+    "acme/widget-lib": []
+  },
+  "tags": {
+    "acme/flow-ui": [
+      {"name": "v1.0.0"},
+      {"name": "v1.1.0"},
+      {"name": "v1.2.0"}
+    ],
+    "acme/api-service": [
+      {"name": "v2.4.0"},
+      {"name": "v2.4.1"},
+      {"name": "v2.5.0"}
+    ],
+    "acme/widget-lib": [
+      {"name": "v0.1.0"}
+    ]
+  },
+  "languages": {
+    "acme/flow-ui": {
+      "TypeScript": 12000,
+      "Python": 9000,
+      "HTML": 2000
+    },
+    "acme/api-service": {
+      "Python": 15000,
+      "SQL": 2000
+    },
+    "acme/widget-lib": {
+      "TypeScript": 4000
+    }
+  },
+  "contributors": {
+    "acme/flow-ui": [
+      {"login": "one"},
+      {"login": "two"},
+      {"login": "three"},
+      {"login": "four"}
+    ],
+    "acme/api-service": [
+      {"login": "one"},
+      {"login": "two"},
+      {"login": "three"}
+    ],
+    "acme/widget-lib": [
+      {"login": "one"}
+    ]
+  },
+  "issue_counts": {
+    "acme/flow-ui": {"total_count": 42},
+    "acme/api-service": {"total_count": 28},
+    "acme/widget-lib": {"total_count": 1}
+  },
+  "pull_request_counts": {
+    "acme/flow-ui": {"total_count": 18},
+    "acme/api-service": {"total_count": 11},
+    "acme/widget-lib": {"total_count": 0}
+  },
+  "trees": {
+    "acme/flow-ui": {
+      "tree": [
+        {"path": "package.json", "type": "blob"},
+        {"path": "src/App.tsx", "type": "blob"},
+        {"path": "backend/app.py", "type": "blob"},
+        {"path": "backend/routes/api.py", "type": "blob"},
+        {"path": "alembic/versions/001.sql", "type": "blob"}
+      ]
+    },
+    "acme/api-service": {
+      "tree": [
+        {"path": "service/app.py", "type": "blob"},
+        {"path": "service/routes.py", "type": "blob"},
+        {"path": "database/migrations/001_init.sql", "type": "blob"}
+      ]
+    },
+    "acme/widget-lib": {
+      "tree": [
+        {"path": "src/index.ts", "type": "blob"},
+        {"path": "src/widget.ts", "type": "blob"}
+      ]
+    }
+  }
+}
