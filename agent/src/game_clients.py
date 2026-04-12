@@ -41,6 +41,9 @@ class GameClient(Protocol):
     def restore_code_file(self, path: str) -> Dict[str, Any]:
         ...
 
+    def get_current_log(self, game_id: str) -> Dict[str, Any]:
+        ...
+
     def close(self) -> None:
         ...
 
@@ -169,6 +172,19 @@ class HttpGameClient:
         response = self._session.post(
             f"{self._base_url}/code/restore",
             json={"path": path},
+            timeout=self._timeout,
+        )
+        if response.status_code >= 400:
+            return response.json()
+        response.raise_for_status()
+        return response.json()
+
+    def get_current_log(self, game_id: str) -> Dict[str, Any]:
+        """Fetch the active session log via the existing /api/logs/current/<game_id> endpoint."""
+        # This endpoint is under /api/logs, not /api/agent, so derive the base.
+        api_base = self._base_url.rsplit("/agent", 1)[0]
+        response = self._session.get(
+            f"{api_base}/logs/current/{game_id}",
             timeout=self._timeout,
         )
         if response.status_code >= 400:

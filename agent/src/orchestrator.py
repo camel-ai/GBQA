@@ -38,6 +38,7 @@ class Orchestrator:
         confidence_threshold: float,
         reflection_interval: int,
         summary_interval: int,
+        log_analysis_interval: int = 0,
     ) -> None:
         self._game_id = game_id
         self._tool_registry = tool_registry
@@ -53,6 +54,7 @@ class Orchestrator:
         self._confidence_threshold = confidence_threshold
         self._reflection_interval = reflection_interval
         self._summary_interval = summary_interval
+        self._log_analysis_interval = log_analysis_interval
         self._parser = ObservationParser()
 
     def run(self, game_profile: str) -> RunReport:
@@ -107,13 +109,40 @@ class Orchestrator:
                         action, game_session_id, lookup_result
                     )
 
+            # Auto-trigger log analysis
+            auto_log_note = ""
+            if self._has_log_tools():
+                should_analyze_log = False
+                if consecutive_failures == self._max_consecutive_failures - 1:
+                    should_analyze_log = True
+                if (
+                    self._log_analysis_interval > 0
+                    and step % self._log_analysis_interval == 0
+                ):
+                    should_analyze_log = True
+                if (
+                    action.bug_exist
+                    and action.confidence >= self._confidence_threshold
+                ):
+                    should_analyze_log = True
+                if should_analyze_log:
+                    auto_log_note = self._auto_log_analysis(game_session_id)
+
             is_code_tool = action.tool.startswith("code_")
+            is_log_tool = action.tool.startswith("log_")
             raw_response = self._invoke_tool(action, game_session_id)
 
             if is_code_tool:
                 current_observation = Observation(
                     success=raw_response.get("success", True),
                     message=self._format_code_response(raw_response),
+                    state=current_observation.state,
+                    turn=current_observation.turn,
+                )
+            elif is_log_tool:
+                current_observation = Observation(
+                    success=raw_response.get("success", True),
+                    message=self._format_log_response(raw_response),
                     state=current_observation.state,
                     turn=current_observation.turn,
                 )
@@ -126,11 +155,11 @@ class Orchestrator:
                 observation=current_observation,
                 planner_prompt=plan.prompt,
                 planner_output=plan.output,
-                notes="\n".join(filter(None, [auto_code_note, auto_debug_note])),
+                notes="\n".join(filter(None, [auto_code_note, auto_debug_note, auto_log_note])),
             )
             report.steps.append(record)
 
-            if is_code_tool:
+            if is_code_tool or is_log_tool:
                 findings: List[BugFinding] = []
             else:
                 findings = self._detector.inspect(action, current_observation)
@@ -139,7 +168,7 @@ class Orchestrator:
                     self._memory.record_bug(bug, step)
                     self._reporter.log_bug(bug, step)
 
-            if is_code_tool or current_observation.success:
+            if is_code_tool or is_log_tool or current_observation.success:
                 consecutive_failures = 0
             elif self._detector.is_benign_failure(current_observation):
                 consecutive_failures = 0
@@ -303,6 +332,24 @@ class Orchestrator:
             }
         elif action.tool == "code_restore_file":
             payload = {"path": action.command.strip()}
+        elif action.tool == "log_analyze":
+            payload = {
+                "game_id": game_session_id,
+                "include_debug_output": True,
+            }
+            # Parse optional filter params from command text
+            cmd_text = action.command.strip()
+            if cmd_text.lower() == "failures":
+                payload["failures_only"] = True
+            elif cmd_text.startswith("{"):
+                try:
+                    extra = json.loads(cmd_text)
+                    if isinstance(extra, dict):
+                        for k in ("start_turn", "end_turn", "failures_only", "limit"):
+                            if k in extra:
+                                payload[k] = extra[k]
+                except (json.JSONDecodeError, ValueError):
+                    pass
         else:
             payload = {"game_id": game_session_id, "command": action.command}
         return self._tool_registry.invoke(action.tool, payload)
@@ -533,6 +580,66 @@ class Orchestrator:
 
         return "\n".join(parts)
 
+    def _has_log_tools(self) -> bool:
+        """Return True when log analysis tools are registered."""
+        if not hasattr(self._tool_registry, "list_tools"):
+            return False
+        return any(t.name == "log_analyze" for t in self._tool_registry.list_tools())
+
+    def _auto_log_analysis(self, game_session_id: str) -> str:
+        """Auto-trigger server-side log analysis and return a formatted note."""
+        resp = self._tool_registry.invoke(
+            "log_analyze",
+            {"game_id": game_session_id, "include_debug_output": True},
+        )
+        if not resp.get("success", False):
+            return f"[Auto log analysis] Failed: {resp.get('message', 'unknown error')}"
+
+        analysis = resp.get("analysis", {})
+        parts = [f"[Auto log analysis] {analysis.get('summary', '')}"]
+        for anomaly in analysis.get("anomalies", [])[:5]:
+            parts.append(
+                f"  - [{anomaly['severity']}] {anomaly['type']}: {anomaly['description']}"
+            )
+        debug = analysis.get("debug_findings", {})
+        if debug.get("error_count", 0) > 0:
+            parts.append(f"  Server errors: {debug['error_count']}")
+            for err in debug.get("errors", [])[:3]:
+                parts.append(f"    {err.get('line', '')}")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _format_log_response(raw: Dict[str, Any]) -> str:
+        """Format a log-tool API response into readable text."""
+        if not raw.get("success", False):
+            return f"[Log tool error] {raw.get('message', 'Unknown error')}"
+        parts: List[str] = []
+        if "analysis" in raw:
+            analysis = raw["analysis"]
+            parts.append(analysis.get("summary", ""))
+            for anomaly in analysis.get("anomalies", []):
+                parts.append(
+                    f"  [{anomaly['severity']}] {anomaly['type']}: {anomaly['description']}"
+                )
+            debug = analysis.get("debug_findings", {})
+            if debug.get("error_count", 0) > 0:
+                parts.append(f"Server errors: {debug['error_count']}")
+        if "filtered_commands" in raw:
+            fc = raw["filtered_commands"]
+            cmds = fc.get("commands", [])
+            if cmds:
+                parts.append(f"Filtered commands ({fc.get('returned_commands', len(cmds))} of {fc.get('filtered_total', '?')}):")
+                for c in cmds:
+                    status = "OK" if c.get("response", {}).get("success", True) else "FAIL"
+                    parts.append(f"  T{c.get('turn', '?')}: [{status}] {c.get('command', '')}")
+            else:
+                parts.append("No commands match the filter.")
+        if not parts:
+            if "message" in raw:
+                return str(raw["message"])
+            return str(raw)
+        return "\n".join(parts)
+
     @staticmethod
     def _is_fatal_llm_error(error: str) -> bool:
         lowered = (error or "").lower()
@@ -576,7 +683,8 @@ class Orchestrator:
             "recent_trace": recent_trace,
             "current_observation": observation_text,
             "turn": observation.turn or 0,
-            "code_tools_prompt_section": self._build_code_tools_prompt_section(),
+            "code_tools_prompt_section": self._build_code_tools_prompt_section()
+            + self._build_log_tools_prompt_section(),
         }
 
     def _build_code_tools_prompt_section(self) -> str:
@@ -608,6 +716,18 @@ class Orchestrator:
             "- code_restore_file: Restore a file previously modified with `code_write_file`. Put the file path in `command`.\n\n"
             "Use code tools ONLY when you have a concrete hypothesis to verify via source code.\n"
             "Do not speculatively browse code. Prefer gameplay-based verification first."
+        )
+
+    def _build_log_tools_prompt_section(self) -> str:
+        if not self._has_log_tools():
+            return ""
+        return (
+            "\n\n## Log Analysis:\n"
+            "You can analyze the game session log to identify anomalies and patterns:\n"
+            "- `log_analyze`: Run anomaly detection on the session log (detects failed streaks, "
+            "state inconsistencies, repeated commands, error patterns, time gaps). "
+            "Optionally pass `failures` in command to filter failed commands only, "
+            "or a JSON object with start_turn/end_turn/failures_only/limit to filter commands.\n"
         )
 
     def _build_hud_text(self, observation: Observation) -> str:

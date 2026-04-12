@@ -21,7 +21,8 @@ from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
-from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools
+from src.log_analyzer import LogAnalyzer
+from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools, register_log_tools
 
 
 def main() -> None:
@@ -156,7 +157,10 @@ def main() -> None:
     register_standard_game_tools(registry, game_client)
     if config.get_section("agent").get("enable_code_reading", False):
         register_code_reading_tools(registry, game_client)
+    if config.get_section("agent").get("enable_log_analysis", False):
+        register_log_tools(registry, game_client, LogAnalyzer())
 
+    log_analysis_interval = config.get_section("agent").get("log_analysis_interval", 20)
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
         game_id=args.game,
@@ -173,6 +177,7 @@ def main() -> None:
         confidence_threshold=confidence_threshold,
         reflection_interval=reflection_interval,
         summary_interval=summary_interval,
+        log_analysis_interval=log_analysis_interval,
     )
 
     game_profile = game_config.get(
