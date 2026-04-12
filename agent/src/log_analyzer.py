@@ -1,5 +1,5 @@
 """
-Server log analysis engine.
+Session log analysis engine.
 Detect anomalies in game session logs and debug output using hard-coded rules.
 """
 

@@ -151,8 +151,39 @@ def register_code_reading_tools(
 def register_log_tools(
     registry: ToolRegistry,
     game_client: GameClient,
+    analyzer: "LogAnalyzer",
 ) -> None:
-    """Register log analysis tools for session log inspection."""
+    """Register log analysis tools that fetch raw data from the server and analyze locally."""
+    from .log_analyzer import LogAnalyzer as _LA  # noqa: F811 — for type check only
+
+    def _handle_log_analyze(payload: dict) -> dict:
+        game_id = payload["game_id"]
+        log_resp = game_client.get_current_log(game_id)
+        if not log_resp.get("success", False):
+            return log_resp
+        session_data = log_resp.get("data", {})
+        debug_output = ""
+        if payload.get("include_debug_output", True):
+            debug_resp = game_client.read_debug_logs(game_id)
+            debug_output = debug_resp.get("logs", "")
+        analysis = analyzer.analyze_session(session_data, debug_output)
+        return {"success": True, "game_id": game_id, "analysis": analysis}
+
+    def _handle_log_get_session(payload: dict) -> dict:
+        game_id = payload["game_id"]
+        log_resp = game_client.get_current_log(game_id)
+        if not log_resp.get("success", False):
+            return log_resp
+        session_data = log_resp.get("data", {})
+        result = analyzer.filter_commands(
+            session_data,
+            start_turn=int(payload.get("start_turn", 0)),
+            end_turn=int(payload.get("end_turn", 0)),
+            failures_only=bool(payload.get("failures_only", False)),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {"success": True, "game_id": game_id, **result}
+
     registry.register(
         Tool(
             name="log_analyze",
@@ -165,10 +196,7 @@ def register_log_tools(
                 },
                 "required": ["game_id"],
             },
-            handler=lambda payload: game_client.analyze_log(
-                payload["game_id"],
-                include_debug_output=payload.get("include_debug_output", True),
-            ),
+            handler=_handle_log_analyze,
         )
     )
     registry.register(
@@ -186,13 +214,7 @@ def register_log_tools(
                 },
                 "required": ["game_id"],
             },
-            handler=lambda payload: game_client.get_session_log(
-                payload["game_id"],
-                start_turn=int(payload.get("start_turn", 0)),
-                end_turn=int(payload.get("end_turn", 0)),
-                failures_only=bool(payload.get("failures_only", False)),
-                limit=int(payload.get("limit", 50)),
-            ),
+            handler=_handle_log_get_session,
         )
     )
 
