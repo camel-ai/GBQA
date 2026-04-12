@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, Iterable, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Generic, Iterable, Optional, Type, TypeVar, Union
 import json
 import re
 from urllib.parse import urlparse
 
 from camel.agents import ChatAgent
 from camel.memories import ChatHistoryMemory, ScoreBasedContextCreator
+from camel.messages import BaseMessage
 from camel.models import ModelFactory
 from camel.storages import JsonStorage
 from camel.toolkits import FunctionTool
@@ -113,7 +114,7 @@ class CamelTaskAgent:
 
     def run(
         self,
-        prompt: str,
+        prompt: Union[str, BaseMessage],
         response_format: Optional[Type[StructuredResponseT]] = None,
     ) -> ChatAgentResult[StructuredResponseT]:
         """Execute one prompt against the CAMEL agent."""
@@ -186,7 +187,7 @@ class CamelTaskAgent:
 
     def _run_text_fallback(
         self,
-        prompt: str,
+        prompt: Union[str, BaseMessage],
         *,
         response_format: Type[StructuredResponseT],
         original_error: str,

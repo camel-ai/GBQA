@@ -102,7 +102,7 @@ class MemoryManager:
         """Persist a step trace into CAMEL chat-history memory."""
         trace_line = (
             f"Step {record.step}: {record.action.command} -> "
-            f"{record.observation.message}"
+            f"{record.observation.summary or record.observation.message}"
         )
         self._state.pending_trace_lines.append(trace_line)
         if len(self._state.pending_trace_lines) > self._max_short_term:
@@ -114,6 +114,19 @@ class MemoryManager:
             role_name="QA Session",
             role_at_backend=OpenAIBackendRole.USER,
         )
+        execution = record.observation.execution or {}
+        diagnostics = execution.get("diagnostics", {})
+        if diagnostics:
+            self._write_memory_message(
+                content=(
+                    f"Execution step {record.step}: "
+                    f"{json.dumps(diagnostics, ensure_ascii=False)}"
+                ),
+                step=record.step,
+                record_type="execution",
+                role_name="Operator",
+                role_at_backend=OpenAIBackendRole.ASSISTANT,
+            )
         if record.notes:
             self._write_memory_message(
                 content=f"Reflection step {record.step}: {record.notes}",

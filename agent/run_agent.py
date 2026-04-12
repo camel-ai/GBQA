@@ -12,16 +12,29 @@ from src.bug_detector import BugDetector
 from src.camel_runtime import resolve_model_platform
 from src.config import load_config
 from src.evaluator import Evaluator
-from src.game_clients import GameClientConfig, create_http_game_client
+from src.execution_backends import build_execution_backend, resolve_backend_spec
+from src.game_clients import (
+    GameClientConfig,
+    create_http_code_tool_provider,
+    create_http_runtime_log_provider,
+)
 from src.ground_truth import resolve_ground_truth_path
 from src.llm_client import LlmClient
 from src.memory import MemoryManager
+from src.operator import Operator
 from src.orchestrator import Orchestrator
 from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
-from src.tool_registry import ToolRegistry, register_standard_game_tools, register_code_reading_tools
+from src.tool_registry import (
+    ToolInvocationResult,
+    ToolRegistry,
+    register_code_tools,
+    register_game_action_tool,
+    register_runtime_log_tool,
+)
+from src.types import Action
 
 
 def main() -> None:
@@ -57,6 +70,21 @@ def main() -> None:
     game_config = config.get_game(args.game)
     if not game_config:
         raise ValueError(f"Unknown game: {args.game}")
+    backend_spec = resolve_backend_spec(config)
+    port = game_config.get("port")
+    configured_frontend_url = str(
+        game_config.get("frontend_url") or backend_spec.settings.get("frontend_url") or ""
+    ).strip()
+    if port is None and not configured_frontend_url:
+        raise ValueError(
+            f"Game config for '{args.game}' must provide at least one of 'port' or 'frontend_url'"
+        )
+    game_base_url = str(game_config.get("base_url") or "").strip()
+    if not game_base_url and port is not None:
+        game_base_url = f"http://localhost:{port}/api/agent"
+    frontend_url = configured_frontend_url
+    if not frontend_url and port is not None:
+        frontend_url = f"http://localhost:{port}"
 
     prompt_dir = config.resolve_path(
         config.get_section("agent").get("prompt_dir", "prompts")
@@ -64,6 +92,16 @@ def main() -> None:
     prompt_loader = PromptLoader(prompt_dir)
     prompts = prompt_loader.load_bundle()
     planner = ActionPlanner(llm_client, prompts)
+    operator_config = config.get_section("operator")
+    operator = Operator(
+        llm_client,
+        prompts.operator,
+        max_retries=operator_config.get("max_retries", 2),
+        retryable_error_kinds=operator_config.get(
+            "retryable_error_kinds",
+            ["tool_not_found", "element_not_found", "timeout", "not_visible"],
+        ),
+    )
 
     bug_config = config.get_section("bug_detection")
     detector = BugDetector(
@@ -145,22 +183,77 @@ def main() -> None:
         load_persistent_long_term=memory_config.get("load_persistent_long_term", False),
     )
 
-    game_base_url = game_config.get("base_url") or f"http://localhost:{game_config['port']}/api/agent"
-    game_client = create_http_game_client(
-        GameClientConfig(
-            base_url=game_base_url,
-            timeout=config.get_section("llm").get("timeout", 60),
+    backend = build_execution_backend(config, args.game, game_config)
+    tool_registry = ToolRegistry()
+
+    def _handle_game_action(payload, runtime_context):  # noqa: ANN001
+        action_text = str(payload.get("action", "")).strip()
+        planner_action = runtime_context.get("planner_action")
+        source_action = (
+            planner_action
+            if isinstance(planner_action, Action)
+            else Action(command=action_text, tool="game_action")
         )
-    )
-    registry = ToolRegistry()
-    register_standard_game_tools(registry, game_client)
-    if config.get_section("agent").get("enable_code_reading", False):
-        register_code_reading_tools(registry, game_client)
+        result = operator.execute(
+            action=Action(
+                command=action_text,
+                tool="game_action",
+                rationale=source_action.rationale,
+                expected_outcome=source_action.expected_outcome,
+                bug_exist=source_action.bug_exist,
+                confidence=source_action.confidence,
+                explanation=source_action.explanation,
+            ),
+            current_observation=runtime_context["current_observation"],
+            capability=runtime_context["capability"],
+            session=runtime_context["session"],
+            backend=backend,
+        )
+        return ToolInvocationResult(
+            observation=result.observation,
+            refreshed_capability=result.refreshed_capability,
+        )
+
+    register_game_action_tool(tool_registry, _handle_game_action)
+
+    code_tool_config = config.get_section("code_tool_provider")
+    if code_tool_config.get("enabled", False):
+        code_tool_base_url = str(code_tool_config.get("base_url", "")).strip()
+        if not code_tool_base_url:
+            raise ValueError("code_tool_provider.base_url is required when enabled=true")
+        register_code_tools(
+            tool_registry,
+            create_http_code_tool_provider(
+                GameClientConfig(
+                    base_url=code_tool_base_url,
+                    timeout=int(code_tool_config.get("timeout", 60)),
+                )
+            ),
+        )
+
+    runtime_log_config = config.get_section("runtime_log_provider")
+    if runtime_log_config.get("enabled", False) and backend_spec.backend_type == "game_client":
+        runtime_log_base_url = str(runtime_log_config.get("base_url", "")).strip()
+        if not runtime_log_base_url:
+            raise ValueError(
+                "runtime_log_provider.base_url is required when enabled=true"
+            )
+        register_runtime_log_tool(
+            tool_registry,
+            create_http_runtime_log_provider(
+                GameClientConfig(
+                    base_url=runtime_log_base_url,
+                    timeout=int(runtime_log_config.get("timeout", 60)),
+                )
+            ),
+        )
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
         game_id=args.game,
-        tool_registry=registry,
+        execution_backend=backend,
+        operator=operator,
+        tool_registry=tool_registry,
         planner=planner,
         memory=memory,
         detector=detector,
@@ -179,41 +272,41 @@ def main() -> None:
         "profile",
         "You are testing a text-based adventure game. Focus on exploration, items, and puzzle logic.",
     )
-    try:
-        report = orchestrator.run(game_profile)
-        report.metadata["llm"] = {
-            "model": model,
-            "platform": resolved_platform,
-            "temperature": llm_config.get("temperature"),
-            "max_tokens": llm_config.get("max_tokens"),
-            "timeout": llm_config.get("timeout"),
-            "message_window_size": llm_config.get("message_window_size", 6),
-            "reset_between_turns": llm_config.get("reset_between_turns", True),
-            "context_token_limit": llm_client.runtime_config.context_token_limit,
-        }
-        report.metadata["game"] = {
-            "name": args.game,
-            "port": game_config.get("port"),
-            "base_url": game_base_url,
-            "have_ground_truth": bool(game_config.get("ground_truth", False)),
-            "profile": game_profile,
-        }
-        report.metadata["agent"] = {
-            "max_steps": max_steps,
-            "max_consecutive_failures": max_consecutive_failures,
-            "reflection_threshold": reflection_threshold,
-            "reflection_interval": reflection_interval,
-            "summary_interval": summary_interval,
-            "confidence_threshold": confidence_threshold,
-            "auto_summarize": config.get_section("agent").get("auto_summarize", True),
-            "summary_threshold": config.get_section("agent").get("summary_threshold", 15),
-            "camel_memory_history": str(memory.chat_history_path),
-        }
-        paths = reporter.write_report(report)
-        print(f"Report saved: {paths['json']}")
-        print(f"Markdown saved: {paths['markdown']}")
-    finally:
-        game_client.close()
+    report = orchestrator.run(game_profile)
+    report.metadata["llm"] = {
+        "model": model,
+        "platform": resolved_platform,
+        "temperature": llm_config.get("temperature"),
+        "max_tokens": llm_config.get("max_tokens"),
+        "timeout": llm_config.get("timeout"),
+        "message_window_size": llm_config.get("message_window_size", 6),
+        "reset_between_turns": llm_config.get("reset_between_turns", True),
+        "context_token_limit": llm_client.runtime_config.context_token_limit,
+    }
+    report.metadata["game"] = {
+        "name": args.game,
+        "port": game_config.get("port"),
+        "base_url": game_base_url,
+        "frontend_url": frontend_url,
+        "backend_type": backend_spec.backend_type,
+        "have_ground_truth": bool(game_config.get("ground_truth", False)),
+        "profile": game_profile,
+    }
+    report.metadata["agent"] = {
+        "max_steps": max_steps,
+        "max_consecutive_failures": max_consecutive_failures,
+        "reflection_threshold": reflection_threshold,
+        "reflection_interval": reflection_interval,
+        "summary_interval": summary_interval,
+        "confidence_threshold": confidence_threshold,
+        "auto_summarize": config.get_section("agent").get("auto_summarize", True),
+        "summary_threshold": config.get_section("agent").get("summary_threshold", 15),
+        "camel_memory_history": str(memory.chat_history_path),
+        "operator_max_retries": operator_config.get("max_retries", 2),
+    }
+    paths = reporter.write_report(report)
+    print(f"Report saved: {paths['json']}")
+    print(f"Markdown saved: {paths['markdown']}")
 
 
 if __name__ == "__main__":

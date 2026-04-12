@@ -25,7 +25,45 @@ agent:
   confidence_threshold: 0.7
   verbose: true
   prompt_dir: "prompts"
-  enable_code_reading: false  # Enable code reading tools for the agent
+
+# Execution backend
+execution_backend:
+  # type: "game_client"  # game_client | playwright_mcp
+  type: playwright_mcp
+  game_client: {}
+  playwright_mcp:
+    command: ["npx", "-y", "@playwright/mcp@latest", "--headless", "--browser", "chromium"]
+    startup_timeout: 20
+    frontend_url: ""  # Optional. Falls back to http://localhost:{port}
+    snapshot_tool: "browser_snapshot"
+    screenshot_tool: "browser_take_screenshot"
+    navigate_tool: "browser_navigate"
+    click_tool: "browser_click"
+    type_tool: "browser_type"
+    press_tool: "browser_press_key"
+    wait_tool: "browser_wait_for"
+    screenshot_dir: "tmp/playwright_artifacts"
+
+# Operator settings
+operator:
+  max_retries: 2
+  retryable_error_kinds:
+    - "tool_not_found"
+    - "element_not_found"
+    - "timeout"
+    - "not_visible"
+
+# Optional white-box source-code tools
+code_tool_provider:
+  enabled: false
+  base_url: ""  # Example: http://localhost:5000/api/agent
+  timeout: 60
+
+# Optional runtime debug-log tools
+runtime_log_provider:
+  enabled: false
+  base_url: ""  # Example: http://localhost:5000/api/agent
+  timeout: 60  # Used with the current game_client session; no planner-supplied game_id.
 
 # Memory settings
 memory:
