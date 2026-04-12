@@ -15,15 +15,21 @@ class CatalogStateStore:
     def __init__(self, root_dir: Path) -> None:
         self._root_dir = root_dir
         self._ledger_path = self._root_dir / "index.json"
+        self._ledger_cache: CatalogLedger | None = None
 
-    def load_ledger(self) -> CatalogLedger:
+    def load_ledger(self, *, force_reload: bool = False) -> CatalogLedger:
         """Load the current dedupe ledger."""
+        if self._ledger_cache is not None and not force_reload:
+            return self._ledger_cache
         if not self._ledger_path.exists():
-            return CatalogLedger()
+            self._ledger_cache = CatalogLedger()
+            return self._ledger_cache
         payload = json.loads(self._ledger_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            return CatalogLedger()
-        return CatalogLedger.from_dict(payload)
+            self._ledger_cache = CatalogLedger()
+            return self._ledger_cache
+        self._ledger_cache = CatalogLedger.from_dict(payload)
+        return self._ledger_cache
 
     def save_ledger(self, ledger: CatalogLedger) -> None:
         """Write the dedupe ledger to disk."""
@@ -32,6 +38,7 @@ class CatalogStateStore:
             pretty_json(ledger.to_dict()),
             encoding="utf-8",
         )
+        self._ledger_cache = ledger
 
     def contains(self, dedupe_key: str) -> bool:
         """Return whether the dedupe ledger already contains one key."""

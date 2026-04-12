@@ -46,14 +46,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     limit=args.limit,
                     allow_partial=args.allow_partial,
                 )
-                pipeline._write_jsonl(catalog_path, candidates)
+                pipeline.write_candidates_jsonl(catalog_path, candidates)
                 _print_summary("discovered", candidates, all_candidates=candidates)
                 return 0
 
             if args.command == "score":
                 candidates = pipeline.load_candidates(catalog_path)
                 scored = pipeline.score(candidates)
-                pipeline._write_jsonl(catalog_path, scored)
+                pipeline.write_candidates_jsonl(catalog_path, scored)
                 _print_summary("scored", scored, all_candidates=scored)
                 return 0
 

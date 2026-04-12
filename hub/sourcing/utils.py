@@ -254,7 +254,7 @@ def infer_architecture(
     )
     if {"python", "go", "java", "c#", "rust"} & language_names:
         has_backend = has_backend or any(
-            path.endswith((".py", ".go", ".java", ".cs", ".rs", ".rb", ".php", ".ts"))
+            path.endswith((".py", ".go", ".java", ".cs", ".rs", ".rb", ".php"))
             for path in normalized_paths
         )
 

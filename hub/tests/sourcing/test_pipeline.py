@@ -7,7 +7,7 @@ import json
 import tempfile
 import unittest
 
-from hub.sourcing.fetcher import StaticFetcher
+from hub.sourcing.fetcher import FetchError
 from hub.sourcing.ground_truth import GroundTruthGenerator
 from hub.sourcing.pipeline import SourcingPipeline
 
@@ -55,6 +55,21 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(
             candidate.release_notes_url,
             "https://github.com/acme/flow-ui/releases/tag/v1.2.0",
+        )
+
+    def test_issue_verification_can_be_disabled_explicitly(self) -> None:
+        pipeline = SourcingPipeline(
+            fetcher=_build_fetcher(limit=1),
+            verify_issue_closure=False,
+        )
+        discovered = pipeline.discover(providers=("github",), limit=1)
+        scored = pipeline.score(discovered)
+
+        candidate = scored[0]
+        self.assertFalse(candidate.capabilities.has_tracked_issue_closure)
+        self.assertEqual(
+            candidate.extra["issue_verification"]["reason"],
+            "verification_disabled",
         )
 
     def test_pipeline_publishes_two_selected_projects_and_rejects_one(self) -> None:
@@ -133,3 +148,37 @@ class PipelineTests(unittest.TestCase):
                 [item["repo_full_name"] for item in catalog_rows],
                 ["acme/flow-ui", "acme/api-service"],
             )
+
+    def test_run_allow_partial_tolerates_paginated_fetch_failure(self) -> None:
+        base_fetcher = _build_fetcher(limit=1)
+
+        class SecondPageFailureFetcher:
+            def __init__(self, wrapped) -> None:
+                self._wrapped = wrapped
+
+            def fetch(self, url: str, *, headers=None):
+                if url.endswith("&per_page=1&page=2"):
+                    raise FetchError(
+                        "search page timed out",
+                        url=url,
+                        status_code=None,
+                        body="",
+                    )
+                return self._wrapped.fetch(url, headers=headers)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = SourcingPipeline(
+                output_dir=Path(temp_dir),
+                fetcher=SecondPageFailureFetcher(base_fetcher),
+            )
+
+            selected = pipeline.run(
+                providers=("github",),
+                limit=1,
+                allow_partial=True,
+                minimum_score=60.0,
+                minimum_selected=2,
+            )
+
+            self.assertEqual(len(selected), 1)
+            self.assertEqual(selected[0].repo_full_name, "acme/flow-ui")

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
+from .fetcher import FetchError, UrllibFetcher
 from .ground_truth import GroundTruthGenerator, PatchNoteLlmClient
 from .issue_verification import verify_issue_closure_chain
 from .models import DedupeRecord, SoftwareProjectCandidate, SoftwareProjectManifest
@@ -28,12 +29,14 @@ class SourcingPipeline:
         fetcher=None,
         provider_config: Optional[ProviderConfig] = None,
         llm_client: Optional[PatchNoteLlmClient] = None,
+        verify_issue_closure: bool = True,
     ) -> None:
         self.output_dir = output_dir or Path(__file__).resolve().parents[1] / "environment"
-        self.fetcher = fetcher
+        self.fetcher = fetcher or UrllibFetcher()
         self.provider_config = provider_config or ProviderConfig()
         self._ground_truth = GroundTruthGenerator(llm_client=llm_client)
         self._state = CatalogStateStore(self.output_dir)
+        self._verify_issue_closure = verify_issue_closure
 
     def discover(
         self,
@@ -47,21 +50,18 @@ class SourcingPipeline:
         discovered: List[SoftwareProjectCandidate] = []
         errors: List[str] = []
         for provider_name in providers:
-            provider_cls = PROVIDER_TYPES[provider_name]
-            provider = provider_cls(fetcher=self.fetcher, config=self.provider_config)
             try:
                 discovered.extend(
-                    provider.discover(
+                    self._discover_provider_batch(
+                        provider_name=provider_name,
                         limit=limit,
                         page=(provider_pages or {}).get(provider_name, 1),
                     )
                 )
-            except ProviderError as exc:
+            except (ProviderError, FetchError) as exc:
                 if not allow_partial:
-                    raise
+                    raise ProviderError(f"{provider_name}: {exc}") from exc
                 errors.append(f"{provider_name}: {exc}")
-        if errors and not discovered:
-            raise ProviderError("; ".join(errors))
         return discovered
 
     def discover_round(
@@ -77,23 +77,20 @@ class SourcingPipeline:
         counts: Dict[str, int] = {}
         errors: List[str] = []
         for provider_name in providers:
-            provider_cls = PROVIDER_TYPES[provider_name]
-            provider = provider_cls(fetcher=self.fetcher, config=self.provider_config)
             try:
-                batch = provider.discover(
+                batch = self._discover_provider_batch(
+                    provider_name=provider_name,
                     limit=limit,
                     page=provider_pages.get(provider_name, 1),
                 )
-            except ProviderError as exc:
+            except (ProviderError, FetchError) as exc:
                 if not allow_partial:
-                    raise
+                    raise ProviderError(f"{provider_name}: {exc}") from exc
                 errors.append(f"{provider_name}: {exc}")
                 counts[provider_name] = 0
                 continue
             discovered.extend(batch)
             counts[provider_name] = len(batch)
-        if errors and not discovered:
-            raise ProviderError("; ".join(errors))
         return discovered, counts
 
     def score(
@@ -102,6 +99,8 @@ class SourcingPipeline:
     ) -> List[SoftwareProjectCandidate]:
         """Score candidates and apply dedupe-aware hard filters."""
         scored: List[SoftwareProjectCandidate] = []
+        ledger = self._state.load_ledger()
+        existing_dedupe_keys = {record.dedupe_key for record in ledger.records}
         for candidate in candidates:
             candidate.capabilities.has_fix_releases = bool(
                 candidate.releases and candidate.releases[-1].has_bug_fix_evidence
@@ -123,41 +122,10 @@ class SourcingPipeline:
                 )
             candidate.capabilities.has_tracked_issue_closure = False
             if candidate.selected_release_pair is not None:
-                if self.fetcher is None:
-                    candidate.capabilities.has_tracked_issue_closure = True
-                    candidate.extra["issue_verification"] = {
-                        "skipped": True,
-                        "reason": "no_fetcher",
-                    }
-                else:
-                    releases_sorted = sorted(
-                        candidate.releases,
-                        key=lambda item: item.published_at,
-                    )
-                    baseline_release = releases_sorted[-2]
-                    fix_release = next(
-                        item
-                        for item in releases_sorted
-                        if item.release_id
-                        == candidate.selected_release_pair.release_id
-                    )
-                    provider = GithubSoftwareProjectProvider(
-                        fetcher=self.fetcher,
-                        config=self.provider_config,
-                    )
-                    verification = verify_issue_closure_chain(
-                        repo_full_name=candidate.repo_full_name,
-                        baseline_release=baseline_release,
-                        fix_release=fix_release,
-                        fetch_json=lambda url: provider.fetch_json(
-                            url,
-                            candidate.provenance,
-                        ),
-                    )
-                    candidate.extra["issue_verification"] = verification.to_dict()
-                    candidate.capabilities.has_tracked_issue_closure = verification.ok
+                self._populate_issue_verification(candidate)
+
             breakdown = score_candidate(candidate)
-            if candidate.dedupe_key and self._state.contains(candidate.dedupe_key):
+            if candidate.dedupe_key and candidate.dedupe_key in existing_dedupe_keys:
                 breakdown.hard_filter_failures.append("already_saved_pair")
             breakdown.accepted = not breakdown.hard_filter_failures
             candidate.score_breakdown = breakdown
@@ -194,7 +162,7 @@ class SourcingPipeline:
     ) -> None:
         """Publish the catalog, manifests, bug bundles, and dedupe ledger."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._write_jsonl(self.output_dir / "candidates.jsonl", all_candidates)
+        self.write_candidates_jsonl(self.output_dir / "candidates.jsonl", all_candidates)
         selected_root = self.output_dir / "selected"
         for candidate in selected:
             if candidate.selected_release_pair is None or candidate.score_breakdown is None:
@@ -289,9 +257,7 @@ class SourcingPipeline:
             and max_candidates is not None
             and minimum_selected > max_candidates
         ):
-            raise ValueError(
-                "minimum_selected cannot be greater than max_candidates"
-            )
+            raise ValueError("minimum_selected cannot be greater than max_candidates")
 
         target_selected = minimum_selected or 0
         provider_pages = {provider_name: 1 for provider_name in providers}
@@ -358,7 +324,11 @@ class SourcingPipeline:
         return new_candidates
 
     @staticmethod
-    def _write_jsonl(path: Path, candidates: Sequence[SoftwareProjectCandidate]) -> None:
+    def write_candidates_jsonl(
+        path: Path,
+        candidates: Sequence[SoftwareProjectCandidate],
+    ) -> None:
+        """Write serialized candidate rows to one JSONL file."""
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = "\n".join(
             json.dumps(candidate.to_dict(), ensure_ascii=True) for candidate in candidates
@@ -366,6 +336,52 @@ class SourcingPipeline:
         if payload:
             payload += "\n"
         path.write_text(payload, encoding="utf-8")
+
+    def _discover_provider_batch(
+        self,
+        *,
+        provider_name: str,
+        limit: int,
+        page: int,
+    ) -> List[SoftwareProjectCandidate]:
+        """Discover one provider batch with shared provider construction."""
+        provider_cls = PROVIDER_TYPES[provider_name]
+        provider = provider_cls(fetcher=self.fetcher, config=self.provider_config)
+        return provider.discover(limit=limit, page=page)
+
+    def _populate_issue_verification(
+        self,
+        candidate: SoftwareProjectCandidate,
+    ) -> None:
+        """Attach tracked issue verification metadata to one candidate."""
+        if not self._verify_issue_closure:
+            candidate.extra["issue_verification"] = {
+                "skipped": True,
+                "reason": "verification_disabled",
+            }
+            return
+
+        releases_sorted = sorted(candidate.releases, key=lambda item: item.published_at)
+        if len(releases_sorted) < 2 or candidate.selected_release_pair is None:
+            return
+        baseline_release = releases_sorted[-2]
+        fix_release = next(
+            item
+            for item in releases_sorted
+            if item.release_id == candidate.selected_release_pair.release_id
+        )
+        provider = GithubSoftwareProjectProvider(
+            fetcher=self.fetcher,
+            config=self.provider_config,
+        )
+        verification = verify_issue_closure_chain(
+            repo_full_name=candidate.repo_full_name,
+            baseline_release=baseline_release,
+            fix_release=fix_release,
+            fetch_json=lambda url: provider.fetch_json(url, candidate.provenance),
+        )
+        candidate.extra["issue_verification"] = verification.to_dict()
+        candidate.capabilities.has_tracked_issue_closure = verification.ok
 
     @staticmethod
     def load_candidates(path: Path) -> List[SoftwareProjectCandidate]:
