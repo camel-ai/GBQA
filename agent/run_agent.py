@@ -24,6 +24,37 @@ from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
 
 
+def _resolve_game_endpoints(
+    *,
+    backend_type: str,
+    backend_settings: dict,
+    game_id: str,
+    game_config: dict,
+) -> tuple[str, str]:
+    port = game_config.get("port")
+    game_base_url = str(game_config.get("base_url") or "").strip()
+    configured_frontend_url = str(
+        game_config.get("frontend_url") or backend_settings.get("frontend_url") or ""
+    ).strip()
+
+    if backend_type == "game_client":
+        if not game_base_url and port is None:
+            raise ValueError(
+                f"game_client backend for '{game_id}' requires either 'base_url' or 'port'"
+            )
+    elif backend_type == "playwright_mcp" and port is None and not configured_frontend_url:
+        raise ValueError(
+            f"Game config for '{game_id}' must provide at least one of 'port' or 'frontend_url'"
+        )
+
+    if not game_base_url and port is not None:
+        game_base_url = f"http://localhost:{port}/api/agent"
+    frontend_url = configured_frontend_url
+    if not frontend_url and port is not None:
+        frontend_url = f"http://localhost:{port}"
+    return game_base_url, frontend_url
+
+
 def main() -> None:
     dotenv.load_dotenv()
     parser = argparse.ArgumentParser(description="Run QA Agent")
@@ -58,20 +89,12 @@ def main() -> None:
     if not game_config:
         raise ValueError(f"Unknown game: {args.game}")
     backend_spec = resolve_backend_spec(config)
-    port = game_config.get("port")
-    configured_frontend_url = str(
-        game_config.get("frontend_url") or backend_spec.settings.get("frontend_url") or ""
-    ).strip()
-    if port is None and not configured_frontend_url:
-        raise ValueError(
-            f"Game config for '{args.game}' must provide at least one of 'port' or 'frontend_url'"
-        )
-    game_base_url = str(game_config.get("base_url") or "").strip()
-    if not game_base_url and port is not None:
-        game_base_url = f"http://localhost:{port}/api/agent"
-    frontend_url = configured_frontend_url
-    if not frontend_url and port is not None:
-        frontend_url = f"http://localhost:{port}"
+    game_base_url, frontend_url = _resolve_game_endpoints(
+        backend_type=backend_spec.backend_type,
+        backend_settings=backend_spec.settings,
+        game_id=args.game,
+        game_config=game_config,
+    )
 
     prompt_dir = config.resolve_path(
         config.get_section("agent").get("prompt_dir", "prompts")

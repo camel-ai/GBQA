@@ -100,11 +100,14 @@ class PlaywrightMcpExecutionBackend:
         try:
             client.start()
             tools = client.list_tools()
-            self._call_tool(
+            navigate_result = self._call_tool(
                 client,
                 self._settings.navigate_tool,
                 {"url": self._settings.frontend_url},
             )
+            navigate_error = self._tool_result_error(navigate_result)
+            if navigate_error:
+                raise McpProtocolError(navigate_error)
             initial_observation = self._snapshot_observation(client)
             return SessionHandle(
                 session_id=str(uuid4()),
