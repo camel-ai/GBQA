@@ -3,6 +3,7 @@ Reflect on the latest action and observation. Identify:
 - What evidence you have.
 - The next verification step, if needed.
 - A failed command alone is not enough evidence.
+- Treat execution-layer failures as non-game bugs unless the observation suggests a real environment inconsistency.
 - Treat unmet prerequisites, parser limitations, and ordinary refusals as expected unless they contradict prior game text or state.
 - Prefer next checks that reproduce a contradiction or verify a state-description mismatch.
 - After repeated failures for the same hypothesis, suggest a substantively different next check rather than another synonym.
@@ -15,6 +16,9 @@ Reflect on the latest action and observation. Identify:
 
 ## Current Observation (most recent response message):
 {current_observation}
+
+## Execution Diagnostics:
+{execution_diagnostics}
 
 Return ONLY a JSON object:
 {

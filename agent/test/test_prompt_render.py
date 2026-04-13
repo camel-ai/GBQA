@@ -20,12 +20,15 @@ def _build_sample_context() -> Dict[str, str]:
             "Text adventure in a mysterious castle. "
             "You can use 'new game' to start a new game and 'close game' to end a session."
         ),
+        "capability_summary": "You can send one game command per step or ask for describe_capabilities.",
         "memory_summary": "- Found a locked door.\n- Collected a key fragment.",
         "recent_trace": (
             "Step 1: look -> You are in a hall.\n"
             "Step 2: take torch -> You picked up a torch."
         ),
         "current_observation": "A dark corridor lies ahead.",
+        "current_artifacts": "",
+        "execution_diagnostics": "{}",
         "turn": "2",
         "code_tools_prompt_section": """## White-box Debugging:
 You have the ability to perform "White-box Debugging" by modifying the game's source code. This is a powerful method to gather information or verify internal logic:
@@ -99,9 +102,12 @@ def _build_live_context() -> Dict[str, str]:
             "Text adventure in a mysterious castle. "
             "You can use 'new game' to start a new game and 'close game' to end a session."
         ),
+        "capability_summary": "You can send one game command per step or ask for describe_capabilities.",
         "memory_summary": "",
         "recent_trace": f"Step 1: look -> {message}",
         "current_observation": combined_observation,
+        "current_artifacts": "",
+        "execution_diagnostics": "{}",
         "turn": turn,
         "code_tools_prompt_section": _build_sample_context()["code_tools_prompt_section"],
     }
@@ -129,6 +135,7 @@ def main() -> None:
         "memory_summary": context["memory_summary"],
         "recent_trace": context["recent_trace"],
         "current_observation": context["current_observation"],
+        "execution_diagnostics": context["execution_diagnostics"],
     }
     reflection_prompt = render_prompt(prompts.reflection, reflection_vars)
     summary_prompt = render_prompt(

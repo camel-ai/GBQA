@@ -40,6 +40,7 @@ class ReflectionAnalyzer:
             "memory_summary": context.get("memory_summary", ""),
             "recent_trace": context.get("recent_trace", ""),
             "current_observation": context.get("current_observation", ""),
+            "execution_diagnostics": context.get("execution_diagnostics", ""),
         }
         prompt = render_prompt(self._prompt, variables)
         response = self._agent.run(

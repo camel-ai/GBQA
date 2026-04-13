@@ -13,6 +13,7 @@ class PromptBundle:
 
     system: str
     planner: str
+    operator: str
     reflection: str
     summary: str
 
@@ -32,6 +33,7 @@ class PromptLoader:
         return PromptBundle(
             system=self._load("system.md"),
             planner=self._load("planner.md"),
+            operator=self._load("operator.md"),
             reflection=self._load("reflection.md"),
             summary=self._load("summary.md"),
         )

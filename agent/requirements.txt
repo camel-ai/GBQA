@@ -6,3 +6,4 @@ flask
 flask-cors
 pyyaml
 python-dotenv
+Pillow
