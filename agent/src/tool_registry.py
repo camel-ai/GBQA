@@ -7,6 +7,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional
 
 from .game_clients import CodeToolProvider, RuntimeLogProvider
+from .log_analyzer import LogAnalyzer
 from .types import CapabilityDescriptor, Observation
 
 
@@ -208,6 +209,34 @@ def register_runtime_log_tool(
     )
 
 
+def register_log_analysis_tool(
+    registry: ToolRegistry,
+    provider: RuntimeLogProvider,
+    analyzer: LogAnalyzer,
+) -> None:
+    """Register session-log analysis using the active game_client session."""
+    registry.register(
+        Tool(
+            name="log_analyze",
+            description=(
+                "Analyze the current game session log for anomalies and optionally "
+                "show filtered commands"
+            ),
+            action_format=(
+                "analyze, failures, or JSON object with start_turn/end_turn/"
+                "failures_only/limit/include_debug_output"
+            ),
+            handler=lambda payload, runtime: _invoke_log_analysis_tool(
+                payload,
+                runtime,
+                provider,
+                analyzer,
+            ),
+            action_parser=_parse_log_analysis_action,
+        )
+    )
+
+
 def _require_action(action_text: str) -> str:
     text = str(action_text).strip()
     if not text:
@@ -263,6 +292,24 @@ def _parse_debug_log_action(action_text: str) -> ToolPayload:
     return {"clear": text == "clear"}
 
 
+def _parse_log_analysis_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text)
+    lowered = text.lower()
+    if lowered in {"analyze", "summary"}:
+        return {"include_debug_output": True}
+    if lowered == "failures":
+        return {"include_debug_output": True, "failures_only": True}
+    if text.startswith("{"):
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError("log_analyze JSON action must decode to an object")
+        payload.setdefault("include_debug_output", True)
+        return payload
+    raise ValueError(
+        "log_analyze action must be 'analyze', 'failures', or a JSON object"
+    )
+
+
 def _invoke_code_tool(
     tool_name: str,
     payload: ToolPayload,
@@ -292,6 +339,66 @@ def _invoke_runtime_log_tool(
     return ToolInvocationResult(
         observation=_tool_observation("code_read_debug_logs", payload, result),
     )
+
+
+def _invoke_log_analysis_tool(
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    provider: RuntimeLogProvider,
+    analyzer: LogAnalyzer,
+) -> ToolInvocationResult:
+    session = runtime_context.get("session")
+    if session is None or getattr(session, "backend_type", "") != "game_client":
+        raise RuntimeError(
+            "log_analyze is only available when the active backend exposes a stable current game session"
+        )
+
+    game_id = getattr(session, "session_id", "")
+    session_result = provider.read_session_log(game_id)
+    if not bool(session_result.get("success", False)):
+        return ToolInvocationResult(
+            observation=_tool_observation("log_analyze", payload, session_result),
+        )
+
+    session_data = session_result.get("data", {})
+    debug_output = ""
+    debug_log_error = ""
+    if bool(payload.get("include_debug_output", True)):
+        debug_result = provider.read_debug_logs(game_id, clear=False)
+        if bool(debug_result.get("success", False)):
+            debug_output = str(debug_result.get("logs", ""))
+        else:
+            debug_log_error = str(debug_result.get("message", "")).strip()
+
+    result: Dict[str, Any] = {
+        "success": True,
+        "game_id": game_id,
+        "analysis": analyzer.analyze_session(session_data, debug_output),
+    }
+    if _has_log_analysis_filters(payload):
+        result["filtered_commands"] = analyzer.filter_commands(
+            session_data,
+            start_turn=int(payload.get("start_turn", 0)),
+            end_turn=int(payload.get("end_turn", 0)),
+            failures_only=bool(payload.get("failures_only", False)),
+            limit=int(payload.get("limit", 50)),
+        )
+    if debug_log_error:
+        result["debug_log_error"] = debug_log_error
+
+    return ToolInvocationResult(
+        observation=_tool_observation("log_analyze", payload, result),
+    )
+
+
+def _has_log_analysis_filters(payload: ToolPayload) -> bool:
+    if int(payload.get("start_turn", 0)) > 0:
+        return True
+    if int(payload.get("end_turn", 0)) > 0:
+        return True
+    if bool(payload.get("failures_only", False)):
+        return True
+    return "limit" in payload
 
 
 def _tool_observation(
@@ -359,6 +466,52 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
         logs = str(result.get("logs", "")).strip()
         if logs:
             return f"Runtime log result:\n{logs}"
+    if tool_name == "log_analyze":
+        parts: List[str] = []
+        analysis = result.get("analysis", {})
+        if isinstance(analysis, dict):
+            summary = str(analysis.get("summary", "")).strip()
+            if summary:
+                parts.append(f"Log analysis result: {summary}")
+            for anomaly in analysis.get("anomalies", [])[:5]:
+                if not isinstance(anomaly, dict):
+                    continue
+                severity = str(anomaly.get("severity", "")).strip() or "unknown"
+                anomaly_type = str(anomaly.get("type", "")).strip() or "unknown"
+                description = str(anomaly.get("description", "")).strip()
+                parts.append(f"- [{severity}] {anomaly_type}: {description}".rstrip())
+            debug_findings = analysis.get("debug_findings", {})
+            if isinstance(debug_findings, dict):
+                error_count = int(debug_findings.get("error_count", 0))
+                warning_count = int(debug_findings.get("warning_count", 0))
+                if error_count or warning_count:
+                    parts.append(
+                        f"Debug findings: {error_count} errors, {warning_count} warnings"
+                    )
+        filtered = result.get("filtered_commands", {})
+        if isinstance(filtered, dict):
+            commands = filtered.get("commands", [])
+            if isinstance(commands, list):
+                parts.append(
+                    "Filtered commands "
+                    f"({filtered.get('returned_commands', len(commands))} of "
+                    f"{filtered.get('filtered_total', len(commands))}):"
+                )
+                for command in commands[:10]:
+                    if not isinstance(command, dict):
+                        continue
+                    response = command.get("response", {})
+                    success = bool(response.get("success", False))
+                    status = "OK" if success else "FAIL"
+                    parts.append(
+                        f"  T{command.get('turn', '?')}: [{status}] "
+                        f"{str(command.get('command', '')).strip()}"
+                    )
+        debug_log_error = str(result.get("debug_log_error", "")).strip()
+        if debug_log_error:
+            parts.append(f"Debug log read failed: {debug_log_error}")
+        if parts:
+            return "\n".join(parts)
     path = str(result.get("path", "")).strip()
     message = str(result.get("message", "")).strip()
     if path and message:

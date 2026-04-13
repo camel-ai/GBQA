@@ -19,6 +19,7 @@ agent:
   max_consecutive_failures: 5
   reflection_threshold: 3
   reflection_interval: 10
+  log_analysis_interval: 20  # Auto-trigger log analysis every N gameplay steps when runtime logs are enabled.
   auto_summarize: true
   summary_threshold: 15
   summary_interval: 40
@@ -61,7 +62,7 @@ code_tool_provider:
 
 # Optional runtime debug-log tools
 runtime_log_provider:
-  enabled: false
+  enabled: false  # Exposes both code_read_debug_logs and log_analyze for game_client runs.
   base_url: ""  # Example: http://localhost:5000/api/agent
   timeout: 60  # Used with the current game_client session; no planner-supplied game_id.
 
