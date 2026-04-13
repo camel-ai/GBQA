@@ -7,7 +7,11 @@ from typing import Any, Dict, Protocol
 from uuid import uuid4
 
 from .config import Config
-from .game_clients import GameClient, GameClientConfig, create_http_game_client
+from .game_clients import (
+    GameActionClient,
+    GameClientConfig,
+    create_http_game_action_client,
+)
 from .observer import ObservationParser
 from .types import (
     BackendExecutionResult,
@@ -58,7 +62,7 @@ class GameClientExecutionBackend:
 
     backend_type = "game_client"
 
-    def __init__(self, client: GameClient) -> None:
+    def __init__(self, client: GameActionClient) -> None:
         self._client = client
         self._parser = ObservationParser()
 
@@ -249,7 +253,7 @@ def build_execution_backend(
                     f"game_client backend for '{game_id}' requires either 'base_url' or 'port'"
                 )
             base_url = f"http://localhost:{port}/api/agent"
-        client = create_http_game_client(
+        client = create_http_game_action_client(
             GameClientConfig(
                 base_url=base_url,
                 timeout=config.get_section("llm").get("timeout", 60),

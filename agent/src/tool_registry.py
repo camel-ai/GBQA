@@ -1,31 +1,52 @@
-"""Tool registry for game API calls."""
+"""Planner-visible tool registry."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+import json
+from typing import Any, Callable, Dict, List, Optional
 
-from .game_clients import GameClient
+from .game_clients import CodeToolProvider, RuntimeLogProvider
+from .types import CapabilityDescriptor, Observation
 
 
-ToolHandler = Callable[[Dict[str, Any]], Dict[str, Any]]
+ToolPayload = Dict[str, Any]
+ToolRuntimeContext = Dict[str, Any]
+ToolHandler = Callable[[ToolPayload, ToolRuntimeContext], "ToolInvocationResult"]
+ToolActionParser = Callable[[str], ToolPayload]
+
+
+@dataclass
+class ToolInvocationResult:
+    """Normalized result returned by a registry tool invocation."""
+
+    observation: Observation
+    refreshed_capability: Optional[CapabilityDescriptor] = None
 
 
 @dataclass
 class Tool:
-    """Describes a callable tool."""
+    """Describes a planner-visible callable tool."""
 
     name: str
     description: str
-    parameters: Dict[str, Any]
+    action_format: str
     handler: ToolHandler
+    action_parser: ToolActionParser
 
-    def invoke(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self.handler(payload)
+    def invoke(
+        self,
+        payload: ToolPayload,
+        runtime_context: ToolRuntimeContext,
+    ) -> ToolInvocationResult:
+        return self.handler(payload, runtime_context)
+
+    def parse_action(self, action_text: str) -> ToolPayload:
+        return self.action_parser(action_text)
 
 
 class ToolRegistry:
-    """Registers and invokes tools."""
+    """Registers planner-visible tools and dispatches invocations."""
 
     def __init__(self) -> None:
         self._tools: Dict[str, Tool] = {}
@@ -36,157 +57,312 @@ class ToolRegistry:
     def list_tools(self) -> List[Tool]:
         return list(self._tools.values())
 
-    def invoke(self, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_action(self, name: str, action_text: str) -> ToolPayload:
+        return self._get(name).parse_action(action_text)
+
+    def invoke(
+        self,
+        name: str,
+        payload: ToolPayload,
+        runtime_context: ToolRuntimeContext,
+    ) -> ToolInvocationResult:
+        return self._get(name).invoke(payload, runtime_context)
+
+    def render_prompt_section(self) -> str:
+        lines = ["## Available Tools:"]
+        for tool in self.list_tools():
+            lines.append(
+                f"- {tool.name}: {tool.description} Format: `{tool.action_format}`."
+            )
+        return "\n".join(lines)
+
+    def _get(self, name: str) -> Tool:
         if name not in self._tools:
-            return {"success": False, "message": f"Unknown tool: {name}"}
-        return self._tools[name].invoke(payload)
+            raise KeyError(f"Unknown tool: {name}")
+        return self._tools[name]
 
 
-def register_code_reading_tools(
+def register_game_action_tool(
     registry: ToolRegistry,
-    game_client: GameClient,
+    handler: ToolHandler,
 ) -> None:
-    """Register code tools for listing, reading, searching, writing, restoring, and reading debug logs."""
+    """Register the primary gameplay-action tool."""
+    registry.register(
+        Tool(
+            name="game_action",
+            description=(
+                "Execute one semantic gameplay action through the operator and active execution backend"
+            ),
+            action_format="semantic action string",
+            handler=handler,
+            action_parser=lambda action_text: {"action": _require_action(action_text)},
+        )
+    )
+
+
+def register_code_tools(
+    registry: ToolRegistry,
+    provider: CodeToolProvider,
+) -> None:
+    """Register white-box source-code tools."""
     registry.register(
         Tool(
             name="code_list_files",
-            description="List all source code files in the game.",
-            parameters={"type": "object", "properties": {}},
-            handler=lambda _: game_client.list_code_files(),
+            description="List available source code files for the current game",
+            action_format="any non-empty text (ignored)",
+            handler=lambda payload, runtime: _invoke_code_tool(
+                "code_list_files",
+                payload,
+                runtime,
+                provider.list_code_files(),
+            ),
+            action_parser=lambda _action_text: {},
         )
     )
     registry.register(
         Tool(
             name="code_read_file",
-            description="Read the content of a source code file.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "start_line": {"type": "integer"},
-                    "end_line": {"type": "integer"},
-                },
-                "required": ["path"],
-            },
-            handler=lambda payload: game_client.read_code_file(
-                payload["path"],
-                start_line=int(payload.get("start_line", 0)),
-                end_line=int(payload.get("end_line", 0)),
+            description="Read a source file, optionally with a line range",
+            action_format="path or path:start-end",
+            handler=lambda payload, runtime: _invoke_code_tool(
+                "code_read_file",
+                payload,
+                runtime,
+                provider.read_code_file(
+                    payload["path"],
+                    start_line=int(payload.get("start_line", 0)),
+                    end_line=int(payload.get("end_line", 0)),
+                ),
             ),
+            action_parser=_parse_code_read_action,
         )
     )
     registry.register(
         Tool(
             name="code_search",
-            description="Search for a pattern across game source code files.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string"},
-                },
-                "required": ["pattern"],
-            },
-            handler=lambda payload: game_client.search_code(payload["pattern"]),
+            description="Search source code using a regex pattern",
+            action_format="pattern",
+            handler=lambda payload, runtime: _invoke_code_tool(
+                "code_search",
+                payload,
+                runtime,
+                provider.search_code(payload["pattern"]),
+            ),
+            action_parser=lambda action_text: {"pattern": _require_action(action_text)},
         )
     )
     registry.register(
         Tool(
             name="code_write_file",
-            description="Modify or overwrite a source code file. Use 'patch' for search-and-replace or 'content' for full overwrite.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                    "patch": {
-                        "type": "object",
-                        "properties": {
-                            "search": {"type": "string"},
-                            "replace": {"type": "string"},
-                        }
-                    },
-                },
-                "required": ["path"],
-            },
-            handler=lambda payload: game_client.write_code_file(
-                payload["path"],
-                content=payload.get("content", ""),
-                patch=payload.get("patch"),
+            description="Modify a source file using JSON payload or path:old->new patch shorthand",
+            action_format="JSON string or path:old_text->new_text",
+            handler=lambda payload, runtime: _invoke_code_tool(
+                "code_write_file",
+                payload,
+                runtime,
+                provider.write_code_file(
+                    payload["path"],
+                    content=str(payload.get("content", "")),
+                    patch=payload.get("patch"),
+                ),
             ),
-        )
-    )
-    registry.register(
-        Tool(
-            name="code_read_debug_logs",
-            description="Read the captured stdout/print logs from the game server.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "clear": {"type": "boolean"},
-                    "game_id": {"type": "string"},
-                },
-            },
-            handler=lambda payload: game_client.read_debug_logs(
-                payload.get("game_id", ""),
-                clear=payload.get("clear", False)
-            ),
+            action_parser=_parse_code_write_action,
         )
     )
     registry.register(
         Tool(
             name="code_restore_file",
-            description="Restore the last backup for a source code file previously changed with code_write_file.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                },
-                "required": ["path"],
-            },
-            handler=lambda payload: game_client.restore_code_file(payload["path"]),
-        )
-    )
-
-
-def register_standard_game_tools(
-    registry: ToolRegistry,
-    game_client: GameClient,
-) -> None:
-    """Register the standard GBQA game tool surface."""
-    registry.register(
-        Tool(
-            name="game_new",
-            description="Create a new agent game session.",
-            parameters={"type": "object", "properties": {}},
-            handler=lambda _: game_client.new_game(),
-        )
-    )
-    registry.register(
-        Tool(
-            name="game_command",
-            description="Send a command to the game.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "game_id": {"type": "string"},
-                    "command": {"type": "string"},
-                },
-                "required": ["game_id", "command"],
-            },
-            handler=lambda payload: game_client.send_command(
-                payload["game_id"], payload["command"]
+            description="Restore a file previously modified by code_write_file",
+            action_format="path",
+            handler=lambda payload, runtime: _invoke_code_tool(
+                "code_restore_file",
+                payload,
+                runtime,
+                provider.restore_code_file(payload["path"]),
             ),
+            action_parser=lambda action_text: {"path": _require_action(action_text)},
         )
     )
+
+
+def register_runtime_log_tool(
+    registry: ToolRegistry,
+    provider: RuntimeLogProvider,
+) -> None:
+    """Register runtime debug-log access."""
     registry.register(
         Tool(
-            name="game_state",
-            description="Get current game state.",
-            parameters={
-                "type": "object",
-                "properties": {"game_id": {"type": "string"}},
-                "required": ["game_id"],
-            },
-            handler=lambda payload: game_client.get_state(payload["game_id"]),
+            name="code_read_debug_logs",
+            description=(
+                "Read or clear runtime debug logs for the current active game session; "
+                "the session id is inferred automatically"
+            ),
+            action_format="read or clear",
+            handler=lambda payload, runtime: _invoke_runtime_log_tool(
+                payload,
+                runtime,
+                provider,
+            ),
+            action_parser=_parse_debug_log_action,
         )
     )
+
+
+def _require_action(action_text: str) -> str:
+    text = str(action_text).strip()
+    if not text:
+        raise ValueError("Planner action must not be empty")
+    return text
+
+
+def _parse_code_read_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text)
+    path, separator, line_spec = text.rpartition(":")
+    if not separator or "-" not in line_spec:
+        return {"path": text}
+    start_text, dash, end_text = line_spec.partition("-")
+    if not dash or not start_text.isdigit() or not end_text.isdigit():
+        return {"path": text}
+    return {
+        "path": path.strip(),
+        "start_line": int(start_text),
+        "end_line": int(end_text),
+    }
+
+
+def _parse_code_write_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text)
+    if text.startswith("{"):
+        payload = json.loads(text)
+        if not isinstance(payload, dict) or not str(payload.get("path", "")).strip():
+            raise ValueError("code_write_file JSON must include a non-empty 'path'")
+        return payload
+    path, separator, patch_spec = text.partition(":")
+    if not separator or "->" not in patch_spec:
+        raise ValueError(
+            "code_write_file action must be JSON or use path:old_text->new_text"
+        )
+    search_text, arrow, replace_text = patch_spec.partition("->")
+    if not arrow:
+        raise ValueError(
+            "code_write_file patch shorthand must use path:old_text->new_text"
+        )
+    return {
+        "path": path.strip(),
+        "patch": {
+            "search": search_text,
+            "replace": replace_text,
+        },
+    }
+
+
+def _parse_debug_log_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text).lower()
+    if text not in {"read", "clear"}:
+        raise ValueError("code_read_debug_logs action must be 'read' or 'clear'")
+    return {"clear": text == "clear"}
+
+
+def _invoke_code_tool(
+    tool_name: str,
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    result: Dict[str, Any],
+) -> ToolInvocationResult:
+    del runtime_context
+    return ToolInvocationResult(
+        observation=_tool_observation(tool_name, payload, result),
+    )
+
+
+def _invoke_runtime_log_tool(
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    provider: RuntimeLogProvider,
+) -> ToolInvocationResult:
+    session = runtime_context.get("session")
+    if session is None or getattr(session, "backend_type", "") != "game_client":
+        raise RuntimeError(
+            "code_read_debug_logs is only available when the active backend exposes a stable current game session"
+        )
+    result = provider.read_debug_logs(
+        getattr(session, "session_id", ""),
+        clear=bool(payload.get("clear", False)),
+    )
+    return ToolInvocationResult(
+        observation=_tool_observation("code_read_debug_logs", payload, result),
+    )
+
+
+def _tool_observation(
+    tool_name: str,
+    payload: ToolPayload,
+    result: Dict[str, Any],
+) -> Observation:
+    success = bool(result.get("success", False))
+    summary = _tool_summary(tool_name, result)
+    message = str(result.get("message", "")).strip() or summary
+    execution: Dict[str, Any] = {
+        "attempts": [],
+        "diagnostics": {
+            "tool": tool_name,
+            "tool_payload": payload,
+        },
+    }
+    if not success:
+        execution["diagnostics"]["error"] = message
+        execution["diagnostics"]["error_kind"] = "tool_execution_error"
+        execution["suspected_origin"] = "execution"
+    return Observation(
+        success=success,
+        message=message,
+        state={},
+        raw=result,
+        summary=summary,
+        env_state={},
+        artifacts={},
+        execution=execution,
+    )
+
+
+def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
+    if tool_name == "code_list_files":
+        files = result.get("files", [])
+        if isinstance(files, list) and files:
+            file_paths = [
+                str(item.get("path", "")).strip()
+                for item in files
+                if isinstance(item, dict) and str(item.get("path", "")).strip()
+            ]
+            return "Code tool result (file list):\n" + "\n".join(file_paths)
+    if tool_name == "code_read_file":
+        path = str(result.get("path", "")).strip()
+        content = str(result.get("content", "")).strip()
+        heading = f"Code tool result (read file: {path}):" if path else "Code tool result:"
+        return f"{heading}\n{content}".strip()
+    if tool_name == "code_search":
+        matches = result.get("matches", [])
+        if isinstance(matches, list) and matches:
+            lines = []
+            for item in matches:
+                if not isinstance(item, dict):
+                    continue
+                path = str(item.get("path", "")).strip()
+                line = item.get("line")
+                text = str(item.get("text", "")).strip()
+                location = f"{path}:{line}" if path and line else path or str(line or "")
+                lines.append(f"{location} {text}".strip())
+            if lines:
+                return "Code tool result (search matches):\n" + "\n".join(lines)
+        return "Code tool result: no search matches found."
+    if tool_name == "code_read_debug_logs":
+        logs = str(result.get("logs", "")).strip()
+        if logs:
+            return f"Runtime log result:\n{logs}"
+    path = str(result.get("path", "")).strip()
+    message = str(result.get("message", "")).strip()
+    if path and message:
+        return f"Code tool result ({path}): {message}"
+    if message:
+        return f"Code tool result: {message}"
+    return f"Code tool result: {json.dumps(result, ensure_ascii=False)}"

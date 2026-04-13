@@ -12,6 +12,7 @@ if ROOT_DIR not in sys.path:
 from src.execution_backends import GameClientExecutionBackend
 from src.operator import Operator
 from src.orchestrator import Orchestrator
+from src.tool_registry import ToolInvocationResult, ToolRegistry, register_game_action_tool
 from src.types import Action
 
 
@@ -114,11 +115,28 @@ def main() -> None:
     client = FakeGameClient()
     backend = GameClientExecutionBackend(client)
     operator = Operator(DummyLlmClient(), "unused prompt", max_retries=1)
+    registry = ToolRegistry()
+
+    def handle_game_action(payload, runtime_context):  # noqa: ANN001
+        result = operator.execute(
+            action=Action(command=payload["action"], tool="game_action"),
+            current_observation=runtime_context["current_observation"],
+            capability=runtime_context["capability"],
+            session=runtime_context["session"],
+            backend=backend,
+        )
+        return ToolInvocationResult(
+            observation=result.observation,
+            refreshed_capability=result.refreshed_capability,
+        )
+
+    register_game_action_tool(registry, handle_game_action)
     memory = MemoryStub()
     orchestrator = Orchestrator(
         game_id="dark-castle",
         execution_backend=backend,
         operator=operator,
+        tool_registry=registry,
         planner=PlannerStub(),
         memory=memory,
         detector=None,

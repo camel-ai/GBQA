@@ -4,19 +4,27 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 
 class PlannerDecision(BaseModel):
     """Planner output schema."""
 
-    tool: str = Field(default="game_command")
-    command: str = Field(min_length=1)
+    tool: str = Field(default="game_action")
+    action: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("action", "command"),
+    )
     rationale: str = ""
     expected_outcome: str = ""
     bug_exist: bool = False
     bug_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     bug_explanation: str = ""
+
+    @property
+    def command(self) -> str:
+        """Backward-compatible alias for legacy call sites."""
+        return self.action
 
     @field_validator("bug_confidence", mode="before")
     @classmethod
