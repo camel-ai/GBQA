@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .game_clients import CodeToolProvider, RuntimeLogProvider
 from .log_analyzer import LogAnalyzer
+from .log_types import DefaultLogAdapter, LogAdapter
 from .types import CapabilityDescriptor, Observation
 
 
@@ -213,8 +214,14 @@ def register_log_analysis_tool(
     registry: ToolRegistry,
     provider: RuntimeLogProvider,
     analyzer: LogAnalyzer,
+    adapter: LogAdapter | None = None,
 ) -> None:
-    """Register session-log analysis using the active game_client session."""
+    """Register session-log analysis using the active game_client session.
+
+    The adapter normalizes backend-specific log data before analysis.
+    If not provided, DefaultLogAdapter is used (standard GBQA format).
+    """
+    resolved_adapter = adapter or DefaultLogAdapter()
     registry.register(
         Tool(
             name="log_analyze",
@@ -231,6 +238,7 @@ def register_log_analysis_tool(
                 runtime,
                 provider,
                 analyzer,
+                resolved_adapter,
             ),
             action_parser=_parse_log_analysis_action,
         )
@@ -346,6 +354,7 @@ def _invoke_log_analysis_tool(
     runtime_context: ToolRuntimeContext,
     provider: RuntimeLogProvider,
     analyzer: LogAnalyzer,
+    adapter: LogAdapter,
 ) -> ToolInvocationResult:
     session = runtime_context.get("session")
     if session is None or getattr(session, "backend_type", "") != "game_client":
@@ -360,24 +369,26 @@ def _invoke_log_analysis_tool(
             observation=_tool_observation("log_analyze", payload, session_result),
         )
 
-    session_data = session_result.get("data", {})
+    normalized = adapter.normalize_session(session_result.get("data", {}))
     debug_output = ""
     debug_log_error = ""
     if bool(payload.get("include_debug_output", True)):
         debug_result = provider.read_debug_logs(game_id, clear=False)
         if bool(debug_result.get("success", False)):
-            debug_output = str(debug_result.get("logs", ""))
+            debug_output = adapter.normalize_debug_output(
+                str(debug_result.get("logs", ""))
+            )
         else:
             debug_log_error = str(debug_result.get("message", "")).strip()
 
     result: Dict[str, Any] = {
         "success": True,
         "game_id": game_id,
-        "analysis": analyzer.analyze_session(session_data, debug_output),
+        "analysis": analyzer.analyze_session(normalized, debug_output),
     }
     if _has_log_analysis_filters(payload):
         result["filtered_commands"] = analyzer.filter_commands(
-            session_data,
+            normalized,
             start_turn=int(payload.get("start_turn", 0)),
             end_turn=int(payload.get("end_turn", 0)),
             failures_only=bool(payload.get("failures_only", False)),
