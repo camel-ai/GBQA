@@ -53,6 +53,9 @@ class RuntimeLogProvider(Protocol):
     def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
         ...
 
+    def read_session_log(self, game_id: str) -> Dict[str, Any]:
+        ...
+
 
 @dataclass(frozen=True)
 class GameClientConfig:
@@ -185,12 +188,27 @@ class HttpCodeToolApiClient(_HttpBaseClient):
 class HttpRuntimeLogApiClient(_HttpBaseClient):
     """HTTP client for runtime debug-log APIs."""
 
+    def _api_root_url(self) -> str:
+        if self._base_url.endswith("/agent"):
+            return self._base_url[: -len("/agent")]
+        return self._base_url
+
     def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
         method = "DELETE" if clear else "GET"
         response = self._session.request(
             method,
             f"{self._base_url}/code/debug_logs",
             params={"game_id": game_id},
+            timeout=self._timeout,
+        )
+        if response.status_code >= 400:
+            return response.json()
+        response.raise_for_status()
+        return response.json()
+
+    def read_session_log(self, game_id: str) -> Dict[str, Any]:
+        response = self._session.get(
+            f"{self._api_root_url()}/logs/current/{game_id}",
             timeout=self._timeout,
         )
         if response.status_code >= 400:

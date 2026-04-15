@@ -27,11 +27,13 @@ from src.planner import ActionPlanner
 from src.prompts import PromptLoader
 from src.reflection import ReflectionAnalyzer
 from src.reporter import Reporter
+from src.log_analyzer import LogAnalyzer
 from src.tool_registry import (
     ToolInvocationResult,
     ToolRegistry,
     register_code_tools,
     register_game_action_tool,
+    register_log_analysis_tool,
     register_runtime_log_tool,
 )
 from src.types import Action
@@ -162,6 +164,7 @@ def main() -> None:
     )
     confidence_threshold = config.get_section("agent").get("confidence_threshold", 0.8)
     reflection_interval = config.get_section("agent").get("reflection_interval", 10)
+    log_analysis_interval = config.get_section("agent").get("log_analysis_interval", 20)
     summary_interval = config.get_section("agent").get("summary_interval", 50)
     memory_config = config.get_section("memory")
     session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -261,15 +264,17 @@ def main() -> None:
             raise ValueError(
                 "runtime_log_provider.base_url is required when enabled=true"
             )
+        runtime_log_provider = create_http_runtime_log_provider(
+            GameClientConfig(
+                base_url=runtime_log_base_url,
+                timeout=int(runtime_log_config.get("timeout", 60)),
+            )
+        )
         register_runtime_log_tool(
             tool_registry,
-            create_http_runtime_log_provider(
-                GameClientConfig(
-                    base_url=runtime_log_base_url,
-                    timeout=int(runtime_log_config.get("timeout", 60)),
-                )
-            ),
+            runtime_log_provider,
         )
+        register_log_analysis_tool(tool_registry, runtime_log_provider, LogAnalyzer())
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
     orchestrator = Orchestrator(
@@ -288,6 +293,7 @@ def main() -> None:
         max_consecutive_failures=max_consecutive_failures,
         confidence_threshold=confidence_threshold,
         reflection_interval=reflection_interval,
+        log_analysis_interval=log_analysis_interval,
         summary_interval=summary_interval,
     )
 

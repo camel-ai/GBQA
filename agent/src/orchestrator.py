@@ -41,6 +41,7 @@ class Orchestrator:
         confidence_threshold: float,
         reflection_interval: int,
         summary_interval: int,
+        log_analysis_interval: int = 0,
     ) -> None:
         self._game_id = game_id
         self._execution_backend = execution_backend
@@ -57,6 +58,7 @@ class Orchestrator:
         self._max_consecutive_failures = max_consecutive_failures
         self._confidence_threshold = confidence_threshold
         self._reflection_interval = reflection_interval
+        self._log_analysis_interval = log_analysis_interval
         self._summary_interval = summary_interval
 
     def run(self, game_profile: str) -> RunReport:
@@ -156,6 +158,17 @@ class Orchestrator:
                     else:
                         consecutive_failures += 1
 
+                if is_game_action and self._should_auto_log_analysis(
+                    action=action,
+                    findings=findings,
+                    step=step,
+                    consecutive_failures=consecutive_failures,
+                ):
+                    record.notes = self._append_note(
+                        record.notes,
+                        self._auto_log_analysis(session),
+                    )
+
                 should_reflect = is_game_action and self._should_reflect(
                     action=action,
                     observation=current_observation,
@@ -172,7 +185,10 @@ class Orchestrator:
                         observation=current_observation,
                     )
                     reflection = self._reflection_analyzer.reflect(reflection_context)
-                    record.notes = self._reflection_analyzer.format_note(reflection)
+                    record.notes = self._append_note(
+                        record.notes,
+                        self._reflection_analyzer.format_note(reflection),
+                    )
                     record.reflection_prompt = reflection.prompt
                     record.reflection_output = reflection.output
                     last_reflection_step = step
@@ -344,6 +360,53 @@ class Orchestrator:
             if similarity >= 0.88:
                 return True
         return False
+
+    def _should_auto_log_analysis(
+        self,
+        *,
+        action: Any,
+        findings: List[BugFinding],
+        step: int,
+        consecutive_failures: int,
+    ) -> bool:
+        if not self._has_tool("log_analyze"):
+            return False
+        if self._log_analysis_interval > 0 and step % self._log_analysis_interval == 0:
+            return True
+        if consecutive_failures > 0 and (
+            consecutive_failures >= self._max_consecutive_failures - 1
+        ):
+            return True
+        if action.bug_exist and action.confidence >= self._confidence_threshold:
+            return True
+        return bool(findings)
+
+    def _auto_log_analysis(self, session: Any) -> str:
+        try:
+            result = self._tool_registry.invoke(
+                "log_analyze",
+                {"include_debug_output": True},
+                {"session": session},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"[Auto log analysis] Failed: {exc}"
+        summary = result.observation.summary or result.observation.message
+        if not summary:
+            return ""
+        return f"[Auto log analysis]\n{summary}"
+
+    def _has_tool(self, tool_name: str) -> bool:
+        return any(tool.name == tool_name for tool in self._tool_registry.list_tools())
+
+    @staticmethod
+    def _append_note(existing: str, addition: str) -> str:
+        existing = (existing or "").strip()
+        addition = (addition or "").strip()
+        if not addition:
+            return existing
+        if not existing:
+            return addition
+        return f"{existing}\n{addition}"
 
     def _build_context(
         self,
