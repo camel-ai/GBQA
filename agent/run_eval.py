@@ -17,8 +17,24 @@ from src.types import BugFinding
 
 
 def parse_report_bugs(report_path: str) -> List[BugFinding]:
-    """Extract bug title and description pairs from ``report.md``."""
+    """Extract bug title and description pairs from ``report.md`` or ``report.json``."""
     bugs: List[BugFinding] = []
+
+    # Handle JSON report files
+    if report_path.endswith(".json"):
+        with open(report_path, "r", encoding="utf-8") as file_handle:
+            data = json.load(file_handle)
+        for bug in data.get("bugs", []):
+            bugs.append(
+                BugFinding(
+                    title=bug.get("title", ""),
+                    description=bug.get("description", ""),
+                    confidence=bug.get("confidence", 0.0),
+                )
+            )
+        return bugs
+
+    # Handle Markdown report files
     current: Dict[str, str] = {}
     in_bugs = False
     with open(report_path, "r", encoding="utf-8") as file_handle:
