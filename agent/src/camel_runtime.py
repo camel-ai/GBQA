@@ -6,8 +6,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Iterable, Optional, Type, TypeVar, Union
 import json
+import logging
 import re
+import time
+import traceback
 from urllib.parse import urlparse
+
+import httpx
 
 from camel.agents import ChatAgent
 from camel.memories import ChatHistoryMemory, ScoreBasedContextCreator
@@ -19,6 +24,8 @@ from camel.types import ModelPlatformType
 from camel.utils.token_counting import BaseTokenCounter
 from pydantic import BaseModel, ValidationError
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_CONTEXT_TOKEN_LIMIT = 12000
@@ -112,6 +119,49 @@ class CamelTaskAgent:
             agent_id=agent_id,
         )
 
+    @staticmethod
+    def _is_retryable_network_error(exc: Exception) -> bool:
+        """Return True for transient network/SSL errors that merit a retry."""
+        if isinstance(exc, httpx.ConnectError):
+            return True
+        if isinstance(exc, httpx.NetworkError):
+            return True
+        if isinstance(exc, httpx.TimeoutException):
+            return True
+        # OpenAI SDK wraps some errors; inspect the chain
+        cause = exc.__cause__
+        if cause is not None:
+            return CamelTaskAgent._is_retryable_network_error(cause)
+        return False
+
+    def _step_with_retry(
+        self,
+        prompt: Union[str, BaseMessage],
+        response_format: Optional[Type[StructuredResponseT]] = None,
+        max_retries: int = 3,
+        base_delay: float = 2.0,
+    ) -> Any:
+        """Call ``self._agent.step`` with exponential backoff on network errors."""
+        last_error: Optional[Exception] = None
+        for attempt in range(max_retries):
+            try:
+                return self._agent.step(prompt, response_format=response_format)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if not self._is_retryable_network_error(exc):
+                    raise
+                delay = base_delay * (2 ** attempt)
+                logger.warning(
+                    "Network error on attempt %d/%d (retrying in %.1fs): %s: %s",
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    type(exc).__name__,
+                    exc,
+                )
+                time.sleep(delay)
+        raise last_error  # type: ignore[misc]
+
     def run(
         self,
         prompt: Union[str, BaseMessage],
@@ -134,17 +184,23 @@ class CamelTaskAgent:
         if self._config.reset_between_turns:
             self._agent.reset()
         try:
-            response = self._agent.step(prompt, response_format=response_format)
+            response = self._step_with_retry(prompt, response_format=response_format)
         except Exception as exc:  # noqa: BLE001
+            error_detail = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "CAMEL agent step failed (%s)\n%s",
+                error_detail,
+                traceback.format_exc(),
+            )
             if response_format is not None:
                 fallback = self._run_text_fallback(
                     prompt,
                     response_format=response_format,
-                    original_error=str(exc),
+                    original_error=error_detail,
                 )
                 if fallback is not None:
                     return fallback
-            return ChatAgentResult(content="", error=str(exc))
+            return ChatAgentResult(content="", error=error_detail)
         return self._build_result(response, response_format=response_format)
 
     def _build_result(
@@ -195,9 +251,15 @@ class CamelTaskAgent:
         if self._config.reset_between_turns:
             self._agent.reset()
         try:
-            response = self._agent.step(prompt)
+            response = self._step_with_retry(prompt, response_format=None)
         except Exception as exc:  # noqa: BLE001
-            message = str(exc).strip()
+            error_detail = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "CAMEL text fallback failed (%s)\n%s",
+                error_detail,
+                traceback.format_exc(),
+            )
+            message = error_detail
             if original_error and message:
                 message = f"{original_error}: {message}"
             elif original_error:

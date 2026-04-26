@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -11,6 +12,8 @@ if ROOT_DIR not in sys.path:
 
 from src.camel_runtime import CamelRuntimeConfig, CamelTaskAgent
 from src.structured_outputs import PlannerDecision
+
+logging.getLogger("src.camel_runtime").setLevel(logging.CRITICAL + 1)
 
 
 class FakeMessage:
