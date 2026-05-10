@@ -35,14 +35,15 @@ class PatchNoteLlmClient:
         """Build one optional client from environment variables."""
         import os
 
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        model = os.getenv("OPENAI_MODEL", "")
-        if not api_key or not model:
+        api_key = os.getenv("API_KEY", "")
+        base_url = os.getenv("BASE_URL", "")
+        model = os.getenv("MODEL_NAME", "")
+        if not api_key or not base_url or not model:
             return None
         return cls(
             api_key=api_key,
             model=model,
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            base_url=base_url,
         )
 
     def synthesize_steps(

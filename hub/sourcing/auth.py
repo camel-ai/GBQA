@@ -49,10 +49,10 @@ GITHUB_FIELD = CredentialField(
 
 
 class CredentialStore:
-    """Store local CLI credentials in ``hub/sourcing/.env``."""
+    """Store local CLI credentials in the repository-root ``.env``."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
-        self.path = path or Path(__file__).resolve().with_name(".env")
+        self.path = path or Path(__file__).resolve().parents[2] / ".env"
 
     def load(self) -> Dict[str, str]:
         """Load saved credentials."""
