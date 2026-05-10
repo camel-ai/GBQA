@@ -28,23 +28,26 @@ pip install -r requirements.txt
 
 ### 2. API Key Configuration
 
-Run `cp .env.example .env ` , then open the `.env` file and provide your own model credentials:
+Run `cp .env.example .env` from the repository root, then open the root `.env` file and provide your own runtime credentials. This is the only env template used by the legacy agent, Harbor wrapper, Daytona sandbox setup, and sourcing tools.
 
 ```env
-OPENAI_API_KEY=
-OPENAI_BASE_URL=
-OPENAI_MODEL=
+DAYTONA_API_KEY=
+API_KEY=
+BASE_URL=https://zenmux.ai/api/v1
+MODEL_NAME=
+GITHUB_TOKEN=
 ```
 
-### 3. Start the Game Server
+### 3. Start the Target Software
 
-```bash
-cd hub/dark-castle/backend
-pip install -r requirements.txt
-python app.py
-```
+Milestone 1 treats Dark Castle as a real external GitHub software repository instead of local benchmark source. The Harbor task metadata records the selected baseline release:
 
-The game server will start on `http://localhost:5000`, and the browser frontend is available at the same host.
+- Repository: `https://github.com/Tsumugii24/dark-castle`
+- Version policy: `latest_minus_one`
+- Selected sandbox version: `v0.1.0`
+- Current fixed reference release: `v0.2.0`
+
+In the Daytona path, `gbqa/tasks/dark-castle/environment/Dockerfile` downloads the `v0.1.0` release archive into `/sandbox/software/dark-castle`. The Harbor agent uploads the GBQA runtime to `/sandbox/agent` and `/sandbox/gbqa`, then writes run artifacts through Harbor's `/logs` contract.
 
 ### 4. Run Agent Interaction
 
@@ -57,26 +60,31 @@ Most runtime settings live in `agent/config.yaml`, including:
 - LLM credentials and sampling parameters
 - agent loop limits and reflection thresholds
 - memory settings for summarization and cross-session retrieval
-- registered game targets and their API endpoints
-- evaluation and bug-detection thresholds
+- execution backend policy for the current QA agent harness
 
-The default bundled target is `dark-castle`, but the config is structured so additional games can be added through the same API contract.
+Task and environment metadata live with each Harbor-compatible task package. For the bundled target, the source of truth is `gbqa/tasks/dark-castle/gbqa.yaml`, which defines the GitHub software release, service endpoints, interaction modes, ground truth, and artifact contract.
 
 Back in the `agent/` directory:
 
 ```bash
-python run_agent.py --game dark-castle --config config.yaml --max-steps 50
+python run_agent.py \
+  --task dark-castle \
+  --config config.yaml \
+  --task-metadata ../gbqa/tasks/dark-castle/gbqa.yaml \
+  --max-steps 50
 ```
+
+`run_agent.py` always reads credentials from the repository-root `.env`, even when launched from `agent/`.
 
 #### Output Artifacts
 
-Each run produces a timestamped directory under `agent/reports/<game_id>/`:
+Each run produces a timestamped directory under `agent/reports/<task_slug>/`:
 
 - `report.json`: structured JSON report
 - `report.md`: concise human-readable report
 - `trace.jsonl`: step-by-step trace, bug events, and summaries
 
-Session memory is stored under `agent/memory/<game_id>/`, including chat history and summary logs for later inspection.
+Session memory is stored under `agent/memory/<task_slug>/`, including chat history and summary logs for later inspection.
 
 ### 5. Evaluation
 
@@ -86,7 +94,7 @@ You can also evaluate a report explicitly:
 
 ```bash
 cd agent
-python run_eval.py --game dark-castle --report reports/dark-castle/<run_id>/report.md
+python run_eval.py --task dark-castle --report reports/dark-castle/<run_id>/report.md
 ```
 
 
