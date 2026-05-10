@@ -6,7 +6,7 @@ Total bugs: 3
 ## Bugs
 ### The final key can be assembled after finding only two fragments.
 - Confidence: 0.99
-- Description: Reproduction: obtain any pair of key pieces and then run `combine`. Actual behavior: the game creates the completed escape key even though the third fragment has not been collected yet.
+- Description: Reproduction: obtain any pair of key pieces and then run `combine`. Actual behavior: the environment creates the completed escape key even though the third fragment has not been collected yet.
 
 ### Bedroom narration exposes the drawer key before the player opens the drawer.
 - Confidence: 0.98

@@ -248,7 +248,7 @@ The CLI supports an interactive GitHub credential flow.
 
 When you run a networked command such as `auth`, `discover`, or `run`:
 
-- saved keys from `hub/sourcing/.env` are loaded automatically
+- saved keys from the repository-root `.env` are loaded automatically
 - if no token is configured, the CLI can walk you through token setup
 - if GitHub returns `403 rate limit exceeded`, the CLI prompts for a token and retries
 - if GitHub returns `401 Bad credentials`, the CLI prompts you to replace the token and retries
@@ -270,13 +270,13 @@ python -m hub.sourcing.cli auth --providers github
 
 ### Manual file input
 
-Copy `.env.example` to `hub/sourcing/.env`, then fill in:
+Copy the repository-root `.env.example` to `.env`, then fill in:
 
 ```env
 GITHUB_TOKEN=ghp_your_token_here
-OPENAI_API_KEY=your_openai_key_here
-OPENAI_MODEL=gpt-5.4
-OPENAI_BASE_URL=https://api.openai.com/v1
+API_KEY=your_api_key_here
+MODEL_NAME=gpt-5.4
+BASE_URL=https://your-provider.example/v1
 ```
 
 ## How to Get a GitHub Token
@@ -293,7 +293,7 @@ Suggested process:
 4. Open `Personal access tokens`.
 5. Prefer a fine-grained token when possible.
 6. Create a token that can read public repository metadata.
-7. Copy the token once and paste it into the CLI or `hub/sourcing/.env`.
+7. Copy the token once and paste it into the CLI or the repository-root `.env`.
 
 ## Output Layout
 

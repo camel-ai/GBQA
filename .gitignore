@@ -164,6 +164,18 @@ $RECYCLE.BIN/
 # Project Specific
 # ========================================
 
+# Local research/checkouts
+/.research/
+/_research/
+/_tmp*/
+/openai-agents-python/
+
+# Benchmark/runtime outputs
+/jobs/
+/reports/
+/memory/
+/artifacts/
+
 # Cache directories
 cache/
 .cache/

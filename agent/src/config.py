@@ -25,9 +25,12 @@ class Config:
             return {}
         return section
 
-    def get_game(self, game_id: str) -> Optional[Dict[str, Any]]:
-        games = self.get_section("games")
-        return games.get(game_id)
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        tasks = self.get_section("tasks")
+        if task_id in tasks:
+            return tasks.get(task_id)
+        task_slug = task_id.rsplit("/", maxsplit=1)[-1]
+        return tasks.get(task_slug)
 
     def resolve_path(self, path: str) -> str:
         """Resolve a possibly-relative path from the config directory."""

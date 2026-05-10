@@ -1,0 +1,35 @@
+schema_version = "1.1"
+
+[task]
+name = "gbqa/dark-castle"
+description = "Find seeded QA bugs in the Dark Castle browser/API game."
+authors = [{ name = "GBQA Team" }]
+keywords = ["gbqa", "qa", "game", "browser", "api"]
+
+[metadata]
+category = "software-qa"
+task_family = "game"
+runtime_provider = "daytona"
+local_docker_supported = false
+software_repository = "https://github.com/Tsumugii24/dark-castle"
+software_release_policy = "latest_minus_one"
+software_version = "v0.1.0"
+software_latest_version = "v0.2.0"
+software_archive_url = "https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
+software_release_page = "https://github.com/Tsumugii24/dark-castle/releases/tag/v0.1.0"
+
+[verifier]
+timeout_sec = 180.0
+user = "root"
+
+[agent]
+timeout_sec = 1800.0
+user = "root"
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+allow_internet = true
+workdir = "/sandbox"

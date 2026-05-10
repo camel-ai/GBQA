@@ -37,7 +37,7 @@ class MemoryManager:
         auto_summarize: bool,
         summary_threshold: int,
         summary_prompt: str,
-        game_id: str,
+        task_id: str,
         session_id: str,
         memory_dir: str,
         session_metadata: Dict[str, Any],
@@ -45,13 +45,15 @@ class MemoryManager:
         cross_session_top_k: int,
         cross_session_similarity: float,
         load_persistent_long_term: bool,
+        memory_context_token_limit: int,
     ) -> None:
         self._max_short_term = max_short_term
         self._long_term_path = Path(long_term_path)
         self._auto_summarize = auto_summarize
         self._summary_threshold = summary_threshold
         self._summary_prompt = summary_prompt
-        self._game_id = game_id
+        self._task_id = task_id
+        self._task_slug = task_id.rsplit("/", maxsplit=1)[-1]
         self._session_id = session_id
         self._memory_dir = Path(memory_dir)
         self._session_metadata = session_metadata
@@ -59,10 +61,11 @@ class MemoryManager:
         self._cross_session_top_k = cross_session_top_k
         self._cross_session_similarity = cross_session_similarity
         self._load_persistent_long_term = load_persistent_long_term
+        self._memory_context_token_limit = int(memory_context_token_limit)
         self._state = MemoryState()
         self._summary_agent = llm_client.create_task_agent(
-            system_prompt="You summarize gameplay traces.",
-            agent_id=f"{game_id}:{session_id}:summary",
+            system_prompt="You summarize QA exploration traces.",
+            agent_id=f"{task_id}:{session_id}:summary",
         )
 
         self._session_dir = self._get_memory_dir()
@@ -71,8 +74,9 @@ class MemoryManager:
         self._summary_log_path = self._session_dir / f"{session_id}.jsonl"
         self._chat_memory = llm_client.create_history_memory(
             str(self._chat_history_path),
-            agent_id=f"{game_id}:{session_id}:memory",
+            agent_id=f"{task_id}:{session_id}:memory",
             window_size=max_short_term,
+            token_limit=self._memory_context_token_limit,
         )
         self._load_long_term()
 
@@ -80,6 +84,12 @@ class MemoryManager:
     def chat_history_path(self) -> Path:
         """Return the persisted CAMEL chat-history path."""
         return self._chat_history_path
+
+    @property
+    def memory_context_token_limit(self) -> int:
+        """Return the memory-only context assembly token budget."""
+
+        return self._memory_context_token_limit
 
     def _load_long_term(self) -> None:
         if not self._load_persistent_long_term:
@@ -259,15 +269,19 @@ class MemoryManager:
             MemoryRecord(
                 message=message_factory(role_name=role_name, content=content),
                 role_at_backend=role_at_backend,
-                extra_info={"step": str(step), "record_type": record_type},
-                agent_id=f"{self._game_id}:{self._session_id}:memory",
+                extra_info={
+                    "step": str(step),
+                    "record_type": record_type,
+                    "task_id": self._task_id,
+                },
+                agent_id=f"{self._task_id}:{self._session_id}:memory",
             )
         )
 
     def _persist_summary(self, summary: SummaryRecord) -> None:
         payload = {
             "type": "summary",
-            "game_id": self._game_id,
+            "task_id": self._task_id,
             "session_id": self._session_id,
             "step": summary.step,
             "prompt": summary.prompt,
@@ -300,4 +314,4 @@ class MemoryManager:
         return docs
 
     def _get_memory_dir(self) -> Path:
-        return self._memory_dir / self._game_id
+        return self._memory_dir / self._task_slug

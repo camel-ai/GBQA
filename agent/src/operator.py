@@ -125,7 +125,7 @@ class Operator:
         if translation_mode == "transparent_command":
             return ExecutionRequest(
                 planner_action=action.command,
-                calls=[ExecutionCall(kind="send_game_command", text=action.command)],
+                calls=[ExecutionCall(kind="send_command", text=action.command)],
                 metadata={"translation_mode": translation_mode},
             )
 

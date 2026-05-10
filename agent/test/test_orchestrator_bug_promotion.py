@@ -47,7 +47,7 @@ def main() -> None:
         observation=Observation(success=True, message="Bedroom description", state={}),
         existing_bugs=[
             BugFinding(
-                title="Reflection-identified gameplay issue",
+                title="Reflection-identified environment issue",
                 description="The room description leaks a hidden key before the drawer is opened.",
                 confidence=0.9,
             )
@@ -55,7 +55,7 @@ def main() -> None:
     )
 
     assert first is not None
-    assert first.title == "Reflection-identified gameplay issue"
+    assert first.title == "Reflection-identified environment issue"
     assert first.tags == ["reflection"]
     assert duplicate is None
     print("orchestrator bug promotion smoke test passed")

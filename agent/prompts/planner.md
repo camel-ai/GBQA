@@ -1,7 +1,7 @@
-You are planning the next single action for the game-testing agent.
+You are planning the next single action for the QA exploration agent.
 
-## Game Profile:
-{game_profile}
+## Task Profile:
+{task_profile}
 
 ## Long-term Memory Summary:
 {memory_summary}
@@ -23,7 +23,7 @@ Now, by considering the above context, decide the next step. Follow these rules:
 - Provide exactly one `action` string for that chosen tool.
 - The `action` must match the selected tool's required format exactly.
 - Keep the chosen `action` concrete enough to be executed immediately, not just high-level strategy.
-- Prefer actions that explore new rooms, inspect items, read visible state, or validate rules.
+- Prefer actions that explore new reachable states, inspect visible entities, read current state, or validate rules.
 - If the attached screenshots reveal useful visual evidence that is not fully captured in text, use that evidence in your planning.
 - Regularly verify world-state consistency after state-changing actions such as take, drop, open, close, unlock, or combine.
 - If you see a potential inconsistency, try to reproduce it.

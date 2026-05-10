@@ -10,7 +10,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from src.orchestrator import Orchestrator
-from src.tool_registry import ToolRegistry, register_game_action_tool
+from src.tool_registry import ToolRegistry, register_environment_action_tool
 from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
 
@@ -29,7 +29,7 @@ class PlannerStub:
 
 
 class BackendStub:
-    backend_type = "game_client"
+    backend_type = "api"
 
     def start_session(self, run_context):  # noqa: ANN001
         del run_context
@@ -90,14 +90,14 @@ class ReporterStub:
 
 def main() -> None:
     registry = ToolRegistry()
-    register_game_action_tool(
+    register_environment_action_tool(
         registry,
         lambda payload, runtime: (_ for _ in ()).throw(
-            AssertionError("game_action should not be invoked after planner error")
+            AssertionError("environment_action should not be invoked after planner error")
         ),
     )
     orchestrator = Orchestrator(
-        game_id="dark-castle",
+        task_id="dark-castle",
         execution_backend=BackendStub(),
         operator=OperatorStub(),
         tool_registry=registry,

@@ -25,7 +25,7 @@ class Orchestrator:
 
     def __init__(
         self,
-        game_id: str,
+        task_id: str,
         execution_backend: ExecutionBackend,
         operator: Operator,
         tool_registry: ToolRegistry,
@@ -41,8 +41,9 @@ class Orchestrator:
         confidence_threshold: float,
         reflection_interval: int,
         summary_interval: int,
+        log_analysis_interval: int = 0,
     ) -> None:
-        self._game_id = game_id
+        self._task_id = task_id
         self._execution_backend = execution_backend
         self._operator = operator
         self._tool_registry = tool_registry
@@ -57,16 +58,17 @@ class Orchestrator:
         self._max_consecutive_failures = max_consecutive_failures
         self._confidence_threshold = confidence_threshold
         self._reflection_interval = reflection_interval
+        self._log_analysis_interval = log_analysis_interval
         self._summary_interval = summary_interval
 
-    def run(self, game_profile: str) -> RunReport:
+    def run(self, task_profile: str) -> RunReport:
         start = datetime.now(timezone.utc).isoformat()
         print(
             f"[session] starting backend session: "
-            f"backend={self._execution_backend.backend_type} game={self._game_id}"
+            f"backend={self._execution_backend.backend_type} task={self._task_id}"
         )
         session = self._execution_backend.start_session(
-            {"game_id": self._game_id, "game_profile": game_profile}
+            {"task_id": self._task_id, "task_profile": task_profile}
         )
         print(
             f"[session] backend session started: "
@@ -86,7 +88,7 @@ class Orchestrator:
         )
 
         report = RunReport(
-            game_id=self._game_id,
+            task_id=self._task_id,
             steps=[],
             bugs=[],
             summaries=[],
@@ -106,7 +108,7 @@ class Orchestrator:
         try:
             for step in range(1, self._max_steps + 1):
                 context = self._build_context(
-                    game_profile=game_profile,
+                    task_profile=task_profile,
                     observation=current_observation,
                 )
                 plan = self._planner.plan(context)
@@ -135,10 +137,10 @@ class Orchestrator:
                 )
                 report.steps.append(record)
 
-                is_game_action = action.tool == "game_action"
+                is_environment_action = action.tool == "environment_action"
                 findings = (
                     self._detector.inspect(action, current_observation)
-                    if self._detector and is_game_action
+                    if self._detector and is_environment_action
                     else []
                 )
                 for bug in findings:
@@ -146,7 +148,7 @@ class Orchestrator:
                     self._memory.record_bug(bug, step)
                     self._reporter.log_bug(bug, step)
 
-                if is_game_action:
+                if is_environment_action:
                     if current_observation.success:
                         consecutive_failures = 0
                     elif self._detector and self._detector.is_benign_failure(
@@ -156,7 +158,18 @@ class Orchestrator:
                     else:
                         consecutive_failures += 1
 
-                should_reflect = is_game_action and self._should_reflect(
+                if is_environment_action and self._should_auto_log_analysis(
+                    action=action,
+                    findings=findings,
+                    step=step,
+                    consecutive_failures=consecutive_failures,
+                ):
+                    record.notes = self._append_note(
+                        record.notes,
+                        self._auto_log_analysis(session),
+                    )
+
+                should_reflect = is_environment_action and self._should_reflect(
                     action=action,
                     observation=current_observation,
                     findings=findings,
@@ -168,11 +181,14 @@ class Orchestrator:
                 fatal_llm_error = ""
                 if self._reflection_analyzer and should_reflect:
                     reflection_context = self._build_context(
-                        game_profile=game_profile,
+                        task_profile=task_profile,
                         observation=current_observation,
                     )
                     reflection = self._reflection_analyzer.reflect(reflection_context)
-                    record.notes = self._reflection_analyzer.format_note(reflection)
+                    record.notes = self._append_note(
+                        record.notes,
+                        self._reflection_analyzer.format_note(reflection),
+                    )
                     record.reflection_prompt = reflection.prompt
                     record.reflection_output = reflection.output
                     last_reflection_step = step
@@ -221,7 +237,7 @@ class Orchestrator:
                         step,
                     )
                 self._reporter.write_report(report)
-                if current_observation.game_over:
+                if current_observation.terminal:
                     break
                 if consecutive_failures >= self._max_consecutive_failures:
                     report.metadata["early_stop_reason"] = "max_consecutive_failures"
@@ -264,7 +280,7 @@ class Orchestrator:
             message=combined_text,
             state=observation.state,
             raw=observation.raw,
-            game_over=observation.game_over,
+            terminal=observation.terminal,
             turn=observation.turn,
             summary=combined_text,
             env_state=observation.env_state,
@@ -314,7 +330,7 @@ class Orchestrator:
         if not evidence:
             return None
         candidate = BugFinding(
-            title="Reflection-identified gameplay issue",
+            title="Reflection-identified environment issue",
             description=evidence,
             confidence=float(reflection.bug_confidence),
             evidence={
@@ -345,10 +361,57 @@ class Orchestrator:
                 return True
         return False
 
+    def _should_auto_log_analysis(
+        self,
+        *,
+        action: Any,
+        findings: List[BugFinding],
+        step: int,
+        consecutive_failures: int,
+    ) -> bool:
+        if not self._has_tool("log_analyze"):
+            return False
+        if self._log_analysis_interval > 0 and step % self._log_analysis_interval == 0:
+            return True
+        if consecutive_failures > 0 and (
+            consecutive_failures >= self._max_consecutive_failures - 1
+        ):
+            return True
+        if action.bug_exist and action.confidence >= self._confidence_threshold:
+            return True
+        return bool(findings)
+
+    def _auto_log_analysis(self, session: Any) -> str:
+        try:
+            result = self._tool_registry.invoke(
+                "log_analyze",
+                {"include_debug_output": True},
+                {"session": session},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"[Auto log analysis] Failed: {exc}"
+        summary = result.observation.summary or result.observation.message
+        if not summary:
+            return ""
+        return f"[Auto log analysis]\n{summary}"
+
+    def _has_tool(self, tool_name: str) -> bool:
+        return any(tool.name == tool_name for tool in self._tool_registry.list_tools())
+
+    @staticmethod
+    def _append_note(existing: str, addition: str) -> str:
+        existing = (existing or "").strip()
+        addition = (addition or "").strip()
+        if not addition:
+            return existing
+        if not existing:
+            return addition
+        return f"{existing}\n{addition}"
+
     def _build_context(
         self,
         *,
-        game_profile: str,
+        task_profile: str,
         observation: Observation,
     ) -> Dict[str, Any]:
         observation_text = observation.summary or observation.message
@@ -372,7 +435,7 @@ class Orchestrator:
                 f"{memory_summary}\n\nCross-session relevant memory:\n{cross_session_memory}"
             ).strip()
         return {
-            "game_profile": game_profile,
+            "task_profile": task_profile,
             "memory_summary": memory_summary,
             "recent_trace": recent_trace,
             "current_observation": observation_text,

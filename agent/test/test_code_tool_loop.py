@@ -9,7 +9,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from src.tool_registry import ToolRegistry, register_code_tools, register_game_action_tool
+from src.tool_registry import ToolRegistry, register_code_tools, register_environment_action_tool
 from src.orchestrator import Orchestrator
 from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
@@ -34,7 +34,7 @@ class BackendStub:
     def describe_capabilities(self, session, refresh=False):  # noqa: ANN001
         del session, refresh
         return CapabilityDescriptor(
-            planner_summary="Use game_action for gameplay.",
+            planner_summary="Use environment_action for exploration.",
             operator_context={},
         )
 
@@ -49,15 +49,15 @@ class PlannerStub:
             "PlanResult",
             (),
             {
-                "action": Action(tool="code_read_file", command="game/actions.py:1-2"),
+                "action": Action(tool="code_read_file", command="src/actions.py:1-2"),
                 "prompt": "planner prompt",
-                "output": '{"tool":"code_read_file","action":"game/actions.py:1-2"}',
+                "output": '{"tool":"code_read_file","action":"src/actions.py:1-2"}',
                 "error": "",
             },
         )()
 
 
-class CodeToolProviderStub:
+class CodeToolAdapterStub:
     def list_code_files(self):
         raise AssertionError("unused")
 
@@ -131,15 +131,15 @@ class ReporterStub:
 def main() -> None:
     registry = ToolRegistry()
 
-    def game_action_handler(payload, runtime_context):  # noqa: ANN001
-        raise AssertionError("game_action should not be invoked in this smoke test")
+    def environment_action_handler(payload, runtime_context):  # noqa: ANN001
+        raise AssertionError("environment_action should not be invoked in this smoke test")
 
-    register_game_action_tool(registry, game_action_handler)
-    register_code_tools(registry, CodeToolProviderStub())
+    register_environment_action_tool(registry, environment_action_handler)
+    register_code_tools(registry, CodeToolAdapterStub())
 
     memory = MemoryStub()
     orchestrator = Orchestrator(
-        game_id="dark-castle",
+        task_id="dark-castle",
         execution_backend=BackendStub(),
         operator=None,
         tool_registry=registry,

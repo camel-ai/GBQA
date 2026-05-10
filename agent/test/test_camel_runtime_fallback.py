@@ -53,7 +53,12 @@ class FakeChatAgent:
 
 def main() -> None:
     agent = CamelTaskAgent.__new__(CamelTaskAgent)
-    agent._config = CamelRuntimeConfig(model="demo", api_key="demo-key")
+    agent._config = CamelRuntimeConfig(
+        model="demo",
+        api_key="demo-key",
+        base_url="https://example.test/v1",
+    )
+    agent._system_message = "Planner system prompt"
     agent._agent = FakeChatAgent()
 
     result = agent.run("Plan the next step.", response_format=PlannerDecision)
@@ -63,6 +68,19 @@ def main() -> None:
     assert result.parsed.command == "look"
     assert result.info.get("structured_output_fallback") is True
     assert agent._agent.reset_count == 2
+
+    limited_agent = CamelTaskAgent.__new__(CamelTaskAgent)
+    limited_agent._config = CamelRuntimeConfig(
+        model="demo",
+        api_key="demo-key",
+        base_url="https://example.test/v1",
+        input_token_limit=2,
+    )
+    limited_agent._system_message = "System prompt"
+    limited_agent._agent = FakeChatAgent()
+    limited_result = limited_agent.run("This prompt is too long.")
+    assert "input_token_limit_exceeded" in limited_result.error
+    assert limited_agent._agent.calls == []
     print("camel runtime fallback smoke test passed")
 
 

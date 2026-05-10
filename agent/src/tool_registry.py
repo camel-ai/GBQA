@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from .game_clients import CodeToolProvider, RuntimeLogProvider
+from .environment_clients import CodeToolAdapter, RuntimeLogAdapter
+from .log_analyzer import LogAnalyzer
 from .types import CapabilityDescriptor, Observation
 
 
@@ -82,16 +83,16 @@ class ToolRegistry:
         return self._tools[name]
 
 
-def register_game_action_tool(
+def register_environment_action_tool(
     registry: ToolRegistry,
     handler: ToolHandler,
 ) -> None:
-    """Register the primary gameplay-action tool."""
+    """Register the primary environment-action tool."""
     registry.register(
         Tool(
-            name="game_action",
+            name="environment_action",
             description=(
-                "Execute one semantic gameplay action through the operator and active execution backend"
+                "Execute one semantic environment action through the operator and active execution backend"
             ),
             action_format="semantic action string",
             handler=handler,
@@ -102,19 +103,19 @@ def register_game_action_tool(
 
 def register_code_tools(
     registry: ToolRegistry,
-    provider: CodeToolProvider,
+    adapter: CodeToolAdapter,
 ) -> None:
     """Register white-box source-code tools."""
     registry.register(
         Tool(
             name="code_list_files",
-            description="List available source code files for the current game",
+            description="List available source code files for the current environment",
             action_format="any non-empty text (ignored)",
             handler=lambda payload, runtime: _invoke_code_tool(
                 "code_list_files",
                 payload,
                 runtime,
-                provider.list_code_files(),
+                adapter.list_code_files(),
             ),
             action_parser=lambda _action_text: {},
         )
@@ -128,7 +129,7 @@ def register_code_tools(
                 "code_read_file",
                 payload,
                 runtime,
-                provider.read_code_file(
+                adapter.read_code_file(
                     payload["path"],
                     start_line=int(payload.get("start_line", 0)),
                     end_line=int(payload.get("end_line", 0)),
@@ -146,7 +147,7 @@ def register_code_tools(
                 "code_search",
                 payload,
                 runtime,
-                provider.search_code(payload["pattern"]),
+                adapter.search_code(payload["pattern"]),
             ),
             action_parser=lambda action_text: {"pattern": _require_action(action_text)},
         )
@@ -160,7 +161,7 @@ def register_code_tools(
                 "code_write_file",
                 payload,
                 runtime,
-                provider.write_code_file(
+                adapter.write_code_file(
                     payload["path"],
                     content=str(payload.get("content", "")),
                     patch=payload.get("patch"),
@@ -178,7 +179,7 @@ def register_code_tools(
                 "code_restore_file",
                 payload,
                 runtime,
-                provider.restore_code_file(payload["path"]),
+                adapter.restore_code_file(payload["path"]),
             ),
             action_parser=lambda action_text: {"path": _require_action(action_text)},
         )
@@ -187,23 +188,51 @@ def register_code_tools(
 
 def register_runtime_log_tool(
     registry: ToolRegistry,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
 ) -> None:
     """Register runtime debug-log access."""
     registry.register(
         Tool(
             name="code_read_debug_logs",
             description=(
-                "Read or clear runtime debug logs for the current active game session; "
+                "Read or clear runtime debug logs for the current active environment session; "
                 "the session id is inferred automatically"
             ),
             action_format="read or clear",
             handler=lambda payload, runtime: _invoke_runtime_log_tool(
                 payload,
                 runtime,
-                provider,
+                adapter,
             ),
             action_parser=_parse_debug_log_action,
+        )
+    )
+
+
+def register_log_analysis_tool(
+    registry: ToolRegistry,
+    adapter: RuntimeLogAdapter,
+    analyzer: LogAnalyzer,
+) -> None:
+    """Register session-log analysis using the active API-backed session."""
+    registry.register(
+        Tool(
+            name="log_analyze",
+            description=(
+                "Analyze the current environment session log for anomalies and optionally "
+                "show filtered commands"
+            ),
+            action_format=(
+                "analyze, failures, or JSON object with start_turn/end_turn/"
+                "failures_only/limit/include_debug_output"
+            ),
+            handler=lambda payload, runtime: _invoke_log_analysis_tool(
+                payload,
+                runtime,
+                adapter,
+                analyzer,
+            ),
+            action_parser=_parse_log_analysis_action,
         )
     )
 
@@ -263,6 +292,24 @@ def _parse_debug_log_action(action_text: str) -> ToolPayload:
     return {"clear": text == "clear"}
 
 
+def _parse_log_analysis_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text)
+    lowered = text.lower()
+    if lowered in {"analyze", "summary"}:
+        return {"include_debug_output": True}
+    if lowered == "failures":
+        return {"include_debug_output": True, "failures_only": True}
+    if text.startswith("{"):
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            raise ValueError("log_analyze JSON action must decode to an object")
+        payload.setdefault("include_debug_output", True)
+        return payload
+    raise ValueError(
+        "log_analyze action must be 'analyze', 'failures', or a JSON object"
+    )
+
+
 def _invoke_code_tool(
     tool_name: str,
     payload: ToolPayload,
@@ -278,20 +325,80 @@ def _invoke_code_tool(
 def _invoke_runtime_log_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
 ) -> ToolInvocationResult:
     session = runtime_context.get("session")
-    if session is None or getattr(session, "backend_type", "") != "game_client":
+    if session is None or getattr(session, "backend_type", "") != "api":
         raise RuntimeError(
-            "code_read_debug_logs is only available when the active backend exposes a stable current game session"
+            "code_read_debug_logs is only available when the active backend exposes a stable current environment session"
         )
-    result = provider.read_debug_logs(
+    result = adapter.read_debug_logs(
         getattr(session, "session_id", ""),
         clear=bool(payload.get("clear", False)),
     )
     return ToolInvocationResult(
         observation=_tool_observation("code_read_debug_logs", payload, result),
     )
+
+
+def _invoke_log_analysis_tool(
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    adapter: RuntimeLogAdapter,
+    analyzer: LogAnalyzer,
+) -> ToolInvocationResult:
+    session = runtime_context.get("session")
+    if session is None or getattr(session, "backend_type", "") != "api":
+        raise RuntimeError(
+            "log_analyze is only available when the active backend exposes a stable current environment session"
+        )
+
+    session_id = getattr(session, "session_id", "")
+    session_result = adapter.read_session_log(session_id)
+    if not bool(session_result.get("success", False)):
+        return ToolInvocationResult(
+            observation=_tool_observation("log_analyze", payload, session_result),
+        )
+
+    session_data = session_result.get("data", {})
+    debug_output = ""
+    debug_log_error = ""
+    if bool(payload.get("include_debug_output", True)):
+        debug_result = adapter.read_debug_logs(session_id, clear=False)
+        if bool(debug_result.get("success", False)):
+            debug_output = str(debug_result.get("logs", ""))
+        else:
+            debug_log_error = str(debug_result.get("message", "")).strip()
+
+    result: Dict[str, Any] = {
+        "success": True,
+        "session_id": session_id,
+        "analysis": analyzer.analyze_session(session_data, debug_output),
+    }
+    if _has_log_analysis_filters(payload):
+        result["filtered_commands"] = analyzer.filter_commands(
+            session_data,
+            start_turn=int(payload.get("start_turn", 0)),
+            end_turn=int(payload.get("end_turn", 0)),
+            failures_only=bool(payload.get("failures_only", False)),
+            limit=int(payload.get("limit", 50)),
+        )
+    if debug_log_error:
+        result["debug_log_error"] = debug_log_error
+
+    return ToolInvocationResult(
+        observation=_tool_observation("log_analyze", payload, result),
+    )
+
+
+def _has_log_analysis_filters(payload: ToolPayload) -> bool:
+    if int(payload.get("start_turn", 0)) > 0:
+        return True
+    if int(payload.get("end_turn", 0)) > 0:
+        return True
+    if bool(payload.get("failures_only", False)):
+        return True
+    return "limit" in payload
 
 
 def _tool_observation(
@@ -359,6 +466,52 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
         logs = str(result.get("logs", "")).strip()
         if logs:
             return f"Runtime log result:\n{logs}"
+    if tool_name == "log_analyze":
+        parts: List[str] = []
+        analysis = result.get("analysis", {})
+        if isinstance(analysis, dict):
+            summary = str(analysis.get("summary", "")).strip()
+            if summary:
+                parts.append(f"Log analysis result: {summary}")
+            for anomaly in analysis.get("anomalies", [])[:5]:
+                if not isinstance(anomaly, dict):
+                    continue
+                severity = str(anomaly.get("severity", "")).strip() or "unknown"
+                anomaly_type = str(anomaly.get("type", "")).strip() or "unknown"
+                description = str(anomaly.get("description", "")).strip()
+                parts.append(f"- [{severity}] {anomaly_type}: {description}".rstrip())
+            debug_findings = analysis.get("debug_findings", {})
+            if isinstance(debug_findings, dict):
+                error_count = int(debug_findings.get("error_count", 0))
+                warning_count = int(debug_findings.get("warning_count", 0))
+                if error_count or warning_count:
+                    parts.append(
+                        f"Debug findings: {error_count} errors, {warning_count} warnings"
+                    )
+        filtered = result.get("filtered_commands", {})
+        if isinstance(filtered, dict):
+            commands = filtered.get("commands", [])
+            if isinstance(commands, list):
+                parts.append(
+                    "Filtered commands "
+                    f"({filtered.get('returned_commands', len(commands))} of "
+                    f"{filtered.get('filtered_total', len(commands))}):"
+                )
+                for command in commands[:10]:
+                    if not isinstance(command, dict):
+                        continue
+                    response = command.get("response", {})
+                    success = bool(response.get("success", False))
+                    status = "OK" if success else "FAIL"
+                    parts.append(
+                        f"  T{command.get('turn', '?')}: [{status}] "
+                        f"{str(command.get('command', '')).strip()}"
+                    )
+        debug_log_error = str(result.get("debug_log_error", "")).strip()
+        if debug_log_error:
+            parts.append(f"Debug log read failed: {debug_log_error}")
+        if parts:
+            return "\n".join(parts)
     path = str(result.get("path", "")).strip()
     message = str(result.get("message", "")).strip()
     if path and message:

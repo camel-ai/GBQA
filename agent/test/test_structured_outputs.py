@@ -33,7 +33,7 @@ def main() -> None:
                 {
                     "kind": "click",
                     "ref": "e58",
-                    "target": "Start New Game",
+                    "target": "Start Session",
                 }
             ]
         }
