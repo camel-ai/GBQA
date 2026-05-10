@@ -66,15 +66,15 @@ class PlaywrightMcpExecutionBackend:
         cls,
         *,
         config: Config,
-        game_id: str,
-        game_config: Dict[str, Any],
+        task_id: str,
+        task_config: Dict[str, Any],
         backend_settings: Dict[str, Any],
     ) -> "PlaywrightMcpExecutionBackend":
-        del game_id
+        del task_id
         frontend_url = str(backend_settings.get("frontend_url", "")).strip()
         if not frontend_url:
-            port = game_config.get("port")
-            frontend_url = game_config.get("frontend_url") or f"http://localhost:{port}"
+            port = task_config.get("port")
+            frontend_url = task_config.get("frontend_url") or f"http://localhost:{port}"
         settings = PlaywrightMcpSettings(
             command=[str(item) for item in backend_settings.get("command", [])],
             startup_timeout=int(backend_settings.get("startup_timeout", 20)),

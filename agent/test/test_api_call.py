@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import dotenv
 
@@ -15,12 +16,15 @@ from src.llm_client import LlmClient
 
 
 def main() -> None:
-    dotenv.load_dotenv()
+    dotenv.load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+    if not os.getenv("API_KEY") or not os.getenv("MODEL_NAME"):
+        print("skipped api call smoke test: API_KEY and MODEL_NAME are required")
+        return
     client = LlmClient(
         {
-            "api_key": os.getenv("OPENAI_API_KEY", ""),
-            "base_url": os.getenv("OPENAI_BASE_URL", ""),
-            "model": os.getenv("OPENAI_MODEL", ""),
+            "api_key": os.getenv("API_KEY", ""),
+            "base_url": os.getenv("BASE_URL", ""),
+            "model": os.getenv("MODEL_NAME", ""),
         }
     )
     response = client.complete(

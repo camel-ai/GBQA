@@ -14,11 +14,11 @@ from .types import BugFinding, RunReport, StepRecord
 class Reporter:
     """Writes structured logs and reports."""
 
-    def __init__(self, output_dir: str, game_id: str) -> None:
+    def __init__(self, output_dir: str, task_slug: str) -> None:
         self._output_dir = Path(output_dir)
-        self._game_id = game_id
+        self._task_slug = task_slug
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        self._run_dir = self._output_dir / game_id / timestamp
+        self._run_dir = self._output_dir / task_slug / timestamp
         self._jsonl_path = self._run_dir / "trace.jsonl"
         self._events: List[Dict[str, Any]] = []
         self._run_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +83,7 @@ class Reporter:
 
     def _format_markdown(self, report: RunReport) -> str:
         lines = [
-            f"# QA Agent Report - {report.game_id}",
+            f"# QA Agent Report - {report.task_id}",
             "",
             f"Total steps: {len(report.steps)}",
             f"Total bugs: {len(report.bugs)}",
@@ -173,7 +173,7 @@ class Reporter:
             "metadata": report.metadata,
             "llm": report.metadata.get("llm", {}),
             "agent": report.metadata.get("agent", {}),
-            "game": report.metadata.get("game", {}),
+            "task": report.metadata.get("task", {}),
             "summary": report.summary,
             "bugs": [asdict(bug) for bug in report.bugs],
             "summaries": [asdict(summary) for summary in report.summaries],
@@ -194,7 +194,7 @@ class Reporter:
                         "feedback": record.observation.message,
                         "summary": record.observation.summary,
                         "success": record.observation.success,
-                        "game_over": record.observation.game_over,
+                        "terminal": record.observation.terminal,
                         "state": record.observation.state,
                         "env_state": record.observation.env_state,
                         "artifacts": record.observation.artifacts,

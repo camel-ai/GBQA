@@ -1,6 +1,6 @@
 """
 Session log analysis engine.
-Detect anomalies in game session logs and debug output using hard-coded rules.
+Detect anomalies in environment session logs and debug output using hard-coded rules.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 
 class LogAnalyzer:
-    """Analyze game session logs and debug output for anomalies."""
+    """Analyze environment session logs and debug output for anomalies."""
 
     STREAK_THRESHOLD = 3
     TIME_GAP_THRESHOLD = 30.0
@@ -26,7 +26,7 @@ class LogAnalyzer:
         session_data: Dict[str, Any],
         debug_output: str = "",
     ) -> Dict[str, Any]:
-        """Run all anomaly checks on a game session log."""
+        """Run all anomaly checks on an environment session log."""
         commands = session_data.get("commands", [])
         total_turns = session_data.get("total_turns", len(commands))
 
@@ -36,7 +36,7 @@ class LogAnalyzer:
         anomalies.extend(self._check_state_inconsistencies(commands))
         anomalies.extend(self._check_error_patterns(commands))
         anomalies.extend(self._check_time_gaps(commands))
-        anomalies.extend(self._check_game_over_mismatch(session_data))
+        anomalies.extend(self._check_terminal_mismatch(session_data))
         anomalies.sort(key=lambda anomaly: anomaly["turns"][0] if anomaly["turns"] else 0)
 
         debug_findings = self._analyze_debug_output(debug_output) if debug_output else {}
@@ -315,7 +315,7 @@ class LogAnalyzer:
                 )
         return anomalies
 
-    def _check_game_over_mismatch(
+    def _check_terminal_mismatch(
         self,
         session_data: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
@@ -325,38 +325,38 @@ class LogAnalyzer:
             return []
 
         last_command = commands[-1]
-        game_over = last_command.get("response", {}).get("game_over", False)
-        if game_over and result == "in_progress":
+        terminal = last_command.get("response", {}).get("terminal", False)
+        if terminal and result == "in_progress":
             return [
                 {
-                    "type": "game_over_mismatch",
+                    "type": "terminal_state_mismatch",
                     "severity": "medium",
                     "turns": [last_command.get("turn", 0)],
                     "description": (
-                        "game_over=true in last command but session result is 'in_progress'"
+                        "terminal=true in last command but session result is 'in_progress'"
                     ),
                     "evidence": [
                         {
                             "turn": last_command.get("turn", 0),
-                            "game_over": True,
+                            "terminal": True,
                             "result": result,
                         }
                     ],
                 }
             ]
-        if not game_over and result == "victory":
+        if not terminal and result == "victory":
             return [
                 {
-                    "type": "game_over_mismatch",
+                    "type": "terminal_state_mismatch",
                     "severity": "medium",
                     "turns": [last_command.get("turn", 0)],
                     "description": (
-                        "Session result is 'victory' but last command has game_over=false"
+                        "Session result is 'victory' but last command has terminal=false"
                     ),
                     "evidence": [
                         {
                             "turn": last_command.get("turn", 0),
-                            "game_over": False,
+                            "terminal": False,
                             "result": result,
                         }
                     ],

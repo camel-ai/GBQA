@@ -32,7 +32,6 @@ def main() -> None:
             "api_key": "test-key",
             "base_url": "https://api.openai.com/v1",
             "model": "gpt-4o-mini",
-            "reset_between_turns": True,
         }
     )
 
@@ -43,7 +42,7 @@ def main() -> None:
         auto_summarize=False,
         summary_threshold=3,
         summary_prompt="Summary: {trace}",
-        game_id="dark-castle",
+        task_id="dark-castle",
         session_id="test-session",
         memory_dir=str(temp_root),
         session_metadata={"test": True},
@@ -51,7 +50,10 @@ def main() -> None:
         cross_session_top_k=3,
         cross_session_similarity=0.2,
         load_persistent_long_term=False,
+        memory_context_token_limit=321,
     )
+
+    assert memory.memory_context_token_limit == 321
 
     memory.record_step(
         StepRecord(

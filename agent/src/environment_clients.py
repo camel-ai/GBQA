@@ -1,4 +1,4 @@
-"""HTTP clients and protocols for game actions, code tools, and runtime logs."""
+"""HTTP clients and protocols for environment actions, code tools, and runtime logs."""
 
 from __future__ import annotations
 
@@ -8,24 +8,24 @@ from typing import Any, Dict, Optional, Protocol
 import requests
 
 
-class GameActionClient(Protocol):
-    """Protocol for gameplay action APIs."""
+class EnvironmentActionClient(Protocol):
+    """Protocol for command-style environment action APIs."""
 
-    def new_game(self) -> Dict[str, Any]:
+    def start_session(self) -> Dict[str, Any]:
         ...
 
-    def send_command(self, game_id: str, command: str) -> Dict[str, Any]:
+    def send_command(self, session_id: str, command: str) -> Dict[str, Any]:
         ...
 
-    def get_state(self, game_id: str) -> Dict[str, Any]:
+    def get_state(self, session_id: str) -> Dict[str, Any]:
         ...
 
     def close(self) -> None:
         ...
 
 
-class CodeToolProvider(Protocol):
-    """Protocol for white-box source-code tools."""
+class CodeToolAdapter(Protocol):
+    """Protocol for white-box source-code interaction tools."""
 
     def list_code_files(self) -> Dict[str, Any]:
         ...
@@ -47,22 +47,24 @@ class CodeToolProvider(Protocol):
         ...
 
 
-class RuntimeLogProvider(Protocol):
-    """Protocol for runtime debug-log access."""
+class RuntimeLogAdapter(Protocol):
+    """Protocol for runtime log interaction tools."""
 
-    def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
+    def read_debug_logs(self, session_id: str, clear: bool = False) -> Dict[str, Any]:
         ...
 
-    def read_session_log(self, game_id: str) -> Dict[str, Any]:
+    def read_session_log(self, session_id: str) -> Dict[str, Any]:
         ...
 
 
 @dataclass(frozen=True)
-class GameClientConfig:
+class EnvironmentClientConfig:
     """Configuration for HTTP clients."""
 
     base_url: str
     timeout: int = 30
+    session_id_field: str = "session_id"
+    terminal_field: str = "terminal"
 
 
 class _HttpBaseClient:
@@ -90,35 +92,55 @@ class _HttpBaseClient:
         self._session.close()
 
 
-class HttpGameActionClient(_HttpBaseClient):
-    """Generic HTTP client for GBQA gameplay action APIs."""
+class HttpEnvironmentActionClient(_HttpBaseClient):
+    """Generic HTTP client for GBQA command-style action APIs."""
 
-    def new_game(self) -> Dict[str, Any]:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 30,
+        *,
+        session_id_field: str = "session_id",
+        terminal_field: str = "terminal",
+    ) -> None:
+        super().__init__(base_url=base_url, timeout=timeout)
+        self._session_id_field = session_id_field
+        self._terminal_field = terminal_field
+
+    def start_session(self) -> Dict[str, Any]:
         response = self._session.post(
             f"{self._base_url}/new", timeout=self._timeout
         )
         response.raise_for_status()
-        return response.json()
+        return self._normalize_payload(response.json())
 
-    def send_command(self, game_id: str, command: str) -> Dict[str, Any]:
+    def send_command(self, session_id: str, command: str) -> Dict[str, Any]:
         response = self._session.post(
             f"{self._base_url}/command",
-            json={"game_id": game_id, "command": command},
+            json={self._session_id_field: session_id, "command": command},
             timeout=self._timeout,
         )
         response.raise_for_status()
-        return response.json()
+        return self._normalize_payload(response.json())
 
-    def get_state(self, game_id: str) -> Dict[str, Any]:
+    def get_state(self, session_id: str) -> Dict[str, Any]:
         response = self._session.get(
-            f"{self._base_url}/state/{game_id}", timeout=self._timeout
+            f"{self._base_url}/state/{session_id}", timeout=self._timeout
         )
         response.raise_for_status()
-        return response.json()
+        return self._normalize_payload(response.json())
+
+    def _normalize_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(payload)
+        if self._session_id_field in payload:
+            normalized.setdefault("session_id", payload[self._session_id_field])
+        if self._terminal_field in payload:
+            normalized.setdefault("terminal", payload[self._terminal_field])
+        return normalized
 
 
 class HttpCodeToolApiClient(_HttpBaseClient):
-    """HTTP client for game-side code tool APIs."""
+    """HTTP client for environment-side code tool APIs."""
 
     def list_code_files(self) -> Dict[str, Any]:
         response = self._session.get(
@@ -188,17 +210,27 @@ class HttpCodeToolApiClient(_HttpBaseClient):
 class HttpRuntimeLogApiClient(_HttpBaseClient):
     """HTTP client for runtime debug-log APIs."""
 
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 30,
+        *,
+        session_id_field: str = "session_id",
+    ) -> None:
+        super().__init__(base_url=base_url, timeout=timeout)
+        self._session_id_field = session_id_field
+
     def _api_root_url(self) -> str:
         if self._base_url.endswith("/agent"):
             return self._base_url[: -len("/agent")]
         return self._base_url
 
-    def read_debug_logs(self, game_id: str, clear: bool = False) -> Dict[str, Any]:
+    def read_debug_logs(self, session_id: str, clear: bool = False) -> Dict[str, Any]:
         method = "DELETE" if clear else "GET"
         response = self._session.request(
             method,
             f"{self._base_url}/code/debug_logs",
-            params={"game_id": game_id},
+            params={self._session_id_field: session_id},
             timeout=self._timeout,
         )
         if response.status_code >= 400:
@@ -206,9 +238,9 @@ class HttpRuntimeLogApiClient(_HttpBaseClient):
         response.raise_for_status()
         return response.json()
 
-    def read_session_log(self, game_id: str) -> Dict[str, Any]:
+    def read_session_log(self, session_id: str) -> Dict[str, Any]:
         response = self._session.get(
-            f"{self._api_root_url()}/logs/current/{game_id}",
+            f"{self._api_root_url()}/logs/current/{session_id}",
             timeout=self._timeout,
         )
         if response.status_code >= 400:
@@ -217,22 +249,31 @@ class HttpRuntimeLogApiClient(_HttpBaseClient):
         return response.json()
 
 
-def create_http_game_action_client(config: GameClientConfig) -> HttpGameActionClient:
-    """Build a standardized HTTP gameplay-action client."""
-    return HttpGameActionClient(base_url=config.base_url, timeout=config.timeout)
+def create_http_environment_action_client(
+    config: EnvironmentClientConfig,
+) -> HttpEnvironmentActionClient:
+    """Build a standardized HTTP environment-action client."""
+    return HttpEnvironmentActionClient(
+        base_url=config.base_url,
+        timeout=config.timeout,
+        session_id_field=config.session_id_field,
+        terminal_field=config.terminal_field,
+    )
 
 
-def create_http_code_tool_provider(config: GameClientConfig) -> HttpCodeToolApiClient:
-    """Build a standardized HTTP code-tool provider."""
+def create_http_code_tool_adapter(
+    config: EnvironmentClientConfig,
+) -> HttpCodeToolApiClient:
+    """Build a standardized HTTP code-tool adapter."""
     return HttpCodeToolApiClient(base_url=config.base_url, timeout=config.timeout)
 
 
-def create_http_runtime_log_provider(
-    config: GameClientConfig,
+def create_http_runtime_log_adapter(
+    config: EnvironmentClientConfig,
 ) -> HttpRuntimeLogApiClient:
-    """Build a standardized HTTP runtime-log provider."""
-    return HttpRuntimeLogApiClient(base_url=config.base_url, timeout=config.timeout)
-
-
-DarkCastleGameClient = HttpGameActionClient
-CastleGameClient = DarkCastleGameClient
+    """Build a standardized HTTP runtime-log adapter."""
+    return HttpRuntimeLogApiClient(
+        base_url=config.base_url,
+        timeout=config.timeout,
+        session_id_field=config.session_id_field,
+    )

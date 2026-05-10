@@ -10,16 +10,19 @@ import os
 from pydantic import BaseModel
 
 from .camel_runtime import (
-    DEFAULT_CONTEXT_TOKEN_LIMIT,
-    DEFAULT_OPENAI_BASE_URL,
+    DEFAULT_INPUT_TOKEN_LIMIT,
+    DEFAULT_MEMORY_CONTEXT_TOKEN_LIMIT,
     CamelAgentFactory,
     CamelRuntimeConfig,
     CamelTaskAgent,
     ChatAgentResult,
+    ReasoningConfig,
 )
 
 
 StructuredResponseT = TypeVar("StructuredResponseT", bound=BaseModel)
+
+DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
 
 
 @dataclass
@@ -36,28 +39,41 @@ class LlmClient:
     """Application-level access point for creating CAMEL agents."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
+        model = config.get("model") or os.getenv("MODEL_NAME") or ""
+        api_key = config.get("api_key") or os.getenv("API_KEY") or ""
+        base_url = config.get("base_url") or os.getenv("BASE_URL") or DEFAULT_BASE_URL
+        missing = [
+            name
+            for name, value in (
+                ("API_KEY", api_key),
+                ("MODEL_NAME", model),
+            )
+            if not value
+        ]
+        if missing:
+            raise RuntimeError("Missing model request field(s): " + ", ".join(missing))
         self._runtime_config = CamelRuntimeConfig(
-            model=config.get("model") or os.getenv("OPENAI_MODEL") or "",
+            model=model,
             model_platform=(
                 config.get("model_platform")
                 or config.get("platform")
-                or os.getenv("CAMEL_MODEL_PLATFORM")
                 or "auto"
             ),
             temperature=config.get("temperature", 0.3),
             max_tokens=config.get("max_tokens", 4096),
             timeout=config.get("timeout", 60),
-            api_key=config.get("api_key") or os.getenv("OPENAI_API_KEY") or "",
-            base_url=(
-                config.get("base_url")
-                or os.getenv("OPENAI_BASE_URL")
-                or DEFAULT_OPENAI_BASE_URL
+            input_token_limit=int(
+                config.get("input_token_limit", DEFAULT_INPUT_TOKEN_LIMIT)
             ),
-            message_window_size=config.get("message_window_size", 6),
-            reset_between_turns=bool(config.get("reset_between_turns", True)),
-            context_token_limit=int(
-                config.get("context_token_limit", DEFAULT_CONTEXT_TOKEN_LIMIT)
+            api_key=api_key,
+            base_url=base_url,
+            memory_context_token_limit=int(
+                config.get(
+                    "memory_context_token_limit",
+                    DEFAULT_MEMORY_CONTEXT_TOKEN_LIMIT,
+                )
             ),
+            reasoning=_parse_reasoning_config(config.get("reasoning", {})),
         )
         self._factory = CamelAgentFactory(self._runtime_config)
 
@@ -73,7 +89,6 @@ class LlmClient:
         agent_id: Optional[str] = None,
         tools: Optional[list[Any]] = None,
         memory: Optional[Any] = None,
-        reset_between_turns: Optional[bool] = None,
     ) -> CamelTaskAgent:
         """Create a named CAMEL role agent."""
         return self._factory.create_task_agent(
@@ -81,7 +96,6 @@ class LlmClient:
             agent_id=agent_id,
             tools=tools,
             memory=memory,
-            reset_between_turns=reset_between_turns,
         )
 
     def create_history_memory(
@@ -128,7 +142,6 @@ class LlmClient:
         agent = self.create_task_agent(
             system_prompt,
             agent_id=agent_key,
-            reset_between_turns=True,
         )
         result: ChatAgentResult[StructuredResponseT] = agent.run(
             user_prompt,
@@ -156,3 +169,18 @@ class LlmClient:
                 "error": "invalid_json",
                 "raw": response.content,
             }
+
+
+def _parse_reasoning_config(payload: Any) -> ReasoningConfig:
+    if payload is None:
+        return ReasoningConfig()
+    if isinstance(payload, str):
+        return ReasoningConfig(mode=payload)
+    if not isinstance(payload, dict):
+        raise ValueError("llm.reasoning must be a mapping, string, or null")
+    max_tokens = payload.get("max_tokens")
+    return ReasoningConfig(
+        mode=str(payload.get("mode", "auto")),
+        effort=str(payload.get("effort", "") or ""),
+        max_tokens=int(max_tokens) if max_tokens is not None and max_tokens != "" else None,
+    )

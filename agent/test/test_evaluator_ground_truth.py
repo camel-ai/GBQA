@@ -25,13 +25,13 @@ def main() -> None:
     truth_path.write_text(
         json.dumps(
             {
-                "game_name": "dark-castle",
-                "game_title": "Dark Castle: Night of Awakening",
+                "task_name": "dark-castle",
+                "task_title": "Dark Castle: Night of Awakening",
                 "bug_version": "dark-castle",
                 "total_bugs": 1,
                 "bugs": [
                     {
-                        "id": "BUG-001",
+                        "id": 0,
                         "bug_type": "logic error",
                         "difficulty": "easy",
                         "minimal_reproduction": [

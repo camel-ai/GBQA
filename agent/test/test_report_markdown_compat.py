@@ -20,7 +20,7 @@ def main() -> None:
     shutil.rmtree(temp_root, ignore_errors=True)
     reporter = Reporter(str(temp_root), "dark-castle")
     report = RunReport(
-        game_id="dark-castle",
+        task_id="dark-castle",
         bugs=[
             BugFinding(
                 title="Visible inconsistency",

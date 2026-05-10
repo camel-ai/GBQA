@@ -1,7 +1,7 @@
 {
   "metadata": {
     "source": "mock_report",
-    "game_session_id": "mock-dark-castle-session",
+    "session_id": "mock-dark-castle-session",
     "notes": "Synthetic report used to verify evaluator matching against the released Dark Castle ground truth."
   },
   "llm": {
@@ -12,7 +12,7 @@
     "max_steps": 0,
     "confidence_threshold": 0.7
   },
-  "game": {
+  "task": {
     "name": "dark-castle",
     "have_ground_truth": true
   },
@@ -20,7 +20,7 @@
   "bugs": [
     {
       "title": "The final key can be assembled after finding only two fragments.",
-      "description": "Reproduction: obtain any pair of key pieces and then run `combine`. Actual behavior: the game creates the completed escape key even though the third fragment has not been collected yet.",
+      "description": "Reproduction: obtain any pair of key pieces and then run `combine`. Actual behavior: the environment creates the completed escape key even though the third fragment has not been collected yet.",
       "confidence": 0.99,
       "evidence": {
         "minimal_reproduction": [

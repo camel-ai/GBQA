@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from .game_clients import CodeToolProvider, RuntimeLogProvider
+from .environment_clients import CodeToolAdapter, RuntimeLogAdapter
 from .log_analyzer import LogAnalyzer
 from .types import CapabilityDescriptor, Observation
 
@@ -83,16 +83,16 @@ class ToolRegistry:
         return self._tools[name]
 
 
-def register_game_action_tool(
+def register_environment_action_tool(
     registry: ToolRegistry,
     handler: ToolHandler,
 ) -> None:
-    """Register the primary gameplay-action tool."""
+    """Register the primary environment-action tool."""
     registry.register(
         Tool(
-            name="game_action",
+            name="environment_action",
             description=(
-                "Execute one semantic gameplay action through the operator and active execution backend"
+                "Execute one semantic environment action through the operator and active execution backend"
             ),
             action_format="semantic action string",
             handler=handler,
@@ -103,19 +103,19 @@ def register_game_action_tool(
 
 def register_code_tools(
     registry: ToolRegistry,
-    provider: CodeToolProvider,
+    adapter: CodeToolAdapter,
 ) -> None:
     """Register white-box source-code tools."""
     registry.register(
         Tool(
             name="code_list_files",
-            description="List available source code files for the current game",
+            description="List available source code files for the current environment",
             action_format="any non-empty text (ignored)",
             handler=lambda payload, runtime: _invoke_code_tool(
                 "code_list_files",
                 payload,
                 runtime,
-                provider.list_code_files(),
+                adapter.list_code_files(),
             ),
             action_parser=lambda _action_text: {},
         )
@@ -129,7 +129,7 @@ def register_code_tools(
                 "code_read_file",
                 payload,
                 runtime,
-                provider.read_code_file(
+                adapter.read_code_file(
                     payload["path"],
                     start_line=int(payload.get("start_line", 0)),
                     end_line=int(payload.get("end_line", 0)),
@@ -147,7 +147,7 @@ def register_code_tools(
                 "code_search",
                 payload,
                 runtime,
-                provider.search_code(payload["pattern"]),
+                adapter.search_code(payload["pattern"]),
             ),
             action_parser=lambda action_text: {"pattern": _require_action(action_text)},
         )
@@ -161,7 +161,7 @@ def register_code_tools(
                 "code_write_file",
                 payload,
                 runtime,
-                provider.write_code_file(
+                adapter.write_code_file(
                     payload["path"],
                     content=str(payload.get("content", "")),
                     patch=payload.get("patch"),
@@ -179,7 +179,7 @@ def register_code_tools(
                 "code_restore_file",
                 payload,
                 runtime,
-                provider.restore_code_file(payload["path"]),
+                adapter.restore_code_file(payload["path"]),
             ),
             action_parser=lambda action_text: {"path": _require_action(action_text)},
         )
@@ -188,21 +188,21 @@ def register_code_tools(
 
 def register_runtime_log_tool(
     registry: ToolRegistry,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
 ) -> None:
     """Register runtime debug-log access."""
     registry.register(
         Tool(
             name="code_read_debug_logs",
             description=(
-                "Read or clear runtime debug logs for the current active game session; "
+                "Read or clear runtime debug logs for the current active environment session; "
                 "the session id is inferred automatically"
             ),
             action_format="read or clear",
             handler=lambda payload, runtime: _invoke_runtime_log_tool(
                 payload,
                 runtime,
-                provider,
+                adapter,
             ),
             action_parser=_parse_debug_log_action,
         )
@@ -211,15 +211,15 @@ def register_runtime_log_tool(
 
 def register_log_analysis_tool(
     registry: ToolRegistry,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
     analyzer: LogAnalyzer,
 ) -> None:
-    """Register session-log analysis using the active game_client session."""
+    """Register session-log analysis using the active API-backed session."""
     registry.register(
         Tool(
             name="log_analyze",
             description=(
-                "Analyze the current game session log for anomalies and optionally "
+                "Analyze the current environment session log for anomalies and optionally "
                 "show filtered commands"
             ),
             action_format=(
@@ -229,7 +229,7 @@ def register_log_analysis_tool(
             handler=lambda payload, runtime: _invoke_log_analysis_tool(
                 payload,
                 runtime,
-                provider,
+                adapter,
                 analyzer,
             ),
             action_parser=_parse_log_analysis_action,
@@ -325,14 +325,14 @@ def _invoke_code_tool(
 def _invoke_runtime_log_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
 ) -> ToolInvocationResult:
     session = runtime_context.get("session")
-    if session is None or getattr(session, "backend_type", "") != "game_client":
+    if session is None or getattr(session, "backend_type", "") != "api":
         raise RuntimeError(
-            "code_read_debug_logs is only available when the active backend exposes a stable current game session"
+            "code_read_debug_logs is only available when the active backend exposes a stable current environment session"
         )
-    result = provider.read_debug_logs(
+    result = adapter.read_debug_logs(
         getattr(session, "session_id", ""),
         clear=bool(payload.get("clear", False)),
     )
@@ -344,17 +344,17 @@ def _invoke_runtime_log_tool(
 def _invoke_log_analysis_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
-    provider: RuntimeLogProvider,
+    adapter: RuntimeLogAdapter,
     analyzer: LogAnalyzer,
 ) -> ToolInvocationResult:
     session = runtime_context.get("session")
-    if session is None or getattr(session, "backend_type", "") != "game_client":
+    if session is None or getattr(session, "backend_type", "") != "api":
         raise RuntimeError(
-            "log_analyze is only available when the active backend exposes a stable current game session"
+            "log_analyze is only available when the active backend exposes a stable current environment session"
         )
 
-    game_id = getattr(session, "session_id", "")
-    session_result = provider.read_session_log(game_id)
+    session_id = getattr(session, "session_id", "")
+    session_result = adapter.read_session_log(session_id)
     if not bool(session_result.get("success", False)):
         return ToolInvocationResult(
             observation=_tool_observation("log_analyze", payload, session_result),
@@ -364,7 +364,7 @@ def _invoke_log_analysis_tool(
     debug_output = ""
     debug_log_error = ""
     if bool(payload.get("include_debug_output", True)):
-        debug_result = provider.read_debug_logs(game_id, clear=False)
+        debug_result = adapter.read_debug_logs(session_id, clear=False)
         if bool(debug_result.get("success", False)):
             debug_output = str(debug_result.get("logs", ""))
         else:
@@ -372,7 +372,7 @@ def _invoke_log_analysis_tool(
 
     result: Dict[str, Any] = {
         "success": True,
-        "game_id": game_id,
+        "session_id": session_id,
         "analysis": analyzer.analyze_session(session_data, debug_output),
     }
     if _has_log_analysis_filters(payload):

@@ -9,8 +9,9 @@ from .config import Config
 
 DEFAULT_GROUND_TRUTH_TEMPLATE = os.path.join(
     "..",
-    "hub",
-    "{game_id}",
+    "gbqa",
+    "tasks",
+    "{task_slug}",
     "bugs",
     "{bug_version}.json",
 )
@@ -18,18 +19,23 @@ DEFAULT_GROUND_TRUTH_TEMPLATE = os.path.join(
 
 def resolve_ground_truth_path(
     config: Config,
-    game_id: str,
+    task_id: str,
     explicit_path: str | None = None,
 ) -> str:
-    """Resolve the ground-truth file path for a game."""
+    """Resolve the ground-truth file path for a benchmark task."""
     if explicit_path:
         return config.resolve_path(explicit_path)
 
-    game_config = config.get_game(game_id) or {}
-    bug_version = str(game_config.get("bug_version", game_id))
+    task_config = config.get_task(task_id) or {}
+    task_slug = str(task_config.get("slug") or task_id.rsplit("/", maxsplit=1)[-1])
+    bug_version = str(task_config.get("bug_version", task_slug))
     template = str(
-        game_config.get("ground_truth_path", DEFAULT_GROUND_TRUTH_TEMPLATE)
+        task_config.get("ground_truth_path", DEFAULT_GROUND_TRUTH_TEMPLATE)
     )
     return config.resolve_path(
-        template.format(game_id=game_id, bug_version=bug_version)
+        template.format(
+            task_id=task_id,
+            task_slug=task_slug,
+            bug_version=bug_version,
+        )
     )

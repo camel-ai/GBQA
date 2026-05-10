@@ -10,7 +10,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator
 class PlannerDecision(BaseModel):
     """Planner output schema."""
 
-    tool: str = Field(default="game_action")
+    tool: str = Field(default="environment_action")
     action: str = Field(
         min_length=1,
         validation_alias=AliasChoices("action", "command"),

@@ -15,7 +15,7 @@ class ObservationParser:
         message = str(payload.get("message", ""))
         state = payload.get("state") or {}
         turn = payload.get("turn")
-        game_over = bool(payload.get("game_over", False))
+        terminal = bool(payload.get("terminal", False))
         summary = str(payload.get("summary", "")).strip()
         env_state = payload.get("env_state") or {}
         artifacts = payload.get("artifacts") or {}
@@ -25,7 +25,7 @@ class ObservationParser:
             message=message,
             state=state,
             raw=payload,
-            game_over=game_over,
+            terminal=terminal,
             turn=turn if isinstance(turn, int) else None,
             summary=summary or message,
             env_state=env_state if isinstance(env_state, dict) else {},
@@ -34,7 +34,7 @@ class ObservationParser:
         )
 
     @staticmethod
-    def build_game_client_summary(payload: Dict[str, Any]) -> str:
+    def build_api_summary(payload: Dict[str, Any]) -> str:
         """Build a planner-facing summary from a command API payload."""
         message = str(payload.get("message", "")).strip()
         state = payload.get("state") or {}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 from typing import Dict, List
 
 import dotenv
@@ -12,7 +13,7 @@ import dotenv
 from src.config import load_config
 from src.evaluator import Evaluator
 from src.ground_truth import resolve_ground_truth_path
-from src.llm_client import LlmClient
+from src.llm_client import DEFAULT_BASE_URL, LlmClient
 from src.types import BugFinding
 
 
@@ -56,25 +57,33 @@ def parse_report_bugs(report_path: str) -> List[BugFinding]:
 
 
 def main() -> None:
-    dotenv.load_dotenv()
+    dotenv.load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
     parser = argparse.ArgumentParser(description="Evaluator for reports")
     parser.add_argument(
         "--config",
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"),
     )
     parser.add_argument("--report", required=True)
-    parser.add_argument("--game", default="dark-castle")
+    parser.add_argument("--task", default="dark-castle")
     parser.add_argument("--ground-truth", default=None)
     parser.add_argument("--threshold", type=float, default=None)
     args = parser.parse_args()
 
     config = load_config(args.config)
     llm_config = config.get_section("llm")
-    api_key = llm_config.get("api_key") or os.getenv("OPENAI_API_KEY")
-    llm_base_url = llm_config.get("base_url") or os.getenv("OPENAI_BASE_URL")
-    model = llm_config.get("model") or os.getenv("OPENAI_MODEL")
-    if not api_key or not model:
-        raise RuntimeError("Missing OPENAI_API_KEY or OPENAI_MODEL")
+    api_key = llm_config.get("api_key") or os.getenv("API_KEY")
+    llm_base_url = llm_config.get("base_url") or os.getenv("BASE_URL") or DEFAULT_BASE_URL
+    model = llm_config.get("model") or os.getenv("MODEL_NAME")
+    if not api_key or not llm_base_url or not model:
+        missing = [
+            name
+            for name, value in (
+                ("API_KEY", api_key),
+                ("MODEL_NAME", model),
+            )
+            if not value
+        ]
+        raise RuntimeError("Missing model request field(s): " + ", ".join(missing))
     llm_client = LlmClient(
         {
             **llm_config,
@@ -85,7 +94,7 @@ def main() -> None:
     )
 
     evaluator = Evaluator(
-        ground_truth_path=resolve_ground_truth_path(config, args.game, args.ground_truth),
+        ground_truth_path=resolve_ground_truth_path(config, args.task, args.ground_truth),
         match_threshold=(
             args.threshold
             if args.threshold is not None
