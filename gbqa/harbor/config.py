@@ -108,7 +108,7 @@ def render_agent_config(
             ],
         },
         "memory": {
-            "max_short_term": 30,
+            "max_short_term": 100,
             "memory_context_token_limit": 12000,
             "long_term_file": "/logs/agent/gbqa/memory/{task_slug}/long_term.json",
             "load_persistent_long_term": False,

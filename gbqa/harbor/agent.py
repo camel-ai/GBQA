@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 from pathlib import Path
 from typing import Any
 
-from gbqa.env import load_root_dotenv
+from gbqa.crypto import encrypt, generate_key
+
+import base64
+from gbqa.env import load_root_dotenv, root_env_path
 from gbqa.harbor.config import render_agent_config
 from gbqa.spec import GBQAMetadata, load_gbqa_metadata
 
@@ -77,6 +81,12 @@ class GBQAHarborAgent(BaseAgent):
         await environment.upload_dir(repo_root / "gbqa", self._REMOTE_GBQA_DIR)
         await self._ensure_software_release(environment)
 
+        # Upload .env so agent can load it; verifier will get resolved env via
+        # an encrypted file so API_KEY is never written plaintext.
+        env_path = root_env_path()
+        if env_path.exists():
+            await environment.upload_file(env_path, f"{self._REMOTE_ROOT}/.env")
+
         config_text = render_agent_config(
             metadata=self.metadata,
             interaction_mode=self.interaction_mode,
@@ -100,6 +110,21 @@ class GBQAHarborAgent(BaseAgent):
         del instruction
         runtime_env = self._runtime_env()
         self._validate_runtime_env(runtime_env)
+
+        # Persist resolved env for verifier to read without extra --ve flags.
+        # Use symmetric encryption so API_KEY is not stored plaintext.
+        key = generate_key()
+        token = encrypt(runtime_env, key)
+        await self._write_remote_file(
+            environment,
+            f"{self._REMOTE_RUNTIME_DIR}/verifier_env.enc",
+            token,
+        )
+        await self._write_remote_file(
+            environment,
+            f"{self._REMOTE_RUNTIME_DIR}/.verifier_key",
+            base64.b64encode(key).decode(),
+        )
 
         await self._start_dark_castle(environment)
         await self._wait_for_service(environment)

@@ -1,19 +1,17 @@
-FROM ubuntu:24.04
+FROM python:3.13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/venv/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     curl \
     git \
-    nodejs \
-    npm \
-    python3 \
-    python3-pip \
-    python3-venv \
     tar \
+    tmux \
+    asciinema \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv \
@@ -23,14 +21,10 @@ RUN python3 -m venv /opt/venv \
       flask \
       flask-cors \
       openai \
-      Pillow \
       pydantic \
       python-dotenv \
       pyyaml \
       requests
-
-RUN npm install -g @playwright/mcp@latest playwright \
-    && npx playwright install --with-deps chromium
 
 ARG DARK_CASTLE_ARCHIVE_URL="https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
 ARG DARK_CASTLE_DIR="/sandbox/software/dark-castle"

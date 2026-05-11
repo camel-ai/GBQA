@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import traceback
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+
+# Optional LLM semantic matching via agent/src/evaluator
+_import_error_msg: str = ""
+try:
+    from agent.src.evaluator import Evaluator
+    from agent.src.llm_client import LlmClient
+    from agent.src.types import BugFinding
+
+    _AGENT_EVALUATOR_AVAILABLE = True
+except ImportError as _exc:
+    _AGENT_EVALUATOR_AVAILABLE = False
+    _import_error_msg = f"{type(_exc).__name__}: {_exc}"
 
 
 @dataclass
@@ -18,6 +32,54 @@ class MatchDetail:
     score: float
     rationale: str
     matched: bool
+
+
+def _bugs_dict_to_finding(bugs: list[dict[str, Any]]) -> list[Any]:
+    """Convert raw bugs.json dicts to BugFinding dataclasses."""
+    findings: list[Any] = []
+    for bug in bugs:
+        if not isinstance(bug, dict):
+            continue
+        evidence = bug.get("evidence", {})
+        if not isinstance(evidence, dict):
+            evidence = {}
+        findings.append(
+            BugFinding(
+                title=str(bug.get("title", "")),
+                description=str(bug.get("description", "")),
+                confidence=float(bug.get("confidence", 0.0)),
+                evidence=evidence,
+                tags=[str(t) for t in bug.get("tags", []) if t],
+            )
+        )
+    return findings
+
+
+def _create_llm_client() -> tuple[Any | None, str]:
+    """Create an LlmClient from environment variables if available.
+    Returns (client, diagnostic_message).
+    """
+    if not _AGENT_EVALUATOR_AVAILABLE:
+        return None, f"agent imports unavailable ({_import_error_msg})"
+    api_key = os.environ.get("API_KEY", "")
+    base_url = os.environ.get("BASE_URL", "")
+    model = os.environ.get("MODEL_NAME", "")
+    missing = [k for k in ("API_KEY", "MODEL_NAME") if not os.environ.get(k, "")]
+    if missing:
+        return None, f"missing env vars: {', '.join(missing)}"
+    config: dict[str, Any] = {
+        "api_key": api_key,
+        "base_url": base_url,
+        "model": model,
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "timeout": 60,
+    }
+    try:
+        client = LlmClient(config)
+        return client, "ok"
+    except Exception as exc:
+        return None, f"LlmClient init failed: {type(exc).__name__}: {exc}"
 
 
 def evaluate_bug_report(
@@ -37,6 +99,33 @@ def evaluate_bug_report(
     if not ground_truth:
         return _error_result("No ground-truth bugs were loaded.")
 
+    # Try LLM semantic matching first if agent evaluator is available.
+    llm_client, llm_diag = _create_llm_client()
+    diagnostics: dict[str, Any] = {
+        "agent_imports_available": _AGENT_EVALUATOR_AVAILABLE,
+        "agent_import_error": _import_error_msg,
+        "llm_client_diag": llm_diag,
+        "env_api_key_present": bool(os.environ.get("API_KEY", "")),
+        "env_model_name_present": bool(os.environ.get("MODEL_NAME", "")),
+        "env_base_url": os.environ.get("BASE_URL", ""),
+        "predicted_bug_count": len(predicted),
+    }
+    if _AGENT_EVALUATOR_AVAILABLE and llm_client is not None and predicted:
+        try:
+            result = _evaluate_with_llm(
+                predicted, ground_truth_path, match_threshold, llm_client
+            )
+            result["_diagnostics"] = diagnostics
+            result["_matcher_used"] = "llm"
+            return result
+        except Exception as exc:
+            diagnostics["llm_eval_error"] = f"{type(exc).__name__}: {exc}"
+            diagnostics["llm_eval_traceback"] = traceback.format_exc()
+            # Any failure in the LLM path falls through to the legacy
+            # SequenceMatcher implementation so the verifier never crashes.
+            pass
+
+    # Legacy SequenceMatcher fallback (also used when LLM is unavailable).
     used_truth_indices: set[int] = set()
     details: list[MatchDetail] = []
     matched = 0
@@ -66,7 +155,7 @@ def evaluate_bug_report(
     precision = matched / len(predicted) if predicted else 0.0
     recall = matched / len(ground_truth) if ground_truth else 0.0
     reward = recall
-    return {
+    result = {
         "reward": reward,
         "precision": precision,
         "recall": recall,
@@ -74,6 +163,34 @@ def evaluate_bug_report(
         "total_predicted": len(predicted),
         "total_ground_truth": len(ground_truth),
         "details": [asdict(detail) for detail in details],
+    }
+    result["_diagnostics"] = diagnostics
+    result["_matcher_used"] = "sequence_matcher"
+    return result
+
+
+def _evaluate_with_llm(
+    predicted: list[dict[str, Any]],
+    ground_truth_path: str | Path,
+    match_threshold: float,
+    llm_client: Any,
+) -> dict[str, Any]:
+    """Evaluate using the agent's LLM-based semantic matcher."""
+    findings = _bugs_dict_to_finding(predicted)
+    evaluator = Evaluator(
+        ground_truth_path=str(ground_truth_path),
+        match_threshold=match_threshold,
+        llm_client=llm_client,
+    )
+    result = evaluator.evaluate(findings)
+    return {
+        "reward": result.recall,
+        "precision": result.precision,
+        "recall": result.recall,
+        "matched": result.matched,
+        "total_predicted": result.total_predicted,
+        "total_ground_truth": result.total_ground_truth,
+        "details": [asdict(d) for d in result.details],
     }
 
 

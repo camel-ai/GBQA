@@ -8,6 +8,7 @@ GROUND_TRUTH="/tests/bugs/dark-castle.json"
 mkdir -p "${VERIFIER_DIR}"
 
 PYTHON_BIN="${PYTHON_BIN:-/opt/venv/bin/python}"
+export PYTHONPATH="${PYTHONPATH:-}:/sandbox"
 
 if [ -f "${AGENT_DIR}/bugs.json" ]; then
   "${PYTHON_BIN}" /tests/gbqa_verifier.py \
