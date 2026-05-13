@@ -266,13 +266,15 @@ class GBQAHarborAgent(BaseAgent):
         env: dict[str, str] = {
             "PYTHONPATH": f"{self._REMOTE_ROOT}:{self._REMOTE_AGENT_DIR}",
         }
-        for key in ("API_KEY", "BASE_URL", "MODEL_NAME"):
-            value = self._extra_env.get(key) or os.environ.get(key)
-            if value:
-                env[key] = value
-        env.setdefault("BASE_URL", DEFAULT_BASE_URL)
-        if "MODEL_NAME" not in env and self.model_name:
+        # CLI argument (e.g. harbor run -m <model>) takes highest priority.
+        if self.model_name:
             env["MODEL_NAME"] = self.model_name
+        for key in ("API_KEY", "BASE_URL", "MODEL_NAME"):
+            if key not in env:
+                value = self._extra_env.get(key) or os.environ.get(key)
+                if value:
+                    env[key] = value
+        env.setdefault("BASE_URL", DEFAULT_BASE_URL)
         return env
 
     @staticmethod
