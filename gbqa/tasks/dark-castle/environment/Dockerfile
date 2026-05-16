@@ -7,10 +7,12 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    gcc \
     git \
     nodejs \
     npm \
     python3 \
+    python3-dev \
     python3-pip \
     python3-venv \
     tar \
