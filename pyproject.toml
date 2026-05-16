@@ -7,7 +7,7 @@ name = "gbqa"
 version = "0.1.0"
 description = "GBQA Harbor-compatible software QA benchmark baseline."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
   "camel-ai",
   "daytona>=0.173.0",
