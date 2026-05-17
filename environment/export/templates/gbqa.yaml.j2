@@ -1,0 +1,30 @@
+schema_version: "0.1"
+task:
+  id: "{{ task_id }}"
+  family: "software"
+  title: "{{ slug }}"
+  benchmark_status: "{{ benchmark_status }}"
+software:
+  type: "github_release"
+  repository: "{{ repository }}"
+  archive_url: "{{ baseline_archive_url }}"
+  selected_version: "{{ baseline_release }}"
+  selected_release_role: "latest_minus_one"
+  fixed_reference_version: "{{ fixed_release }}"
+  install_dir: "/sandbox/software/{{ slug }}"
+runtime:
+  default_provider: "daytona"
+  local_docker_supported: false
+interaction:
+  default_mode: "{{ primary_interaction_mode }}"
+  supported_modes: {{ interaction_modes }}
+service:
+  host: "127.0.0.1"
+  port: 8000
+  health_path: "/health"
+  api_base_path: "/api"
+ground_truth:
+  path: "bugs/ground_truth.json"
+artifacts:
+  agent_dir: "/logs/agent/gbqa"
+  verifier_dir: "/logs/verifier"
