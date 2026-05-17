@@ -95,6 +95,25 @@ In Harbor benchmark runs, evaluation is performed automatically by the verifier 
 
 Each benchmark task is a Harbor-compatible package under `gbqa/tasks/<task-id>`. The task package defines the GitHub software release, sandbox runtime assets, interaction modes, verifier entrypoint, ground-truth bug file, and artifact contract.
 
+## Environment Preparation
+
+Environment discovery and preparation live outside the runtime package in `environment/`. This offline toolchain searches GitHub repositories, detects deployable sub-environments, filters and ranks candidates, runs optional Daytona deployment verification, supports human review, and exports approved task packages into `gbqa/tasks`.
+
+```bash
+python -m environment.sourcing.cli run \
+  --provider github \
+  --query "archived:false fork:false stars:>=10 mirror:false" \
+  --limit 500 \
+  --top-k 100 \
+  --output-dir environment/catalog/runs/dev
+```
+
+```bash
+python -m environment.export.cli generate \
+  --input environment/catalog/runs/dev/approved_task_seeds.jsonl \
+  --output gbqa/tasks
+```
+
 ## 🗺️Roadmap
 
 ### M1: Harbor + Daytona Remote Sandbox Baseline
