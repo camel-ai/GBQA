@@ -13,6 +13,7 @@ Milestone 1 is Daytona-first:
 - GBQA owns task metadata, QA agent harness behavior, normalized reports, and bug evaluation.
 - Local Docker is not an M1 acceptance path.
 - Cua and computer-use integration are future work, not part of M1.
+- The M1 Daytona API-mode pipeline has been validated end-to-end against the real remote Daytona sandbox.
 
 The default M1 topology is colocated:
 
@@ -22,6 +23,21 @@ The default M1 topology is colocated:
 - The verifier runs in the same Daytona sandbox after the agent finishes.
 
 Long term, GBQA may support external-agent topology, but M1 prioritizes a reliable remote sandbox loop.
+
+Validated smoke command:
+
+```powershell
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+```
+
+Validated result:
+
+- Daytona provisioned the remote sandbox.
+- Dark Castle started inside the sandbox.
+- `GBQAHarborAgent` interacted with the environment through API mode for 10 steps.
+- Harbor downloaded `/logs/agent/gbqa` artifacts.
+- Verifier wrote `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`, and `/logs/verifier/gbqa_result.json`.
+- A 10-step smoke run may legitimately receive reward `0.0` if no ground-truth bug is found; this is not an infrastructure failure.
 
 ## Harbor Boundary
 
@@ -46,6 +62,13 @@ Harbor's standard in-sandbox paths must remain stable:
 - `/solution`: oracle files uploaded by Harbor when using the oracle agent.
 
 Do not move Harbor reward files or verifier outputs out of `/logs/verifier`.
+
+Harbor 0.7+ compatibility:
+
+- GBQA requires Python 3.12+ because Harbor 0.7 requires Python 3.12+.
+- Harbor 0.7 reads `reward.json` before `reward.txt`.
+- `reward.json` must contain only numeric reward fields compatible with `dict[str, float | int]`, for example `{"reward": 0.0}`.
+- Full GBQA verifier details belong in `/logs/verifier/gbqa_result.json`, not in `reward.json`.
 
 ## Daytona Sandbox Layout
 
@@ -189,11 +212,18 @@ The verifier reads GBQA artifacts and ground truth, then writes Harbor-compatibl
 
 - `/logs/verifier/reward.txt`
 - `/logs/verifier/reward.json`
+- `/logs/verifier/gbqa_result.json`
 
 Core verifier entrypoints:
 
 - `gbqa.verifier.evaluate_bug_report(...)`
 - `gbqa.verifier.write_harbor_reward(...)`
+
+Shell verifier scripts must use LF line endings. Windows CRLF checkouts can break Linux Daytona execution with `/usr/bin/env: 'bash\r': No such file or directory`. Keep `.gitattributes` enforcing:
+
+```text
+*.sh text eol=lf
+```
 
 ## Current Package Boundaries
 
@@ -206,15 +236,51 @@ Use these directories for new platform code:
 - `gbqa/verifier.py`: verifier scoring and reward output.
 - `gbqa/tasks/`: first-party Harbor-compatible task packages.
 - `agent/`: current QA agent harness implementation.
+- `environment/`: offline environment discovery, filtering, Daytona verification,
+  human review, and task package generation. This directory is not part of the
+  GBQA runtime package and must not be uploaded into Daytona during Harbor runs.
 
-Avoid adding new platform concepts under `hub/`. `hub/dark-castle` is no longer the M1 software source.
+Environment sourcing keeps a persistent local resume ledger under
+`environment/catalog/state/`. The default CLI behavior is resume-on:
+
+- `python -m environment.sourcing.cli run ...` defaults to `--resume`.
+- `python -m environment.sourcing.cli verify ...` defaults to `--resume`.
+- Use `--no-resume` only when intentionally reprocessing already-seen GitHub
+  repositories or verification probes.
+- Use `--state-dir <path>` for an isolated experiment ledger.
+
+Current resume keys:
+
+- Repository key: `github:<owner>/<repo>`.
+- Release-pair key: `github:<owner>/<repo>::<baseline>::<fixed>`.
+- Sub-environment key: `github:<owner>/<repo>::<baseline>::<fixed>::<sub_path>`.
+- Verification key: `<sub_environment_key>::<provider>::<probe_version>`.
+
+Discovery resume is currently repository-level: once a GitHub repo is recorded
+in `repositories.jsonl`, default sourcing skips it and keeps paging for new
+repos. To refresh a repo for new releases, use `--no-resume`, a separate
+`--state-dir`, or remove the relevant local state rows. `environment/catalog/state/`
+is local generated state and must stay gitignored.
+
+Do not reintroduce `hub/`. The old hub sourcing prototype has been replaced by
+the root-level `environment/` preparation system.
 
 ## Verification Commands
 
-Before claiming architecture or path changes are complete, run:
+`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> task verifier -> `gbqa.verifier`.
+
+Before claiming architecture or path changes are complete, run the commands for your operating system.
+
+### Windows PowerShell
+
+For environment-preparation changes, run:
 
 ```powershell
-python -m compileall -q gbqa agent\src agent\run_agent.py agent\run_eval.py
+python -m unittest discover -s environment\tests -p "test_*.py" -v
+```
+
+```powershell
+python -m compileall -q environment gbqa agent\src agent\run_agent.py
 ```
 
 ```powershell
@@ -228,6 +294,49 @@ rg -n "/opt/gbqa|/workspace" gbqa agent docs README.md pyproject.toml
 ```
 
 Expected result for the path scan is no matches.
+
+For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbor summary output does not fail under a GBK console:
+
+```powershell
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+```
+
+### macOS / Linux Shell
+
+```bash
+python -m unittest discover -s environment/tests -p "test_*.py" -v
+```
+
+```bash
+python -m compileall -q environment gbqa agent/src agent/run_agent.py
+```
+
+```bash
+failed=()
+for test_file in $(find agent/test -maxdepth 1 -name 'test_*.py' | sort); do
+  python "$test_file" >/dev/null || failed+=("$(basename "$test_file")")
+done
+if [ "${#failed[@]}" -gt 0 ]; then
+  printf 'FAILED: %s\n' "${failed[*]}"
+  exit 1
+else
+  echo "all agent test scripts passed"
+fi
+```
+
+For sandbox path changes, also run:
+
+```bash
+rg -n "/opt/gbqa|/workspace" gbqa agent docs README.md pyproject.toml
+```
+
+Expected result for the path scan is no matches.
+
+For Daytona smoke validation:
+
+```bash
+python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+```
 
 ## Non-Goals For M1
 
