@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GBQA Environment Candidate",
+  "type": "object",
+  "required": ["candidate_id", "repository", "sub_path", "kind", "signals", "tags"],
+  "properties": {
+    "candidate_id": { "type": "string" },
+    "sub_path": { "type": "string" },
+    "name": { "type": "string" },
+    "kind": { "enum": ["api", "cli", "browser", "service", "unknown"] },
+    "repository": { "type": "object" },
+    "deployment_files": { "type": "array", "items": { "type": "string" } },
+    "interaction_evidence": { "type": "array", "items": { "type": "string" } },
+    "runtime_evidence": { "type": "array", "items": { "type": "string" } },
+    "release_pair": { "type": ["object", "null"] },
+    "signals": { "type": "object" },
+    "tags": { "type": "object" },
+    "score": { "type": ["object", "null"] },
+    "rejection_reasons": { "type": "array", "items": { "type": "string" } }
+  }
+}
