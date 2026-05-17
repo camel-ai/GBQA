@@ -157,6 +157,16 @@ def test_artifact_export_and_verifier() -> None:
     write_harbor_reward(result, temp_root / "verifier")
     assert (temp_root / "verifier" / "reward.txt").exists()
     assert (temp_root / "verifier" / "reward.json").exists()
+    assert (temp_root / "verifier" / "gbqa_result.json").exists()
+    reward_payload = json.loads((temp_root / "verifier" / "reward.json").read_text())
+    assert reward_payload == {"reward": result["reward"]}
+    assert all(
+        isinstance(value, (int, float))
+        for value in reward_payload.values()
+    )
+    gbqa_result = json.loads((temp_root / "verifier" / "gbqa_result.json").read_text())
+    assert gbqa_result["details"] == result["details"]
+    assert gbqa_result["precision"] == result["precision"]
     shutil.rmtree(temp_root, ignore_errors=True)
 
 

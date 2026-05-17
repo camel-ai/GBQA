@@ -2,7 +2,7 @@
   <h1>GBQA: A Game Benchmark for Evaluating LLMs as Quality Assurance Engineers</h1>
   <h3>Automated game bug discovery and benchmark evaluation</h3>
   <p><em>A research-oriented framework for running agents against interactive games, discovering gameplay bugs, and evaluating the ability of autonomous bug discovery.</em></p>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python"/>
+  <img src="https://img.shields.io/badge/Python-3.12%2B-blue.svg" alt="Python"/>
   <img src="https://img.shields.io/badge/Framework-CAMEL-purple" alt="CAMEL"/>
   <img src="https://img.shields.io/badge/Status-Research%20Prototype-success" alt="Status"/>
 </div>
@@ -21,9 +21,10 @@ The autonomous discovery of bugs remains a significant challenge in modern softw
 
 ### 1. Environment Setup
 
+GBQA requires Python 3.12 or newer because the Harbor runtime dependency requires Python 3.12+.
+
 ```bash
-cd agent
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 2. API Key Configuration
@@ -88,7 +89,7 @@ Session memory is stored under `agent/memory/<task_slug>/`, including chat histo
 
 ### 5. Evaluation
 
-If the target game has a ground-truth bug file configured, the agent run will automatically attach evaluation results to the report metadata.
+In Harbor benchmark runs, evaluation is performed automatically by the verifier phase after the agent writes normalized artifacts. The verifier reads the configured ground-truth bug file, writes Harbor-facing reward outputs to `/logs/verifier/reward.txt` and `/logs/verifier/reward.json`, and preserves the full GBQA evaluation payload in `/logs/verifier/gbqa_result.json`.
 
 You can also evaluate a report explicitly:
 
