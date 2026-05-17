@@ -84,7 +84,14 @@ def write_harbor_reward(result: dict[str, Any], out_dir: str | Path) -> None:
     out_path.mkdir(parents=True, exist_ok=True)
     reward = float(result.get("reward", 0.0) or 0.0)
     (out_path / "reward.txt").write_text(f"{reward}\n", encoding="utf-8")
+    # Harbor expects reward.json values to be numeric (dict[str, float | int]).
+    # We only write the primary reward to keep Harbor's output clean.
     (out_path / "reward.json").write_text(
+        json.dumps({"reward": reward}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    # Preserve full result (including details/error) in a GBQA-specific file.
+    (out_path / "gbqa_result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
