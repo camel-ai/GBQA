@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/github/stars/camel-ai/GBQA?style=social" alt="Stars"/>
   <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"/>
 </div>
+
 ## 📖 Overview
 
 The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned ground truth for scoring.
