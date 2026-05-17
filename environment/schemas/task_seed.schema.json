@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GBQA Approved Task Seed",
+  "type": "object",
+  "required": [
+    "task_id",
+    "slug",
+    "benchmark_status",
+    "repository",
+    "baseline_release",
+    "baseline_archive_url",
+    "interaction_modes",
+    "primary_interaction_mode"
+  ],
+  "properties": {
+    "task_id": { "type": "string" },
+    "slug": { "type": "string" },
+    "benchmark_status": { "enum": ["draft", "verified"] },
+    "repository": { "type": "string" },
+    "baseline_release": { "type": "string" },
+    "fixed_release": { "type": "string" },
+    "baseline_archive_url": { "type": "string" },
+    "interaction_modes": { "type": "array", "items": { "type": "string" } },
+    "primary_interaction_mode": { "type": "string" },
+    "service": { "type": "object" },
+    "tags": { "type": "object" }
+  }
+}
