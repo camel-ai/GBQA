@@ -470,7 +470,7 @@ def main() -> None:
         "operator_max_retries": operator_config.get("max_retries", 2),
     }
     report.metadata["memory"] = {
-        "max_short_term": memory_config.get("max_short_term", 30),
+        "max_short_term": memory_config.get("max_short_term", 100),
         "memory_context_token_limit": memory_context_token_limit,
     }
     paths = reporter.write_report(report)
