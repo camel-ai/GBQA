@@ -290,7 +290,7 @@ def main() -> None:
             "summary_threshold": config.get_section("agent").get("summary_threshold", 15),
         },
         "memory": {
-            "max_short_term": memory_config.get("max_short_term", 30),
+            "max_short_term": memory_config.get("max_short_term", 100),
             "memory_context_token_limit": memory_context_token_limit,
         },
     }
@@ -303,7 +303,7 @@ def main() -> None:
         environment_id=environment_id,
     )
     memory = MemoryManager(
-        max_short_term=memory_config.get("max_short_term", 30),
+        max_short_term=memory_config.get("max_short_term", 100),
         long_term_path=config.resolve_path(long_term_path),
         llm_client=llm_client,
         auto_summarize=config.get_section("agent").get("auto_summarize", True),
@@ -470,7 +470,7 @@ def main() -> None:
         "operator_max_retries": operator_config.get("max_retries", 2),
     }
     report.metadata["memory"] = {
-        "max_short_term": memory_config.get("max_short_term", 30),
+        "max_short_term": memory_config.get("max_short_term", 100),
         "memory_context_token_limit": memory_context_token_limit,
     }
     paths = reporter.write_report(report)

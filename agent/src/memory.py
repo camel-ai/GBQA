@@ -75,7 +75,7 @@ class MemoryManager:
         self._chat_memory = llm_client.create_history_memory(
             str(self._chat_history_path),
             agent_id=f"{task_id}:{session_id}:memory",
-            window_size=max_short_term,
+            window_size=None,
             token_limit=self._memory_context_token_limit,
         )
         self._load_long_term()
