@@ -195,9 +195,10 @@ tmp/
 temp/
 .playwright-mcp/
 
-# Hub sourcing generated outputs
-hub/catalog/
-hub/environment/
+# Environment preparation generated outputs
+environment/catalog/runs/
+environment/catalog/state/
+environment/review/data/
 
 
 # ========================================

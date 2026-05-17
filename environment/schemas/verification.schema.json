@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GBQA Environment Verification Result",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "status",
+    "sandbox_provider",
+    "baseline_release",
+    "deployment_method",
+    "interaction_mode"
+  ],
+  "properties": {
+    "candidate_id": { "type": "string" },
+    "status": { "enum": ["passed", "failed", "inconclusive"] },
+    "sandbox_provider": { "type": "string" },
+    "baseline_release": { "type": "string" },
+    "deployment_method": { "type": "string" },
+    "interaction_mode": { "type": "string" },
+    "probe": { "type": "object" },
+    "artifacts": { "type": "object" },
+    "failure_reason": { "type": ["string", "null"] }
+  }
+}

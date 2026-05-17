@@ -1,20 +1,16 @@
-"""HTTP fetch abstractions used by the sourcing providers."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+from typing import Any, Mapping, Protocol
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Mapping, Optional, Protocol
 
 from .models import ProvenanceRecord
 from .utils import now_iso, sha256_text
 
 
 class FetchError(RuntimeError):
-    """Raised when an HTTP resource cannot be fetched."""
-
     def __init__(
         self,
         message: str,
@@ -31,17 +27,11 @@ class FetchError(RuntimeError):
 
 @dataclass(slots=True)
 class FetchResponse:
-    """Normalized HTTP response payload."""
-
     url: str
     text: str
     status: int = 200
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
     fetched_at: str = field(default_factory=now_iso)
-
-    @property
-    def sha256(self) -> str:
-        return sha256_text(self.text)
 
     def json(self) -> Any:
         return json.loads(self.text)
@@ -49,28 +39,24 @@ class FetchResponse:
     def provenance(self) -> ProvenanceRecord:
         return ProvenanceRecord(
             url=self.url,
-            sha256=self.sha256,
+            sha256=sha256_text(self.text),
             fetched_at=self.fetched_at,
             content_type=self.headers.get("Content-Type", ""),
         )
 
 
 class Fetcher(Protocol):
-    """Protocol used by providers and tests."""
-
     def fetch(
         self,
         url: str,
         *,
-        headers: Optional[Mapping[str, str]] = None,
+        headers: Mapping[str, str] | None = None,
     ) -> FetchResponse:
         ...
 
 
 class UrllibFetcher:
-    """Default network fetcher based on the Python standard library."""
-
-    def __init__(self, timeout: int = 20, user_agent: str = "GBQA Hub Sourcing/1.0"):
+    def __init__(self, timeout: int = 20, user_agent: str = "GBQA Environment Sourcing/0.1"):
         self._timeout = timeout
         self._user_agent = user_agent
 
@@ -78,7 +64,7 @@ class UrllibFetcher:
         self,
         url: str,
         *,
-        headers: Optional[Mapping[str, str]] = None,
+        headers: Mapping[str, str] | None = None,
     ) -> FetchResponse:
         request_headers = {"User-Agent": self._user_agent}
         if headers:
@@ -86,10 +72,10 @@ class UrllibFetcher:
         request = urllib.request.Request(url, headers=request_headers)
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
-                data = response.read().decode("utf-8", errors="replace")
+                text = response.read().decode("utf-8", errors="replace")
                 return FetchResponse(
                     url=str(response.geturl()),
-                    text=data,
+                    text=text,
                     status=int(getattr(response, "status", 200)),
                     headers={key: value for key, value in response.headers.items()},
                 )
@@ -102,15 +88,10 @@ class UrllibFetcher:
                 body=body,
             ) from exc
         except urllib.error.URLError as exc:
-            raise FetchError(
-                f"failed to fetch {url}: {exc.reason}",
-                url=url,
-            ) from exc
+            raise FetchError(f"failed to fetch {url}: {exc.reason}", url=url) from exc
 
 
 class StaticFetcher:
-    """Fixture-backed fetcher used by tests."""
-
     def __init__(self, responses: Mapping[str, Any]):
         self._responses = dict(responses)
 
@@ -118,19 +99,20 @@ class StaticFetcher:
         self,
         url: str,
         *,
-        headers: Optional[Mapping[str, str]] = None,
+        headers: Mapping[str, str] | None = None,
     ) -> FetchResponse:
         del headers
         if url not in self._responses:
-            raise FetchError(f"missing fixture for {url}")
+            raise FetchError(f"missing fixture for {url}", url=url)
         payload = self._responses[url]
+        if isinstance(payload, Exception):
+            raise payload
         if isinstance(payload, FetchResponse):
             return payload
         if isinstance(payload, (dict, list)):
-            text = json.dumps(payload)
             return FetchResponse(
                 url=url,
-                text=text,
+                text=json.dumps(payload),
                 headers={"Content-Type": "application/json"},
             )
         return FetchResponse(url=url, text=str(payload))
