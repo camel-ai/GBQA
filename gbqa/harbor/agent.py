@@ -74,8 +74,6 @@ class GBQAHarborAgent(BaseAgent):
             ),
             user="root",
         )
-        if self.interaction_mode == "computer_use":
-            await self._start_computer_use_services(environment)
         await environment.upload_dir(repo_root / "agent", self._REMOTE_AGENT_DIR)
         await environment.upload_dir(repo_root / "gbqa", self._REMOTE_GBQA_DIR)
         await self._ensure_software_release(environment)
@@ -93,6 +91,8 @@ class GBQAHarborAgent(BaseAgent):
             f"{self._REMOTE_RUNTIME_DIR}/config.yaml",
             config_text,
         )
+        if self.interaction_mode == "computer_use":
+            await self._start_computer_use_services(environment)
 
     async def run(
         self,
