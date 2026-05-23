@@ -35,7 +35,12 @@ def test_metadata_loader() -> None:
     assert metadata.task_title == "Dark Castle: Night of Awakening"
     assert metadata.default_provider == "daytona"
     assert metadata.default_interaction_mode == "api"
-    assert metadata.supported_interaction_modes == ["api", "browser"]
+    assert metadata.supported_interaction_modes == ["api", "browser", "computer_use"]
+    assert metadata.computer_use_server_url == "http://127.0.0.1:8030"
+    assert metadata.interaction_adapter("computer_use")["display"] == {
+        "width": 1280,
+        "height": 720,
+    }
     assert metadata.service_api_base_url == "http://127.0.0.1:5000/api/agent"
     assert metadata.service_frontend_url == "http://127.0.0.1:5000/"
     assert "Text adventure" in metadata.agent_profile
@@ -59,11 +64,26 @@ def test_config_rendering() -> None:
         interaction_mode="browser",
         max_steps=3,
     )
+    computer_config = render_agent_config(
+        metadata=metadata,
+        interaction_mode="computer_use",
+        max_steps=3,
+    )
+    computer_payload = yaml.safe_load(computer_config)
     assert "primary: api" in api_config
     assert "primary: playwright_mcp" in browser_config
+    assert "primary: computer_use" in computer_config
     assert "http://127.0.0.1:5000/api/agent" in api_config
     assert "Dark Castle: Night of Awakening" in api_config
     assert "http://127.0.0.1:5000/" in browser_config
+    assert computer_payload["interaction"]["primary"] == "computer_use"
+    assert computer_payload["interaction"]["adapters"]["computer_use"]["server_url"] == (
+        "http://127.0.0.1:8030"
+    )
+    assert computer_payload["interaction"]["adapters"]["computer_use"]["display"] == {
+        "width": 1280,
+        "height": 720,
+    }
     assert "execution_backend" not in api_payload
     assert "code_tool_" + "provider" not in api_payload
     assert "runtime_log_" + "provider" not in api_payload
@@ -101,7 +121,7 @@ def test_agent_harness_example_has_no_task_endpoints() -> None:
     assert "interaction" in payload
     assert "logs" in payload["interaction"]["adapters"]
     assert payload["interaction"]["adapters"]["logs"] == {"enabled": False}
-    assert payload["run"]["interaction_mode"] in {"api", "browser"}
+    assert payload["run"]["interaction_mode"] in {"api", "browser", "computer_use"}
     assert "input_token_limit" in payload["llm"]
     assert "context_token_limit" not in payload["llm"]
     assert "message_window_" + "size" not in payload["llm"]
@@ -226,6 +246,18 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
         "-p",
         "gbqa/tasks/dark-castle",
     ]
+    command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
+            "--ak",
+            "interaction_mode=computer_use",
+        ]
+    )
+    assert command[:3] == ["harbor", "run", "-p"]
+    assert command[3].endswith("tmp/harbor_task_overlays/dark-castle-computer-use")
+    assert Path(command[3], "environment", "Dockerfile").exists()
 
 
 def test_harbor_agent_requires_model_key_and_name() -> None:
