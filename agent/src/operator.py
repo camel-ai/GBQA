@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
+from pathlib import Path
 from typing import Any, Dict, List
+
+from camel.messages import BaseMessage
+from PIL import Image
 
 from .execution_backends import ExecutionBackend
 from .llm_client import LlmClient
@@ -165,7 +169,11 @@ class Operator:
             ),
         }
         prompt = render_prompt(self._prompt, variables)
-        response = self._agent.run(prompt, response_format=OperatorDecision)
+        prompt_input = self._build_prompt_input(
+            operator_prompt=prompt,
+            image_paths=self._observation_images(current_observation),
+        )
+        response = self._agent.run(prompt_input, response_format=OperatorDecision)
         if response.parsed and response.parsed.calls:
             calls = [
                 ExecutionCall(
@@ -175,6 +183,7 @@ class Operator:
                     text=item.text.strip(),
                     url=item.url.strip(),
                     duration_ms=int(item.duration_ms),
+                    arguments=dict(item.arguments or {}),
                 )
                 for item in response.parsed.calls
             ]
@@ -206,12 +215,77 @@ class Operator:
                     "Operator translation omitted required refs for call kinds: "
                     + ", ".join(missing_ref_kinds)
                 )
+            self._validate_required_arguments(
+                calls=calls,
+                capability=capability,
+            )
             if calls:
                 return calls
         error_text = response.error or "invalid_operator_translation"
         raise OperatorTranslationError(
             f"Operator failed to translate planner action '{planner_action}': {error_text}"
         )
+
+    @staticmethod
+    def _build_prompt_input(
+        *,
+        operator_prompt: str,
+        image_paths: Any,
+    ) -> str | BaseMessage:
+        images = []
+        for item in image_paths or []:
+            path = Path(str(item)).expanduser()
+            if not path.exists():
+                continue
+            try:
+                with Image.open(path) as image:
+                    images.append(image.copy())
+            except OSError:
+                continue
+        if not images:
+            return operator_prompt
+        return BaseMessage.make_user_message(
+            role_name="Operator",
+            content=operator_prompt,
+            image_list=images,
+        )
+
+    @staticmethod
+    def _observation_images(observation: Observation) -> List[str]:
+        screenshots = observation.artifacts.get("screenshots", [])
+        if not isinstance(screenshots, list):
+            return []
+        image_paths = []
+        for item in screenshots:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("path", "")).strip()
+            if path:
+                image_paths.append(path)
+        return image_paths
+
+    @staticmethod
+    def _validate_required_arguments(
+        *,
+        calls: List[ExecutionCall],
+        capability: CapabilityDescriptor,
+    ) -> None:
+        requirements = capability.operator_context.get("requires_arguments_for_kinds", {})
+        if not isinstance(requirements, dict):
+            return
+        missing = []
+        for call in calls:
+            keys = requirements.get(call.kind)
+            if not isinstance(keys, list):
+                continue
+            for key in keys:
+                if str(key) not in call.arguments:
+                    missing.append(f"{call.kind}.{key}")
+        if missing:
+            raise OperatorTranslationError(
+                "Operator translation omitted required arguments: "
+                + ", ".join(missing)
+            )
 
     @staticmethod
     def _build_operator_context(

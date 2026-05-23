@@ -296,4 +296,14 @@ def build_execution_backend(
             backend_settings=spec.settings,
         )
 
+    if spec.backend_type == "computer_use":
+        from .computeruse.cua_backend import CuaComputerUseExecutionBackend
+
+        return CuaComputerUseExecutionBackend.from_config(
+            config=config,
+            task_id=task_id,
+            task_config=task_config,
+            backend_settings=spec.settings,
+        )
+
     raise ValueError(f"Unsupported execution backend: {spec.backend_type}")
