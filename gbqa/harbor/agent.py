@@ -74,6 +74,8 @@ class GBQAHarborAgent(BaseAgent):
             ),
             user="root",
         )
+        if self.interaction_mode == "computer_use":
+            await self._start_computer_use_services(environment)
         await environment.upload_dir(repo_root / "agent", self._REMOTE_AGENT_DIR)
         await environment.upload_dir(repo_root / "gbqa", self._REMOTE_GBQA_DIR)
         await self._ensure_software_release(environment)
@@ -220,8 +222,11 @@ class GBQAHarborAgent(BaseAgent):
         width = int(display.get("width", 1280))
         height = int(display.get("height", 720))
         api_port = self._port_from_url(self.metadata.computer_use_server_url, 8030)
+        url = self.metadata.computer_use_server_url
         command = (
             f"mkdir -p {self.metadata.agent_artifact_dir} && "
+            f"(curl -fsS {shlex.quote(url)} >/dev/null || "
+            f"curl -fsS {shlex.quote(url + '/docs')} >/dev/null) && exit 0; "
             "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
             "export DISPLAY=:1; "
             f"export API_PORT={api_port}; "
@@ -234,7 +239,7 @@ class GBQAHarborAgent(BaseAgent):
             f"> {self.metadata.agent_artifact_dir}/cua-novnc.log 2>&1 < /dev/null || true; "
             "test -x /usr/local/bin/start-computer-server.sh && "
             f"setsid -f /usr/local/bin/start-computer-server.sh "
-            f"> {self.metadata.agent_artifact_dir}/cua-computer-server.log 2>&1 < /dev/null"
+            f"> {self.metadata.agent_artifact_dir}/cua-computer-server.log 2>&1 < /dev/null || true"
         )
         result = await environment.exec(command=command, timeout_sec=30)
         if getattr(result, "return_code", 1) != 0:
