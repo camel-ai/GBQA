@@ -4,7 +4,7 @@
 
 # Run-level defaults for this harness. Harbor can override this per trial.
 run:
-  interaction_mode: "browser"  # api | browser
+  interaction_mode: "browser"  # api | browser | computer_use
 
 # LLM and CAMEL runtime settings
 llm:
@@ -39,7 +39,7 @@ agent:
 # `primary` is the default exploration channel; other enabled adapters are
 # planner-visible auxiliary tools when the active session supports them.
 interaction:
-  primary: api  # api | playwright_mcp
+  primary: api  # api | playwright_mcp | computer_use
   adapters:
     api: {}
     playwright_mcp:
@@ -53,6 +53,15 @@ interaction:
       press_tool: "browser_press_key"
       wait_tool: "browser_wait_for"
       screenshot_dir: "tmp/playwright_artifacts"
+    computer_use:
+      server_url: "http://127.0.0.1:8030"
+      frontend_url: ""
+      startup_timeout: 30
+      sandbox_name: "gbqa-local-computer"
+      display:
+        width: 1280
+        height: 720
+      screenshot_dir: "tmp/cua_artifacts"
     logs:
       enabled: false
     code:

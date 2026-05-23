@@ -22,6 +22,15 @@ interaction:
   supported_modes:
     - "api"
     - "browser"
+    - "computer_use"
+  adapters:
+    computer_use:
+      server_url: "http://127.0.0.1:8030"
+      startup_timeout: 30
+      sandbox_name: "gbqa-local-computer"
+      display:
+        width: 1280
+        height: 720
 service:
   host: "127.0.0.1"
   port: 5000

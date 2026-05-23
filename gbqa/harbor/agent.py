@@ -103,6 +103,8 @@ class GBQAHarborAgent(BaseAgent):
 
         await self._start_dark_castle(environment)
         await self._wait_for_service(environment)
+        if self.interaction_mode == "computer_use":
+            await self._wait_for_computer_server(environment)
 
         run_command = (
             f"cd {shlex.quote(self._REMOTE_AGENT_DIR)} && "
@@ -207,6 +209,23 @@ class GBQAHarborAgent(BaseAgent):
         result = await environment.exec(command=command, timeout_sec=90)
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(f"Dark Castle service did not become healthy: {url}")
+
+    async def _wait_for_computer_server(self, environment: BaseEnvironment) -> None:
+        url = self.metadata.computer_use_server_url
+        command = (
+            "for i in $(seq 1 60); do "
+            f"curl -fsS {shlex.quote(url)} >/dev/null && exit 0; "
+            f"curl -fsS {shlex.quote(url + '/docs')} >/dev/null && exit 0; "
+            "sleep 1; "
+            "done; "
+            "ps -ef | grep -E 'computer_server|vnc|xfce|novnc' | grep -v grep || true; "
+            "exit 1"
+        )
+        result = await environment.exec(command=command, timeout_sec=90)
+        if getattr(result, "return_code", 1) != 0:
+            raise RuntimeError(
+                f"Cua computer-server did not become healthy at {url}."
+            )
 
     async def _export_artifacts(self, environment: BaseEnvironment) -> None:
         command = (
