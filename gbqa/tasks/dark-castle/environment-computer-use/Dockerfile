@@ -4,7 +4,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV VNC_RESOLUTION=1280x720
 ENV API_PORT=8030
-ENV PATH="/opt/venv/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -22,8 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3.12 -m venv /opt/venv \
-    && pip install --upgrade pip setuptools wheel \
-    && pip install \
+    && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
+    && /opt/venv/bin/pip install \
       camel-ai \
       cua-sandbox \
       flask \
@@ -42,6 +41,6 @@ ENV GBQA_SOFTWARE_DIR="${DARK_CASTLE_DIR}"
 RUN mkdir -p "${DARK_CASTLE_DIR}" \
     && curl -fsSL "${DARK_CASTLE_ARCHIVE_URL}" \
       | tar -xz --strip-components=1 -C "${DARK_CASTLE_DIR}" \
-    && pip install -r "${DARK_CASTLE_DIR}/backend/requirements.txt"
+    && /opt/venv/bin/pip install -r "${DARK_CASTLE_DIR}/backend/requirements.txt"
 
 WORKDIR /sandbox

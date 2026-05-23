@@ -6,6 +6,7 @@ import os
 import shlex
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from gbqa.env import load_root_dotenv
 from gbqa.harbor.config import render_agent_config
@@ -104,6 +105,7 @@ class GBQAHarborAgent(BaseAgent):
         await self._start_dark_castle(environment)
         await self._wait_for_service(environment)
         if self.interaction_mode == "computer_use":
+            await self._start_computer_use_services(environment)
             await self._wait_for_computer_server(environment)
 
         run_command = (
@@ -210,6 +212,34 @@ class GBQAHarborAgent(BaseAgent):
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(f"Dark Castle service did not become healthy: {url}")
 
+    async def _start_computer_use_services(self, environment: BaseEnvironment) -> None:
+        adapter = self.metadata.interaction_adapter("computer_use")
+        display = adapter.get("display", {})
+        if not isinstance(display, dict):
+            display = {}
+        width = int(display.get("width", 1280))
+        height = int(display.get("height", 720))
+        api_port = self._port_from_url(self.metadata.computer_use_server_url, 8030)
+        command = (
+            f"mkdir -p {self.metadata.agent_artifact_dir} && "
+            "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+            "export DISPLAY=:1; "
+            f"export API_PORT={api_port}; "
+            f"export VNC_RESOLUTION={width}x{height}; "
+            "test -x /usr/local/bin/start-vnc.sh && "
+            f"setsid -f /usr/local/bin/start-vnc.sh "
+            f"> {self.metadata.agent_artifact_dir}/cua-vnc.log 2>&1 < /dev/null || true; "
+            "test -x /usr/local/bin/start-novnc.sh && "
+            f"setsid -f /usr/local/bin/start-novnc.sh "
+            f"> {self.metadata.agent_artifact_dir}/cua-novnc.log 2>&1 < /dev/null || true; "
+            "test -x /usr/local/bin/start-computer-server.sh && "
+            f"setsid -f /usr/local/bin/start-computer-server.sh "
+            f"> {self.metadata.agent_artifact_dir}/cua-computer-server.log 2>&1 < /dev/null"
+        )
+        result = await environment.exec(command=command, timeout_sec=30)
+        if getattr(result, "return_code", 1) != 0:
+            raise RuntimeError("Failed to start Cua computer-use services.")
+
     async def _wait_for_computer_server(self, environment: BaseEnvironment) -> None:
         url = self.metadata.computer_use_server_url
         command = (
@@ -226,6 +256,13 @@ class GBQAHarborAgent(BaseAgent):
             raise RuntimeError(
                 f"Cua computer-server did not become healthy at {url}."
             )
+
+    @staticmethod
+    def _port_from_url(url: str, default: int) -> int:
+        parsed = urlparse(url)
+        if parsed.port is not None:
+            return int(parsed.port)
+        return default
 
     async def _export_artifacts(self, environment: BaseEnvironment) -> None:
         command = (
