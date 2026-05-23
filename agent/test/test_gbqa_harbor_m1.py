@@ -329,6 +329,7 @@ async def _exercise_setup_with_fake_environment() -> None:
         def __init__(self) -> None:
             self.commands = []
             self.uploads = []
+            self.upload_snapshots = {}
 
         async def exec(self, command, **kwargs):  # noqa: ANN001
             self.commands.append((command, kwargs))
@@ -336,12 +337,30 @@ async def _exercise_setup_with_fake_environment() -> None:
 
         async def upload_dir(self, source_dir, target_dir):  # noqa: ANN001
             self.uploads.append((str(source_dir), target_dir))
+            source_path = Path(source_dir)
+            self.upload_snapshots[target_dir] = sorted(
+                str(path.relative_to(source_path))
+                for path in source_path.rglob("*")
+                if path.is_file()
+            )
 
     env = FakeEnvironment()
     agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api", max_steps=2)
     await agent.setup(env)
     assert any(target == "/sandbox/agent" for _, target in env.uploads)
     assert any(target == "/sandbox/gbqa" for _, target in env.uploads)
+    assert "run_agent.py" in env.upload_snapshots["/sandbox/agent"]
+    assert any(
+        path.startswith("src/") for path in env.upload_snapshots["/sandbox/agent"]
+    )
+    assert any(
+        path.startswith("prompts/") for path in env.upload_snapshots["/sandbox/agent"]
+    )
+    assert not any(
+        path.startswith((".playwright-mcp/", "reports/", "memory/", "tmp/"))
+        or path == ".env"
+        for path in env.upload_snapshots["/sandbox/agent"]
+    )
     assert not any("hub" in target and "dark-castle" in target for _, target in env.uploads)
     assert any(
         "https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
@@ -356,6 +375,37 @@ def test_harbor_agent_setup_with_fake_environment() -> None:
     asyncio.run(_exercise_setup_with_fake_environment())
 
 
+async def _exercise_computer_use_setup_starts_no_gui_services() -> None:
+    class Result:
+        return_code = 0
+        stdout = ""
+        stderr = ""
+
+    class FakeEnvironment:
+        def __init__(self) -> None:
+            self.commands = []
+
+        async def exec(self, command, **kwargs):  # noqa: ANN001
+            self.commands.append((command, kwargs))
+            return Result()
+
+        async def upload_dir(self, source_dir, target_dir):  # noqa: ANN001
+            del source_dir, target_dir
+
+    env = FakeEnvironment()
+    agent = GBQAHarborAgent(
+        logs_dir=Path("logs"),
+        interaction_mode="computer_use",
+        max_steps=2,
+    )
+    await agent.setup(env)
+    assert not any("start-computer-server.sh" in command for command, _ in env.commands)
+
+
+def test_computer_use_setup_starts_no_gui_services() -> None:
+    asyncio.run(_exercise_computer_use_setup_starts_no_gui_services())
+
+
 def main() -> None:
     test_metadata_loader()
     test_config_rendering()
@@ -368,6 +418,7 @@ def main() -> None:
     test_harbor_agent_requires_model_key_and_name()
     test_root_dotenv_feeds_harbor_agent_runtime_env()
     test_harbor_agent_setup_with_fake_environment()
+    test_computer_use_setup_starts_no_gui_services()
     print("gbqa harbor m1 smoke tests passed")
 
 

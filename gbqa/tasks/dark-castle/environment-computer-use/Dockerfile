@@ -24,7 +24,7 @@ RUN python3.12 -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
     && /opt/venv/bin/pip install \
       camel-ai \
-      cua-sandbox \
+      cua \
       flask \
       flask-cors \
       openai \

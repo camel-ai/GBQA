@@ -125,17 +125,24 @@ class CuaComputerUseExecutionBackend:
         client = self._client_factory()
         try:
             client.start()
-            client.open_url(self._settings.frontend_url)
+            navigation_result = {
+                "kind": "navigate",
+                "url": self._settings.frontend_url,
+                "success": True,
+            }
+            try:
+                client.open_url(self._settings.frontend_url)
+            except Exception as exc:  # noqa: BLE001
+                navigation_result = {
+                    "kind": "navigate",
+                    "url": self._settings.frontend_url,
+                    "success": False,
+                    "error": str(exc),
+                }
             initial_observation = self._screen_observation(
                 client,
                 label="initial screen",
-                per_call_results=[
-                    {
-                        "kind": "navigate",
-                        "url": self._settings.frontend_url,
-                        "success": True,
-                    }
-                ],
+                per_call_results=[navigation_result],
             )
             return SessionHandle(
                 session_id=str(uuid4()),
@@ -450,19 +457,20 @@ class CuaSandboxClient:
         self._sandbox_name = sandbox_name
         self._startup_timeout = startup_timeout
         self._sandbox: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = asyncio.new_event_loop()
 
     def start(self) -> None:
         try:
             from cua import Sandbox  # type: ignore
         except ImportError as exc:
             raise CuaBackendError(
-                "cua-sandbox is required for computer_use backend"
+                "cua is required for computer_use backend"
             ) from exc
         deadline = time.time() + max(self._startup_timeout, 1)
         last_error = ""
         while time.time() < deadline:
             try:
-                self._sandbox = _run_async(
+                self._sandbox = self._run_async(
                     Sandbox.connect(self._sandbox_name, http_url=self._server_url)
                 )
                 self.screenshot()
@@ -478,85 +486,111 @@ class CuaSandboxClient:
         sandbox = self._sandbox
         self._sandbox = None
         if sandbox is None:
+            self._close_loop()
             return
         disconnect = getattr(sandbox, "disconnect", None)
         if callable(disconnect):
-            _run_async(disconnect())
+            self._run_async(disconnect())
+        self._close_loop()
 
     def open_url(self, url: str) -> None:
         command = (
-            "nohup firefox --new-window "
-            f"{_shell_quote(url)} >/tmp/gbqa-firefox.log 2>&1 &"
+            "browser=$(command -v firefox || command -v chromium || "
+            "command -v chromium-browser || command -v google-chrome || true); "
+            "if [ -z \"$browser\" ]; then exit 127; fi; "
+            "setsid -f \"$browser\" --new-window "
+            f"{_shell_quote(url)} >/tmp/gbqa-browser.log 2>&1 < /dev/null"
         )
-        self._run_command(command)
+        self._run_command(command, timeout_sec=5)
         time.sleep(2)
 
     def get_screen_size(self) -> Dict[str, int]:
         sandbox = self._require_sandbox()
+        screen = getattr(sandbox, "screen", None)
+        if screen is not None and hasattr(screen, "size"):
+            width, height = self._run_async(screen.size())
+            return {"width": int(width), "height": int(height)}
         if hasattr(sandbox, "get_dimensions"):
-            width, height = _run_async(sandbox.get_dimensions())
+            width, height = self._run_async(sandbox.get_dimensions())
             return {"width": int(width), "height": int(height)}
         interface = getattr(sandbox, "interface", None)
         if interface is not None and hasattr(interface, "get_screen_size"):
-            size = _run_async(interface.get_screen_size())
+            size = self._run_async(interface.get_screen_size())
             return {"width": int(size["width"]), "height": int(size["height"])}
-        screen = getattr(sandbox, "screen", None)
         if screen is not None and hasattr(screen, "get_size"):
-            size = _run_async(screen.get_size())
+            size = self._run_async(screen.get_size())
             return {"width": int(size["width"]), "height": int(size["height"])}
         raise CuaBackendError("Cua sandbox does not expose screen dimensions")
 
     def screenshot(self) -> bytes:
         sandbox = self._require_sandbox()
-        if hasattr(sandbox, "screenshot"):
-            return bytes(_run_async(sandbox.screenshot()))
         screen = getattr(sandbox, "screen", None)
         if screen is not None and hasattr(screen, "screenshot"):
-            return bytes(_run_async(screen.screenshot()))
+            return bytes(self._run_async(screen.screenshot()))
+        if hasattr(sandbox, "screenshot"):
+            return bytes(self._run_async(sandbox.screenshot()))
         interface = getattr(sandbox, "interface", None)
         if interface is not None and hasattr(interface, "screenshot"):
-            return bytes(_run_async(interface.screenshot()))
+            return bytes(self._run_async(interface.screenshot()))
         raise CuaBackendError("Cua sandbox does not expose screenshot")
 
     def click(self, x: int, y: int, *, button: str = "left", double: bool = False) -> None:
         sandbox = self._require_sandbox()
+        mouse = getattr(sandbox, "mouse", None)
         if double:
             self._call_first(
                 [
-                    (getattr(getattr(sandbox, "mouse", None), "double_click", None), (x, y), {}),
+                    (getattr(mouse, "double_click", None), (x, y), {}),
                     (getattr(getattr(sandbox, "interface", None), "double_click", None), (x, y), {}),
                 ]
             )
             return
-        method_name = {
+        normalized_button = button.lower().strip() or "left"
+        if normalized_button == "right":
+            official_mouse_calls = [
+                (getattr(mouse, "right_click", None), (x, y), {}),
+                (getattr(mouse, "click", None), (x, y), {"button": "right"}),
+            ]
+        else:
+            official_mouse_calls = [
+                (
+                    getattr(mouse, "click", None),
+                    (x, y),
+                    {"button": normalized_button},
+                )
+            ]
+        legacy_method_name = {
             "left": "left_click",
             "right": "right_click",
             "middle": "middle_click",
-        }.get(button, "left_click")
+        }.get(normalized_button, "left_click")
         self._call_first(
             [
-                (getattr(getattr(sandbox, "mouse", None), "click", None), (x, y), {"button": button}),
-                (getattr(getattr(sandbox, "interface", None), method_name, None), (x, y), {}),
-                (getattr(getattr(sandbox, "interface", None), "click", None), (x, y), {"button": button}),
+                *official_mouse_calls,
+                (getattr(getattr(sandbox, "interface", None), legacy_method_name, None), (x, y), {}),
+                (getattr(getattr(sandbox, "interface", None), "click", None), (x, y), {"button": normalized_button}),
             ]
         )
 
     def type_text(self, text: str) -> None:
         sandbox = self._require_sandbox()
+        keyboard = getattr(sandbox, "keyboard", None)
         self._call_first(
             [
-                (getattr(getattr(sandbox, "keyboard", None), "type", None), (text,), {}),
-                (getattr(getattr(sandbox, "keyboard", None), "type_text", None), (text,), {}),
+                (getattr(keyboard, "type", None), (text,), {}),
+                (getattr(keyboard, "type_text", None), (text,), {}),
                 (getattr(getattr(sandbox, "interface", None), "type_text", None), (text,), {}),
             ]
         )
 
     def press_key(self, key: str) -> None:
         sandbox = self._require_sandbox()
+        keyboard = getattr(sandbox, "keyboard", None)
         self._call_first(
             [
-                (getattr(getattr(sandbox, "keyboard", None), "press", None), (key,), {}),
-                (getattr(getattr(sandbox, "keyboard", None), "press_key", None), (key,), {}),
+                (getattr(keyboard, "keypress", None), (key,), {}),
+                (getattr(keyboard, "press", None), (key,), {}),
+                (getattr(keyboard, "press_key", None), (key,), {}),
                 (getattr(getattr(sandbox, "interface", None), "press_key", None), (key,), {}),
                 (getattr(getattr(sandbox, "interface", None), "key", None), (key,), {}),
             ]
@@ -564,18 +598,26 @@ class CuaSandboxClient:
 
     def hotkey(self, keys: List[str]) -> None:
         sandbox = self._require_sandbox()
+        keyboard = getattr(sandbox, "keyboard", None)
         self._call_first(
             [
-                (getattr(getattr(sandbox, "keyboard", None), "hotkey", None), (keys,), {}),
+                (getattr(keyboard, "keypress", None), (keys,), {}),
+                (getattr(keyboard, "hotkey", None), (keys,), {}),
                 (getattr(getattr(sandbox, "interface", None), "hotkey", None), tuple(keys), {}),
             ]
         )
 
     def scroll(self, x: int, y: int, clicks: int) -> None:
         sandbox = self._require_sandbox()
+        mouse = getattr(sandbox, "mouse", None)
         self._call_first(
             [
-                (getattr(getattr(sandbox, "mouse", None), "scroll", None), (x, y, clicks), {}),
+                (
+                    getattr(mouse, "scroll", None),
+                    (x, y),
+                    {"scroll_x": 0, "scroll_y": clicks},
+                ),
+                (getattr(mouse, "scroll", None), (x, y, 0, clicks), {}),
                 (getattr(getattr(sandbox, "interface", None), "scroll", None), (x, y, clicks), {}),
             ]
         )
@@ -583,15 +625,15 @@ class CuaSandboxClient:
     def wait(self, duration_ms: int) -> None:
         time.sleep(max(duration_ms, 0) / 1000.0)
 
-    def _run_command(self, command: str) -> None:
+    def _run_command(self, command: str, *, timeout_sec: int = 30) -> None:
         sandbox = self._require_sandbox()
         shell = getattr(sandbox, "shell", None)
         if shell is not None and hasattr(shell, "run"):
-            _run_async(shell.run(command))
+            self._run_async(shell.run(command, timeout=timeout_sec))
             return
         interface = getattr(sandbox, "interface", None)
         if interface is not None and hasattr(interface, "run_command"):
-            _run_async(interface.run_command(command))
+            self._run_async(interface.run_command(command))
             return
         raise CuaBackendError("Cua sandbox does not expose shell command execution")
 
@@ -600,14 +642,13 @@ class CuaSandboxClient:
             raise CuaBackendError("Cua sandbox is not connected")
         return self._sandbox
 
-    @staticmethod
-    def _call_first(candidates: List[tuple[Any, tuple[Any, ...], Dict[str, Any]]]) -> None:
+    def _call_first(self, candidates: List[tuple[Any, tuple[Any, ...], Dict[str, Any]]]) -> None:
         errors = []
         for method, args, kwargs in candidates:
             if not callable(method):
                 continue
             try:
-                _run_async(method(*args, **kwargs))
+                self._run_async(method(*args, **kwargs))
                 return
             except TypeError as exc:
                 errors.append(str(exc))
@@ -617,11 +658,28 @@ class CuaSandboxClient:
             + (": " + "; ".join(errors[:2]) if errors else "")
         )
 
+    def _run_async(self, value: Any) -> Any:
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+        return _run_async(value, loop=self._loop)
 
-def _run_async(value: Any) -> Any:
+    def _close_loop(self) -> None:
+        loop = self._loop
+        self._loop = None
+        if loop is not None and not loop.is_closed():
+            loop.close()
+
+
+def _run_async(value: Any, loop: asyncio.AbstractEventLoop | None = None) -> Any:
     if inspect.isawaitable(value):
-        return asyncio.run(value)
+        if loop is not None:
+            return loop.run_until_complete(_await_value(value))
+        return asyncio.run(_await_value(value))
     return value
+
+
+async def _await_value(value: Any) -> Any:
+    return await value
 
 
 def _shell_quote(value: str) -> str:
