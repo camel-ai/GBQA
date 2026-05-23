@@ -11,8 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     git \
-    nodejs \
-    npm \
     software-properties-common \
     tar \
     && add-apt-repository -y ppa:deadsnakes/ppa \
@@ -36,10 +34,6 @@ RUN python3.12 -m venv /opt/venv \
       python-dotenv \
       pyyaml \
       requests
-
-RUN npm install -g @playwright/mcp@latest playwright \
-    && npx playwright install-deps chromium \
-    && npx @playwright/mcp install-browser chrome-for-testing
 
 ARG DARK_CASTLE_ARCHIVE_URL="https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
 ARG DARK_CASTLE_DIR="/sandbox/software/dark-castle"

@@ -258,6 +258,8 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
     assert command[:3] == ["harbor", "run", "-p"]
     assert command[3].endswith("tmp/harbor_task_overlays/dark-castle-computer-use")
     assert Path(command[3], "environment", "Dockerfile").exists()
+    overlay_dockerfile = Path(command[3], "environment", "Dockerfile").read_text()
+    assert "@playwright/mcp" not in overlay_dockerfile
 
 
 def test_harbor_agent_requires_model_key_and_name() -> None:
