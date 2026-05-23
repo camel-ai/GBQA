@@ -32,7 +32,8 @@ RUN python3 -m venv /opt/venv \
       requests
 
 RUN npm install -g @playwright/mcp@latest playwright \
-    && npx playwright install --with-deps chromium
+    && npx playwright install-deps chromium \
+    && npx @playwright/mcp install-browser chrome-for-testing
 
 ARG DARK_CASTLE_ARCHIVE_URL="https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
 ARG DARK_CASTLE_DIR="/sandbox/software/dark-castle"
