@@ -1,28 +1,33 @@
 # GBQA Architecture Notes For Agents
 
-This file records the current architecture decisions for GBQA and should be read before changing sandbox, task packaging, agent harness, verifier, or environment code.
+This `AGENTS.md` file records the current architecture decisions for GBQA and should be read before changing sandbox, task packaging, agent harness, verifier, or environment code.
 
-## Current Direction
+## Overview
 
-GBQA is being refactored from a game-specific prototype into a Harbor-compatible software QA benchmark platform.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned ground truth for scoring.
 
-Milestone 1 is Daytona-first:
+## Milestone Planning
+
+### M1
+
+Milestone 1 is complete and remains the validated Daytona-first baseline:
 
 - Harbor owns task packaging, trial execution, verifier execution, and artifact collection.
 - Daytona owns remote sandbox lifecycle through Harbor's `daytona` environment provider.
 - GBQA owns task metadata, QA agent harness behavior, normalized reports, and bug evaluation.
 - Local Docker is not an M1 acceptance path.
-- Cua and computer-use integration are future work, not part of M1.
-- The M1 Daytona API-mode pipeline has been validated end-to-end against the real remote Daytona sandbox.
+- `GBQAHarborAgent` is the default custom Harbor agent wrapper.
+- Dark Castle is the first external GitHub software task and is ready in the remote Daytona sandbox.
+- API mode and browser mode are the completed interaction paths.
+- Harbor-compatible verifier execution and GBQA artifact export are implemented.
+- Parallel evaluation is available through Harbor's concurrent trial runner; in the Daytona path, this means multiple independent Daytona sandboxes can run at the same time.
 
-The default M1 topology is colocated:
+The validated M1 topology is colocated:
 
 - Harbor runs locally and controls the remote Daytona sandbox.
 - The target software environment runs inside the Daytona sandbox.
 - The GBQA agent harness is uploaded into the same Daytona sandbox and runs there.
 - The verifier runs in the same Daytona sandbox after the agent finishes.
-
-Long term, GBQA may support external-agent topology, but M1 prioritizes a reliable remote sandbox loop.
 
 Validated smoke command:
 
@@ -38,6 +43,21 @@ Validated result:
 - Harbor downloaded `/logs/agent/gbqa` artifacts.
 - Verifier wrote `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`, and `/logs/verifier/gbqa_result.json`.
 - A 10-step smoke run may legitimately receive reward `0.0` if no ground-truth bug is found; this is not an infrastructure failure.
+
+### M2
+
+- M2: add additional QA harnesses such as `CodexHarborAgent` and `ClaudeCodeHarborAgent`.
+- M2: add more verified benchmark environments and task manifests.
+- M2: extend interaction beyond completed API/browser paths toward computer-use, and further free interaction mode (mixed interaction mode).
+- M2: keep Linux as the validated sandbox baseline while expanding toward Windows and macOS support.
+
+### M3
+
+- M3: run large-scale LLM evaluation experiments and release a leaderboard.
+
+### M4
+
+- M4: collect trajectory data, standardize reward signals, and support RL training workflows.
 
 ## Harbor Boundary
 
@@ -103,9 +123,7 @@ Meaning:
 
 Do not reintroduce `/opt/gbqa` as the GBQA runtime root.
 
-## Dark Castle M1 Task
-
-Dark Castle is now treated as a real external GitHub software repository, not as benchmark-local source code.
+## Dark Castle as an example environment and QA Task
 
 Repository:
 
@@ -134,7 +152,7 @@ If a new Dark Castle release is created, do not automatically float the benchmar
 
 ## Agent Harness Boundary
 
-The current QA agent harness lives under `agent/` and is wrapped for Harbor by:
+The current default QA agent harness lives under `agent/` and is wrapped for Harbor by:
 
 - `gbqa.harbor.agent.GBQAHarborAgent`
 
@@ -152,23 +170,20 @@ This config should contain harness policy only: model, reasoning, loop budgets, 
 
 ## Interaction Modes
 
-M1 supports:
+Completed interaction modes:
 
 - `api`
 - `browser`
 
-API mode targets:
-
-- `http://127.0.0.1:5000/api/agent`
-
-Browser mode targets:
-
-- `http://127.0.0.1:5000/`
-
-Both are tool-use paths, but they operate at different abstraction levels:
+Both completed modes are tool-use paths, but they operate at different abstraction levels:
 
 - API mode calls the target backend contract directly.
 - Browser mode drives the frontend through Playwright MCP/runtime.
+
+Planned post-M1 modes:
+
+- `computer_use`
+- free interaction mode (mixed interaction mode)
 
 The agent planner/operator should target normalized capabilities, not provider-specific implementation details.
 
@@ -301,6 +316,14 @@ For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbo
 $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
 ```
 
+For parallel Daytona evaluation, use Harbor's concurrent trial runner. For example, five independent task environments can run in five independent Daytona sandboxes:
+
+```powershell
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10 --n-tasks 5 --n-concurrent 5
+```
+
+`--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.
+
 ### macOS / Linux Shell
 
 ```bash
@@ -338,11 +361,10 @@ For Daytona smoke validation:
 python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
 ```
 
-## Non-Goals For M1
+For parallel Daytona evaluation:
 
-- No local Docker acceptance path.
-- No Cua integration.
-- No Windows/macOS computer-use baseline.
-- No custom GBQA replacement for Harbor jobs/trials/providers.
-- No automatic floating to the latest GitHub release.
-- No ground-truth bug files inside the external software repository.
+```bash
+python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10 --n-tasks 5 --n-concurrent 5
+```
+
+`--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.
