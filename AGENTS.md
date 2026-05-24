@@ -383,7 +383,10 @@ export MODEL_NAME='...'
 harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
 ```
 
-For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and `harbor run ...` should be behaviorally equivalent after environment variables are loaded. Do not assume this equivalence for post-M1 `computer_use`: computer-use needs a GUI/Cua environment image, and any temporary task overlay or backend-specific environment selection must be explicit and documented before direct `harbor run` is considered supported.
+For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and `harbor run ...` should be behaviorally equivalent after environment variables are loaded. 
+
+> [!WARNING]
+> Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
 For parallel Daytona evaluation:
 
