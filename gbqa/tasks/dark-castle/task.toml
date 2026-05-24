@@ -19,11 +19,11 @@ software_archive_url = "https://github.com/Tsumugii24/dark-castle/archive/refs/t
 software_release_page = "https://github.com/Tsumugii24/dark-castle/releases/tag/v0.1.0"
 
 [verifier]
-timeout_sec = 180.0
+timeout_sec = 600.0
 user = "root"
 
 [agent]
-timeout_sec = 1800.0
+timeout_sec = 7200.0
 user = "root"
 
 [environment]

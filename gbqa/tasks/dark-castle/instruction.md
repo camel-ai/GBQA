@@ -10,3 +10,5 @@ Focus on:
 - mismatches between text feedback and backend state
 
 Write bug findings through the GBQA agent report artifacts. The verifier will compare your reported bugs against the task ground truth.
+
+After you have found several bugs, you should still try to reach the exit of the castle, instead of terminate.
