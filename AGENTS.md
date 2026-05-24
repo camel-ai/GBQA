@@ -291,15 +291,15 @@ Before claiming architecture or path changes are complete, run the commands for 
 For environment-preparation changes, run:
 
 ```powershell
-python -m unittest discover -s environment\tests -p "test_*.py" -v
+python -m unittest discover -s environment/tests -p "test_*.py" -v
 ```
 
 ```powershell
-python -m compileall -q environment gbqa agent\src agent\run_agent.py
+python -m compileall -q environment gbqa agent/src agent/run_agent.py
 ```
 
 ```powershell
-$failed = @(); Get-ChildItem -Path agent\test -Filter 'test_*.py' | Sort-Object Name | ForEach-Object { python $_.FullName | Out-Null; if ($LASTEXITCODE -ne 0) { $failed += $_.Name } }; if ($failed.Count -gt 0) { Write-Host "FAILED:" ($failed -join ', '); exit 1 } else { Write-Host "all agent test scripts passed" }
+$failed = @(); Get-ChildItem -Path agent/test -Filter 'test_*.py' | Sort-Object Name | ForEach-Object { python $_.FullName | Out-Null; if ($LASTEXITCODE -ne 0) { $failed += $_.Name } }; if ($failed.Count -gt 0) { Write-Host "FAILED:" ($failed -join ', '); exit 1 } else { Write-Host "all agent test scripts passed" }
 ```
 
 For sandbox path changes, also run:
@@ -315,6 +315,18 @@ For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbo
 ```powershell
 $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
 ```
+
+The preferred GBQA command form is `python -m gbqa.cli.harbor_run ...` because the wrapper loads the repository-root `.env` and then forwards the remaining arguments to Harbor. Direct `harbor run ...` is valid for completed API/browser paths only when the required environment variables are already present in the shell:
+
+```powershell
+$env:DAYTONA_API_KEY='...'
+$env:API_KEY='...'
+$env:BASE_URL='https://zenmux.ai/api/v1'
+$env:MODEL_NAME='...'
+harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+```
+
+For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and `harbor run ...` should be behaviorally equivalent after environment variables are loaded. Do not assume this equivalence for post-M1 `computer_use`: computer-use needs a GUI/Cua environment image, and any temporary task overlay or backend-specific environment selection must be explicit and documented before direct `harbor run` is considered supported.
 
 For parallel Daytona evaluation, use Harbor's concurrent trial runner. For example, five independent task environments can run in five independent Daytona sandboxes:
 
@@ -360,6 +372,18 @@ For Daytona smoke validation:
 ```bash
 python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
 ```
+
+The preferred GBQA command form is `python -m gbqa.cli.harbor_run run` because the wrapper loads the repository-root `.env` and then forwards the remaining arguments to Harbor. Direct `harbor run` is valid for completed API/browser paths only when the required environment variables are already exported:
+
+```bash
+export DAYTONA_API_KEY='...'
+export API_KEY='...'
+export BASE_URL='https://zenmux.ai/api/v1'
+export MODEL_NAME='...'
+harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+```
+
+For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and `harbor run ...` should be behaviorally equivalent after environment variables are loaded. Do not assume this equivalence for post-M1 `computer_use`: computer-use needs a GUI/Cua environment image, and any temporary task overlay or backend-specific environment selection must be explicit and documented before direct `harbor run` is considered supported.
 
 For parallel Daytona evaluation:
 
