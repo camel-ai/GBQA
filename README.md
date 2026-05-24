@@ -64,6 +64,9 @@ python -m gbqa.cli.harbor_run run \
   --ak max_steps=10
 ```
 
+> [!WARNING]
+> Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
+
 ### 4. Run Batch Evaluations In Parallel
 
 GBQA's `gbqa.cli.harbor_run` wrapper loads the root `.env` and forwards all arguments to Harbor. When a local path or registered dataset contains many task packages, Harbor can launch multiple Daytona sandboxes at the same time and run one evaluation per task environment.
