@@ -82,6 +82,24 @@ class GBQAMetadata:
         return [str(item) for item in self.raw["interaction"]["supported_modes"]]
 
     @property
+    def interaction_adapters(self) -> dict[str, Any]:
+        adapters = self.raw["interaction"].get("adapters", {})
+        return adapters if isinstance(adapters, dict) else {}
+
+    def interaction_adapter(self, name: str) -> dict[str, Any]:
+        adapter = self.interaction_adapters.get(name, {})
+        return dict(adapter) if isinstance(adapter, dict) else {}
+
+    @property
+    def computer_use_server_url(self) -> str:
+        return str(
+            self.interaction_adapter("computer_use").get(
+                "server_url",
+                "http://127.0.0.1:8030",
+            )
+        )
+
+    @property
     def agent_artifact_dir(self) -> str:
         return str(self.raw["artifacts"]["agent_dir"])
 

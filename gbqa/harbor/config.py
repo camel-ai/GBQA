@@ -25,7 +25,26 @@ def render_agent_config(
 
     base_url = metadata.service_api_base_url
     frontend_url = metadata.service_frontend_url
-    backend_type = "api" if interaction_mode == "api" else "playwright_mcp"
+    computer_use_settings = {
+        "server_url": "http://127.0.0.1:8030",
+        "startup_timeout": 30,
+        "sandbox_name": "gbqa-local-computer",
+        "display": {
+            "width": 1280,
+            "height": 720,
+        },
+        **metadata.interaction_adapter("computer_use"),
+        "frontend_url": frontend_url,
+        "screenshot_dir": screenshot_dir,
+    }
+    backend_by_mode = {
+        "api": "api",
+        "browser": "playwright_mcp",
+        "computer_use": "computer_use",
+    }
+    backend_type = backend_by_mode.get(interaction_mode)
+    if backend_type is None:
+        raise ValueError(f"Unsupported GBQA interaction mode: {interaction_mode}")
 
     payload: dict[str, Any] = {
         "run": {
@@ -85,6 +104,7 @@ def render_agent_config(
                     "wait_tool": "browser_wait_for",
                     "screenshot_dir": screenshot_dir,
                 },
+                "computer_use": computer_use_settings,
                 "code": {
                     "enabled": False,
                     "base_url": base_url,

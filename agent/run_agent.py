@@ -65,7 +65,7 @@ def _resolve_task_endpoints(
             raise ValueError(
                 f"api backend for '{task_id}' requires either 'base_url' or 'port'"
             )
-    elif backend_type == "playwright_mcp" and port is None and not configured_frontend_url:
+    elif backend_type in {"playwright_mcp", "computer_use"} and port is None and not configured_frontend_url:
         raise ValueError(
             f"Task config for '{task_id}' must provide at least one of 'port' or 'frontend_url'"
         )
@@ -93,7 +93,16 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
             "Unsupported interaction_mode for task metadata: " + interaction_mode
         )
 
-    backend_type = "api" if interaction_mode == "api" else "playwright_mcp"
+    backend_by_mode = {
+        "api": "api",
+        "browser": "playwright_mcp",
+        "computer_use": "computer_use",
+    }
+    backend_type = backend_by_mode.get(interaction_mode)
+    if backend_type is None:
+        raise ValueError(
+            "Unsupported interaction_mode for task metadata: " + interaction_mode
+        )
     interaction = config.raw.setdefault("interaction", {})
     interaction["primary"] = backend_type
     adapters = interaction.setdefault("adapters", {})
@@ -107,6 +116,17 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
     playwright_settings = adapters.setdefault("playwright_mcp", {})
     if isinstance(playwright_settings, dict):
         playwright_settings.setdefault("frontend_url", metadata.service_frontend_url)
+
+    computer_use_settings = adapters.setdefault("computer_use", {})
+    if isinstance(computer_use_settings, dict):
+        metadata_computer_use = metadata.interaction_adapter("computer_use")
+        for key, value in metadata_computer_use.items():
+            computer_use_settings.setdefault(key, value)
+        computer_use_settings.setdefault("server_url", "http://127.0.0.1:8030")
+        computer_use_settings.setdefault("frontend_url", metadata.service_frontend_url)
+        computer_use_settings.setdefault("startup_timeout", 30)
+        computer_use_settings.setdefault("sandbox_name", "gbqa-local-computer")
+        computer_use_settings.setdefault("display", {"width": 1280, "height": 720})
 
     code_settings = adapters.setdefault("code", {})
     if isinstance(code_settings, dict):

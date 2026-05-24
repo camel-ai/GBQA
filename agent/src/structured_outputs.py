@@ -59,6 +59,7 @@ class OperatorCallDecision(BaseModel):
     text: str = ""
     url: str = ""
     duration_ms: int = Field(default=0, ge=0)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class OperatorDecision(BaseModel):

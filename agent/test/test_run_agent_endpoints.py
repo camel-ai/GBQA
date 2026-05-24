@@ -32,6 +32,15 @@ def main() -> None:
     assert service_base_url == ""
     assert frontend_url == "http://example.test/app"
 
+    service_base_url, frontend_url = _resolve_task_endpoints(
+        backend_type="computer_use",
+        backend_settings={},
+        task_id="demo",
+        task_config={"frontend_url": "http://example.test/app"},
+    )
+    assert service_base_url == ""
+    assert frontend_url == "http://example.test/app"
+
     config = Config(
         raw={
             "run": {"interaction_mode": "api"},
@@ -55,6 +64,29 @@ def main() -> None:
         "http://127.0.0.1:5000/api/agent"
     )
     assert config.get_section("interaction")["adapters"]["logs"]["enabled"] is True
+
+    computer_config = Config(
+        raw={
+            "run": {"interaction_mode": "computer_use"},
+            "interaction": {
+                "primary": "api",
+                "adapters": {"computer_use": {}},
+            },
+        },
+        root_dir=ROOT_DIR,
+    )
+    _apply_task_metadata(
+        computer_config,
+        os.path.join(ROOT_DIR, "..", "gbqa", "tasks", "dark-castle", "gbqa.yaml"),
+    )
+    computer_interaction = computer_config.get_section("interaction")
+    assert computer_interaction["primary"] == "computer_use"
+    assert computer_interaction["adapters"]["computer_use"]["server_url"] == (
+        "http://127.0.0.1:8030"
+    )
+    assert computer_interaction["adapters"]["computer_use"]["frontend_url"] == (
+        "http://127.0.0.1:5000/"
+    )
     print("run_agent endpoint resolution smoke test passed")
 
 
