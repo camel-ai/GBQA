@@ -1,4 +1,4 @@
-"""Smoke tests for the Harbor + Daytona M1 compatibility layer."""
+"""Smoke tests for the GBQA Harbor + Daytona compatibility layer."""
 
 from __future__ import annotations
 
@@ -256,7 +256,10 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
         ]
     )
     assert command[:3] == ["harbor", "run", "-p"]
-    assert command[3].endswith("tmp/harbor_task_overlays/dark-castle-computer-use")
+    overlay_path = Path(command[3])
+    assert overlay_path.name == "dark-castle-computer-use"
+    assert overlay_path.parent.name == "harbor_task_overlays"
+    assert overlay_path.parent.parent.name == "tmp"
     assert Path(command[3], "environment", "Dockerfile").exists()
     overlay_dockerfile = Path(command[3], "environment", "Dockerfile").read_text()
     assert "@playwright/mcp" not in overlay_dockerfile
@@ -339,7 +342,7 @@ async def _exercise_setup_with_fake_environment() -> None:
             self.uploads.append((str(source_dir), target_dir))
             source_path = Path(source_dir)
             self.upload_snapshots[target_dir] = sorted(
-                str(path.relative_to(source_path))
+                path.relative_to(source_path).as_posix()
                 for path in source_path.rglob("*")
                 if path.is_file()
             )
@@ -406,6 +409,37 @@ def test_computer_use_setup_starts_no_gui_services() -> None:
     asyncio.run(_exercise_computer_use_setup_starts_no_gui_services())
 
 
+async def _exercise_computer_use_preflight_explains_default_environment() -> None:
+    class Result:
+        return_code = 1
+        stdout = ""
+        stderr = "missing start-vnc.sh"
+
+    class FakeEnvironment:
+        async def exec(self, command, **kwargs):  # noqa: ANN001
+            del command, kwargs
+            return Result()
+
+    agent = GBQAHarborAgent(
+        logs_dir=Path("logs"),
+        interaction_mode="computer_use",
+        max_steps=2,
+    )
+    try:
+        await agent._start_computer_use_services(FakeEnvironment())
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "default non-GUI environment" in message
+        assert "python -m gbqa.cli.harbor_run" in message
+        assert "interaction_mode=computer_use" in message
+    else:
+        raise AssertionError("computer_use preflight failure should raise RuntimeError")
+
+
+def test_computer_use_preflight_explains_default_environment() -> None:
+    asyncio.run(_exercise_computer_use_preflight_explains_default_environment())
+
+
 def main() -> None:
     test_metadata_loader()
     test_config_rendering()
@@ -419,7 +453,8 @@ def main() -> None:
     test_root_dotenv_feeds_harbor_agent_runtime_env()
     test_harbor_agent_setup_with_fake_environment()
     test_computer_use_setup_starts_no_gui_services()
-    print("gbqa harbor m1 smoke tests passed")
+    test_computer_use_preflight_explains_default_environment()
+    print("gbqa harbor smoke tests passed")
 
 
 if __name__ == "__main__":

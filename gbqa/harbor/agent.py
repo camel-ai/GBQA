@@ -15,6 +15,13 @@ from gbqa.harbor.config import render_agent_config
 from gbqa.spec import GBQAMetadata, load_gbqa_metadata
 
 DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
+COMPUTER_USE_ENVIRONMENT_HINT = (
+    "computer_use requires the GBQA GUI/Cua environment. If this run was "
+    "started with direct `harbor run`, Harbor may have selected the default "
+    "non-GUI environment. Use `python -m gbqa.cli.harbor_run run ... --ak "
+    "interaction_mode=computer_use` so GBQA can select the "
+    "`environment-computer-use` overlay."
+)
 
 try:
     from harbor.agents.base import BaseAgent
@@ -299,15 +306,21 @@ class GBQAHarborAgent(BaseAgent):
             f"export API_PORT={api_port}; "
             f"export VNC_RESOLUTION={width}x{height}; "
             "test -x /usr/local/bin/start-vnc.sh || "
-            f"{{ echo 'missing start-vnc.sh' >> {startup_log}; exit 1; }}; "
+            f"{{ echo 'missing required computer-use runtime: "
+            f"/usr/local/bin/start-vnc.sh' | tee -a {startup_log} >&2; "
+            f"exit 1; }}; "
             f"setsid -f /usr/local/bin/start-vnc.sh "
             f"> {self.metadata.agent_artifact_dir}/cua-vnc.log 2>&1 < /dev/null || true; "
             "test -x /usr/local/bin/start-novnc.sh || "
-            f"{{ echo 'missing start-novnc.sh' >> {startup_log}; exit 1; }}; "
+            f"{{ echo 'missing required computer-use runtime: "
+            f"/usr/local/bin/start-novnc.sh' | tee -a {startup_log} >&2; "
+            f"exit 1; }}; "
             f"setsid -f /usr/local/bin/start-novnc.sh "
             f"> {self.metadata.agent_artifact_dir}/cua-novnc.log 2>&1 < /dev/null || true; "
             "test -x /usr/local/bin/start-computer-server.sh || "
-            f"{{ echo 'missing start-computer-server.sh' >> {startup_log}; exit 1; }}; "
+            f"{{ echo 'missing required computer-use runtime: "
+            f"/usr/local/bin/start-computer-server.sh' | tee -a {startup_log} >&2; "
+            f"exit 1; }}; "
             f"setsid -f /usr/local/bin/start-computer-server.sh "
             f"> {self.metadata.agent_artifact_dir}/cua-computer-server.log 2>&1 < /dev/null || true"
         )
@@ -315,6 +328,8 @@ class GBQAHarborAgent(BaseAgent):
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(
                 "Failed to start Cua computer-use services.\n"
+                + COMPUTER_USE_ENVIRONMENT_HINT
+                + "\n"
                 + self._format_exec_output(result)
             )
 
@@ -341,6 +356,8 @@ class GBQAHarborAgent(BaseAgent):
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(
                 f"Cua computer-server did not become healthy at {url}.\n"
+                + COMPUTER_USE_ENVIRONMENT_HINT
+                + "\n"
                 + self._format_exec_output(result)
             )
 
@@ -360,6 +377,8 @@ class GBQAHarborAgent(BaseAgent):
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(
                 f"Failed to open computer-use frontend at {url}.\n"
+                + COMPUTER_USE_ENVIRONMENT_HINT
+                + "\n"
                 + self._format_exec_output(result)
             )
         await environment.exec(command="sleep 2", timeout_sec=5)
@@ -431,6 +450,6 @@ class GBQAHarborAgent(BaseAgent):
         ]
         if missing:
             raise RuntimeError(
-                "GBQAHarborAgent requires these env vars for M1 runs: "
+                "GBQAHarborAgent requires these env vars for Harbor runs: "
                 + ", ".join(missing)
             )
