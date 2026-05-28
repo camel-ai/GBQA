@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GBQA Human Review Decision",
+  "type": "object",
+  "required": ["candidate_id", "status", "reviewed_at"],
+  "properties": {
+    "candidate_id": { "type": "string" },
+    "status": { "enum": ["accepted", "rejected", "needs_more_investigation"] },
+    "primary_interaction_mode": { "type": ["string", "null"] },
+    "difficulty": { "type": ["string", "null"] },
+    "tags": { "type": "object" },
+    "note": { "type": "string" },
+    "approved_for_export": { "type": "boolean" },
+    "block_reason": { "type": ["string", "null"] },
+    "reviewed_at": { "type": "string" }
+  }
+}

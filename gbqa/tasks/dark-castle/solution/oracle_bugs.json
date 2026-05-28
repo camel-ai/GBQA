@@ -1,0 +1,50 @@
+{
+  "schema_version": "0.1",
+  "game_id": "dark-castle",
+  "bugs": [
+    {
+      "id": 0,
+      "title": "The final key can be assembled after finding only two fragments.",
+      "description": "Reproduction: obtain any pair of key pieces and then run `combine`. Actual behavior: the game creates the completed escape key even though the third fragment has not been collected yet.",
+      "confidence": 0.99,
+      "evidence": {
+        "minimal_reproduction": [
+          "Collect any two key fragments.",
+          "Execute `combine`."
+        ],
+        "observed_fault": "The player can assemble the complete key with only two fragments instead of all three."
+      },
+      "tags": ["oracle", "logic error"]
+    },
+    {
+      "id": 1,
+      "title": "Bedroom narration exposes the drawer key before the player opens the drawer.",
+      "description": "Reproduction: enter the bedroom and look around before interacting with the bedside drawer. Actual behavior: the textual room description already discloses the small key even though it should still be concealed.",
+      "confidence": 0.98,
+      "evidence": {
+        "minimal_reproduction": [
+          "Enter the bedroom.",
+          "Execute `look` before opening the bedside drawer."
+        ],
+        "observed_fault": "The room description reveals the hidden small key before the drawer has been opened."
+      },
+      "tags": ["oracle", "description flaw"]
+    },
+    {
+      "id": 2,
+      "title": "After dropping an item, the refreshed room text fails to mention it.",
+      "description": "Reproduction: pick up any portable object, move to another room, drop it, and then use `look`. Actual behavior: the backend state changes correctly, but the updated location description omits the dropped object.",
+      "confidence": 0.97,
+      "evidence": {
+        "minimal_reproduction": [
+          "Pick up any portable item.",
+          "Move to a room.",
+          "Execute `drop`.",
+          "Execute `look`."
+        ],
+        "observed_fault": "The dropped object does not appear in the updated room description, so the textual state fails to reflect the backend change."
+      },
+      "tags": ["oracle", "data inconsistency"]
+    }
+  ]
+}

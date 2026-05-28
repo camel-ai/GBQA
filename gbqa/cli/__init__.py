@@ -1,0 +1,1 @@
+"""GBQA command line entrypoints."""

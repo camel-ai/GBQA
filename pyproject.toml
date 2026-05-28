@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gbqa"
+version = "0.1.0"
+description = "GBQA Harbor-compatible software QA benchmark baseline."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "camel-ai",
+  "daytona>=0.173.0",
+  "flask",
+  "flask-cors",
+  "harbor[daytona]>=0.6.6",
+  "openai",
+  "pillow",
+  "pydantic",
+  "python-dotenv",
+  "pyyaml",
+  "requests",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+gbqa-harbor = "gbqa.cli.harbor_run:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gbqa*"]
+
+[tool.setuptools.package-data]
+gbqa = ["tasks/**/*"]

@@ -7,10 +7,10 @@ from typing import Any, Dict, Protocol
 from uuid import uuid4
 
 from .config import Config
-from .game_clients import (
-    GameActionClient,
-    GameClientConfig,
-    create_http_game_action_client,
+from .environment_clients import (
+    EnvironmentActionClient,
+    EnvironmentClientConfig,
+    create_http_environment_action_client,
 )
 from .observer import ObservationParser
 from .types import (
@@ -55,19 +55,20 @@ class ExecutionBackendSpec:
 
     backend_type: str
     settings: Dict[str, Any]
+    adapters: Dict[str, Any]
 
 
-class GameClientExecutionBackend:
-    """ExecutionBackend adapter for the legacy HTTP GameClient."""
+class ApiExecutionBackend:
+    """ExecutionBackend adapter for command-style HTTP APIs."""
 
-    backend_type = "game_client"
+    backend_type = "api"
 
-    def __init__(self, client: GameActionClient) -> None:
+    def __init__(self, client: EnvironmentActionClient) -> None:
         self._client = client
         self._parser = ObservationParser()
 
     def start_session(self, run_context: Dict[str, Any]) -> SessionHandle:
-        payload = self._client.new_game()
+        payload = self._client.start_session()
         normalized = self._normalize_payload(
             payload,
             execution={
@@ -76,7 +77,7 @@ class GameClientExecutionBackend:
             },
         )
         return SessionHandle(
-            session_id=str(payload.get("game_id", "")) or str(uuid4()),
+            session_id=str(payload.get("session_id", "")) or str(uuid4()),
             backend_type=self.backend_type,
             raw={"initial_payload": payload},
             metadata={"initial_message": normalized.summary},
@@ -90,8 +91,8 @@ class GameClientExecutionBackend:
     ) -> CapabilityDescriptor:
         del session, refresh
         planner_summary = (
-            "You are operating a text-command game backend. "
-            "You can send one natural-language game command per step, "
+            "You are operating a text-command environment backend. "
+            "You can send one natural-language environment command per step, "
             "request describe_capabilities to see this summary again, "
             "and inspect the returned text/state summary after each command."
         )
@@ -99,7 +100,7 @@ class GameClientExecutionBackend:
             planner_summary=planner_summary,
             operator_context={
                 "translation_mode": "transparent_command",
-                "supported_call_kinds": ["send_game_command"],
+                "supported_call_kinds": ["send_command"],
             },
             raw={"backend_type": self.backend_type},
         )
@@ -196,7 +197,7 @@ class GameClientExecutionBackend:
         execution: Dict[str, Any],
     ) -> Observation:
         enriched = dict(payload)
-        enriched["summary"] = ObservationParser.build_game_client_summary(payload)
+        enriched["summary"] = ObservationParser.build_api_summary(payload)
         enriched["env_state"] = payload.get("state") or {}
         enriched["execution"] = execution
         return self._parser.parse(enriched)
@@ -229,45 +230,79 @@ class GameClientExecutionBackend:
 
 def resolve_backend_spec(config: Config) -> ExecutionBackendSpec:
     """Resolve the backend type and settings from configuration."""
-    section = config.get_section("execution_backend")
-    backend_type = str(section.get("type", "game_client")).strip() or "game_client"
-    settings = section.get(backend_type, {})
+    section = config.get_section("interaction")
+    adapters = section.get("adapters", {})
+    if not isinstance(adapters, dict):
+        adapters = {}
+    backend_type = str(section.get("primary", "api")).strip() or "api"
+    settings = adapters.get(backend_type, {})
     if not isinstance(settings, dict):
         settings = {}
-    return ExecutionBackendSpec(backend_type=backend_type, settings=settings)
+    return ExecutionBackendSpec(
+        backend_type=backend_type,
+        settings=settings,
+        adapters=adapters,
+    )
 
 
 def build_execution_backend(
     config: Config,
-    game_id: str,
-    game_config: Dict[str, Any],
+    task_id: str,
+    task_config: Dict[str, Any],
 ) -> ExecutionBackend:
     """Build the configured execution backend."""
     spec = resolve_backend_spec(config)
-    if spec.backend_type == "game_client":
-        base_url = str(game_config.get("base_url") or "").strip()
+    if spec.backend_type == "api":
+        base_url = str(
+            task_config.get("base_url") or spec.settings.get("base_url") or ""
+        ).strip()
         if not base_url:
-            port = game_config.get("port")
+            port = task_config.get("port")
             if port is None:
                 raise ValueError(
-                    f"game_client backend for '{game_id}' requires either 'base_url' or 'port'"
+                    f"api backend for '{task_id}' requires either 'base_url' or 'port'"
                 )
             base_url = f"http://localhost:{port}/api/agent"
-        client = create_http_game_action_client(
-            GameClientConfig(
+        client = create_http_environment_action_client(
+            EnvironmentClientConfig(
                 base_url=base_url,
-                timeout=config.get_section("llm").get("timeout", 60),
+                timeout=int(
+                    spec.settings.get(
+                        "timeout",
+                        config.get_section("llm").get("timeout", 60),
+                    )
+                ),
+                session_id_field=str(
+                    task_config.get("session_id_field")
+                    or spec.settings.get("session_id_field")
+                    or "session_id"
+                ),
+                terminal_field=str(
+                    task_config.get("terminal_field")
+                    or spec.settings.get("terminal_field")
+                    or "terminal"
+                ),
             )
         )
-        return GameClientExecutionBackend(client)
+        return ApiExecutionBackend(client)
 
     if spec.backend_type == "playwright_mcp":
         from .computeruse.playwright_backend import PlaywrightMcpExecutionBackend
 
         return PlaywrightMcpExecutionBackend.from_config(
             config=config,
-            game_id=game_id,
-            game_config=game_config,
+            task_id=task_id,
+            task_config=task_config,
+            backend_settings=spec.settings,
+        )
+
+    if spec.backend_type == "computer_use":
+        from .computeruse.cua_backend import CuaComputerUseExecutionBackend
+
+        return CuaComputerUseExecutionBackend.from_config(
+            config=config,
+            task_id=task_id,
+            task_config=task_config,
             backend_settings=spec.settings,
         )
 

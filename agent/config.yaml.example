@@ -1,17 +1,25 @@
 # Agent configuration
+# Task/environment metadata lives in `gbqa/tasks/<task>/gbqa.yaml`.
+# This file only controls the current QA agent harness policy.
+
+# Run-level defaults for this harness. Harbor can override this per trial.
+run:
+  interaction_mode: "browser"  # api | browser | computer_use
 
 # LLM and CAMEL runtime settings
 llm:
   platform: "auto"  # auto | MODELSCOPE | OPENROUTER | OPENAI_COMPATIBLE_MODEL | ...
-  # model: ""    # Falls back to OPENAI_MODEL
-  # api_key: ""  # Falls back to OPENAI_API_KEY
-  # base_url: ""  # Optional. Falls back to the default OpenAI API base URL.
+  # model: ""    # Falls back to MODEL_NAME
+  # api_key: ""  # Falls back to API_KEY
+  # base_url: ""  # Falls back to BASE_URL, then https://zenmux.ai/api/v1.
   temperature: 0.5
-  max_tokens: 4096
+  max_tokens: 32768
+  input_token_limit: 128000  # Full text prompt budget for system + user prompts.
+  reasoning:
+    mode: "auto"  # auto | enabled | disabled
+    effort: ""    # optional: low | medium | high, provider/model dependent
+    # max_tokens: 4096  # optional reasoning-token budget for providers that support it
   timeout: 60
-  message_window_size: 6
-  reset_between_turns: true
-  context_token_limit: 12000
 
 # Agent loop settings
 agent:
@@ -19,7 +27,7 @@ agent:
   max_consecutive_failures: 5
   reflection_threshold: 3
   reflection_interval: 10
-  log_analysis_interval: 20  # Auto-trigger log analysis every N gameplay steps when runtime logs are enabled.
+  log_analysis_interval: 20  # Auto-trigger log analysis every N environment-action steps when runtime logs are enabled.
   auto_summarize: true
   summary_threshold: 15
   summary_interval: 40
@@ -27,23 +35,37 @@ agent:
   verbose: true
   prompt_dir: "prompts"
 
-# Execution backend
-execution_backend:
-  # type: "game_client"  # game_client | playwright_mcp
-  type: playwright_mcp
-  game_client: {}
-  playwright_mcp:
-    command: ["npx", "-y", "@playwright/mcp@latest", "--headless", "--browser", "chromium"]
-    startup_timeout: 20
-    frontend_url: ""  # Optional. Falls back to http://localhost:{port}
-    snapshot_tool: "browser_snapshot"
-    screenshot_tool: "browser_take_screenshot"
-    navigate_tool: "browser_navigate"
-    click_tool: "browser_click"
-    type_tool: "browser_type"
-    press_tool: "browser_press_key"
-    wait_tool: "browser_wait_for"
-    screenshot_dir: "tmp/playwright_artifacts"
+# Interaction adapters
+# `primary` is the default exploration channel; other enabled adapters are
+# planner-visible auxiliary tools when the active session supports them.
+interaction:
+  primary: api  # api | playwright_mcp | computer_use
+  adapters:
+    api: {}
+    playwright_mcp:
+      command: ["npx", "-y", "@playwright/mcp@latest", "--headless", "--browser", "chromium"]
+      startup_timeout: 20
+      snapshot_tool: "browser_snapshot"
+      screenshot_tool: "browser_take_screenshot"
+      navigate_tool: "browser_navigate"
+      click_tool: "browser_click"
+      type_tool: "browser_type"
+      press_tool: "browser_press_key"
+      wait_tool: "browser_wait_for"
+      screenshot_dir: "tmp/playwright_artifacts"
+    computer_use:
+      server_url: "http://127.0.0.1:8030"
+      frontend_url: ""
+      startup_timeout: 30
+      sandbox_name: "gbqa-local-computer"
+      display:
+        width: 1280
+        height: 720
+      screenshot_dir: "tmp/cua_artifacts"
+    logs:
+      enabled: false
+    code:
+      enabled: false
 
 # Operator settings
 operator:
@@ -54,59 +76,18 @@ operator:
     - "timeout"
     - "not_visible"
 
-# Optional white-box source-code tools
-code_tool_provider:
-  enabled: false
-  base_url: ""  # Example: http://localhost:5000/api/agent
-  timeout: 60
-
-# Optional runtime debug-log tools
-runtime_log_provider:
-  enabled: false  # Exposes both code_read_debug_logs and log_analyze for game_client runs.
-  base_url: ""  # Example: http://localhost:5000/api/agent
-  timeout: 60  # Used with the current game_client session; no planner-supplied game_id.
-
 # Memory settings
 memory:
-  max_short_term: 30
-  long_term_file: "memory/{game_id}/long_term.json"
+  max_short_term: 100
+  memory_context_token_limit: 128000  # Token budget for CAMEL memory retrieval only.
+  long_term_file: "memory/{task_slug}/long_term.json"
   load_persistent_long_term: false
   cross_session_enabled: false
   cross_session_top_k: 3
   cross_session_similarity: 0.2
 
-# Game endpoints
-games:
-  dark-castle:
-    port: 5000
-    name: "Dark Castle: Night of Awakening"
-    ground_truth: true
-    bug_version: "dark-castle"
-    ground_truth_path: "../hub/{game_id}/bugs/{bug_version}.json"
-    profile: "Text adventure in a mysterious castle. Focus on exploration, items, puzzles, and narrative consistency. You can also use 'new game' to reset and 'close game' to end a session."
-
-  placeholder:
-    port: 5001
-    name: "Placeholder"
-    
 # Report output
 report:
   output_dir: "reports"
   format: "both"
   auto_save: true
-
-# Evaluation
-evaluation:
-  match_threshold: 0.65
-  llm_threshold: 0.6
-  use_llm: true
-
-# Bug detection
-bug_detection:
-  enable_llm_analysis: true
-  auto_confirm_threshold: 0.8
-  rules:
-    - error_message
-    - state_consistency
-    - response_format
-    - duplicate_item

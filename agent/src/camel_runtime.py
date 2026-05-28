@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Generic, Iterable, Optional, Type, TypeVar, Union
 import json
@@ -20,10 +20,19 @@ from camel.utils.token_counting import BaseTokenCounter
 from pydantic import BaseModel, ValidationError
 
 
-DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_CONTEXT_TOKEN_LIMIT = 12000
+DEFAULT_INPUT_TOKEN_LIMIT = 12000
+DEFAULT_MEMORY_CONTEXT_TOKEN_LIMIT = 12000
 
 StructuredResponseT = TypeVar("StructuredResponseT", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class ReasoningConfig:
+    """Provider-neutral model reasoning controls."""
+
+    mode: str = "auto"
+    effort: str = ""
+    max_tokens: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -32,14 +41,14 @@ class CamelRuntimeConfig:
 
     model: str
     api_key: str
+    base_url: str
     model_platform: str = "auto"
-    base_url: str = DEFAULT_OPENAI_BASE_URL
     temperature: float = 0.3
     max_tokens: int = 4096
     timeout: int = 60
-    message_window_size: int = 6
-    reset_between_turns: bool = True
-    context_token_limit: int = DEFAULT_CONTEXT_TOKEN_LIMIT
+    input_token_limit: int = DEFAULT_INPUT_TOKEN_LIMIT
+    memory_context_token_limit: int = DEFAULT_MEMORY_CONTEXT_TOKEN_LIMIT
+    reasoning: ReasoningConfig = field(default_factory=ReasoningConfig)
 
 
 @dataclass
@@ -87,6 +96,7 @@ class CamelTaskAgent:
         memory: Optional[ChatHistoryMemory] = None,
     ) -> None:
         self._config = config
+        self._system_message = system_message
         self._model_platform = resolve_model_platform(config)
         self._native_structured_output = supports_native_structured_output(
             config,
@@ -97,20 +107,25 @@ class CamelTaskAgent:
             model=ModelFactory.create(
                 model_platform=self._model_platform,
                 model_type=config.model,
-                model_config_dict={
-                    "temperature": config.temperature,
-                    "max_tokens": config.max_tokens,
-                },
+                model_config_dict=self._model_config_dict(config),
                 token_counter=HeuristicTokenCounter(),
                 api_key=config.api_key,
                 url=config.base_url,
                 timeout=config.timeout,
             ),
             memory=memory,
-            message_window_size=config.message_window_size,
             tools=list(tools or []),
             agent_id=agent_id,
         )
+
+    @staticmethod
+    def _model_config_dict(config: CamelRuntimeConfig) -> Dict[str, Any]:
+        request_config: Dict[str, Any] = {
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+        }
+        request_config.update(build_reasoning_request_config(config.reasoning))
+        return request_config
 
     def run(
         self,
@@ -118,6 +133,9 @@ class CamelTaskAgent:
         response_format: Optional[Type[StructuredResponseT]] = None,
     ) -> ChatAgentResult[StructuredResponseT]:
         """Execute one prompt against the CAMEL agent."""
+        input_error = self._input_limit_error(prompt)
+        if input_error:
+            return ChatAgentResult(content="", error=input_error)
         native_structured_output = getattr(self, "_native_structured_output", True)
         if response_format is not None and not native_structured_output:
             fallback = self._run_text_fallback(
@@ -131,8 +149,7 @@ class CamelTaskAgent:
                 content="",
                 error="native_structured_output_disabled_for_platform",
             )
-        if self._config.reset_between_turns:
-            self._agent.reset()
+        self._agent.reset()
         try:
             response = self._agent.step(prompt, response_format=response_format)
         except Exception as exc:  # noqa: BLE001
@@ -146,6 +163,24 @@ class CamelTaskAgent:
                     return fallback
             return ChatAgentResult(content="", error=str(exc))
         return self._build_result(response, response_format=response_format)
+
+    def _input_limit_error(self, prompt: Union[str, BaseMessage]) -> str:
+        limit = int(getattr(self._config, "input_token_limit", 0) or 0)
+        if limit <= 0:
+            return ""
+        total = self._count_input_tokens(prompt)
+        if total <= limit:
+            return ""
+        return f"input_token_limit_exceeded: {total} > {limit}"
+
+    def _count_input_tokens(self, prompt: Union[str, BaseMessage]) -> int:
+        parts = [str(getattr(self, "_system_message", "") or "")]
+        if isinstance(prompt, str):
+            parts.append(prompt)
+        else:
+            parts.append(str(getattr(prompt, "content", "") or ""))
+        token_counter = HeuristicTokenCounter()
+        return sum(len(token_counter.encode(part)) for part in parts if part)
 
     def _build_result(
         self,
@@ -192,8 +227,7 @@ class CamelTaskAgent:
         response_format: Type[StructuredResponseT],
         original_error: str,
     ) -> ChatAgentResult[StructuredResponseT]:
-        if self._config.reset_between_turns:
-            self._agent.reset()
+        self._agent.reset()
         try:
             response = self._agent.step(prompt)
         except Exception as exc:  # noqa: BLE001
@@ -322,6 +356,33 @@ def supports_native_structured_output(
     }
 
 
+def build_reasoning_request_config(reasoning: ReasoningConfig) -> Dict[str, Any]:
+    """Map neutral reasoning settings to OpenAI-compatible request parameters."""
+
+    mode = (reasoning.mode or "auto").strip().lower()
+    effort = (reasoning.effort or "").strip().lower()
+    max_tokens = reasoning.max_tokens
+    if mode in {"none", "off", "disabled", "disable", "false"}:
+        return {"reasoning": {"enabled": False}}
+    if mode not in {"auto", "enabled", "on", "true"}:
+        raise ValueError(
+            "llm.reasoning.mode must be one of: auto, enabled, disabled"
+        )
+
+    payload: Dict[str, Any] = {}
+    reasoning_payload: Dict[str, Any] = {}
+    if effort:
+        payload["reasoning_effort"] = effort
+        reasoning_payload["effort"] = effort
+    if max_tokens is not None:
+        reasoning_payload["max_tokens"] = int(max_tokens)
+    if mode in {"enabled", "on", "true"} and not reasoning_payload:
+        reasoning_payload["enabled"] = True
+    if reasoning_payload:
+        payload["reasoning"] = reasoning_payload
+    return payload
+
+
 class CamelAgentFactory:
     """Factory for CAMEL role agents and memory objects."""
 
@@ -339,17 +400,10 @@ class CamelAgentFactory:
         agent_id: Optional[str] = None,
         tools: Optional[Iterable[FunctionTool | Callable[..., Any]]] = None,
         memory: Optional[ChatHistoryMemory] = None,
-        reset_between_turns: Optional[bool] = None,
     ) -> CamelTaskAgent:
         """Create a CAMEL role agent with shared runtime settings."""
-        runtime_config = self._config
-        if reset_between_turns is not None:
-            runtime_config = replace(
-                self._config,
-                reset_between_turns=reset_between_turns,
-            )
         return CamelTaskAgent(
-            runtime_config,
+            self._config,
             system_message,
             agent_id=agent_id,
             tools=tools,
@@ -370,7 +424,7 @@ class CamelAgentFactory:
         return ChatHistoryMemory(
             ScoreBasedContextCreator(
                 token_counter=HeuristicTokenCounter(),
-                token_limit=token_limit or self._config.context_token_limit,
+                token_limit=token_limit or self._config.memory_context_token_limit,
             ),
             storage=JsonStorage(path),
             window_size=window_size,

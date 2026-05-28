@@ -1,0 +1,221 @@
+{
+  "rooms": [
+    {
+      "id": "hall",
+      "name": "Hall",
+      "base_description": "You stand in the center of the castle hall. It is a grand but badly ruined space, with a dust-coated crystal chandelier hanging from the high ceiling. Faded tapestries cling to the walls, and a worn red carpet stretches across the floor.",
+      "static_elements": "A passage to the corridor lies to the north, the kitchen is to the west, and the main door to the south is sealed behind a strange violet light. A staircase descends into the basement.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "room_locked", "room_id": "storage", "value": true},
+          "text": "To the east, the door to the storage room appears to be locked."
+        },
+        {
+          "condition": {"type": "room_locked", "room_id": "storage", "value": false},
+          "text": "The storage room door to the east now stands open."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "matches"},
+          "text": "A box of 'matches' rests on the mantel."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "candlestick"},
+          "text": "A copper 'candlestick' stands on a small table in the corner."
+        }
+      ],
+      "exits": {
+        "north": "corridor",
+        "west": "kitchen",
+        "east": "storage",
+        "down": "basement"
+      },
+      "dark": false,
+      "visited": true
+    },
+    {
+      "id": "corridor",
+      "name": "Corridor",
+      "base_description": "This is a narrow corridor. An iron torch sconce hangs near the entrance, but the torch itself is gone, leaving the passage dim and uneasy. As you walk onward, you notice several old portraits on the walls, and the painted eyes seem to follow you.",
+      "static_elements": "Doors line both sides of the corridor: the bedroom is to the west and the library is to the east. The hall lies back to the south.",
+      "dynamic_elements": [],
+      "exits": {
+        "south": "hall",
+        "west": "bedroom",
+        "east": "library"
+      },
+      "dark": false,
+      "visited": false
+    },
+    {
+      "id": "library",
+      "name": "Library",
+      "base_description": "This library is packed with old books, and the air is thick with the smell of aging paper. Tall shelves line the room, each crowded with leather-bound volumes. A sturdy reading table stands in the center.",
+      "static_elements": "The corridor lies to the west.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_in_room", "item_id": "scroll"},
+          "text": "A rolled 'scroll' lies on the reading table."
+        },
+        {
+          "condition": {"type": "flag", "flag": "ladder_placed", "value": false},
+          "text": "You notice a trapdoor in the ceiling that leads to the attic, but it is too high to reach."
+        },
+        {
+          "condition": {"type": "flag", "flag": "ladder_placed", "value": true},
+          "text": "A 'ladder' is propped beneath the trapdoor, giving you a way up into the attic."
+        }
+      ],
+      "exits": {
+        "west": "corridor",
+        "up": "attic"
+      },
+      "dark": false,
+      "visited": false
+    },
+    {
+      "id": "attic",
+      "name": "Attic",
+      "base_description": "The attic is a cramped, shadowy space filled with dust and cobwebs. A faint beam of light slips in through a small window.",
+      "static_elements": "A telescope points out toward the night beyond the window. You can return to the library through the trapdoor.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_state", "item_id": "old_chest", "state": "open", "value": false},
+          "text": "An old \"chest\" sits in the corner, secured with a numeric lock."
+        },
+        {
+          "condition": {"type": "item_state", "item_id": "old_chest", "state": "open", "value": true},
+          "text": "The old \"chest\" in the corner is already open."
+        },
+        {
+          "condition": {"type": "item_in_container", "container_id": "old_chest", "item_id": "key_fragment_a"},
+          "text": "Inside the chest, a blue-lit 'key fragment A' glimmers softly."
+        }
+      ],
+      "exits": {
+        "down": "library"
+      },
+      "dark": false,
+      "visited": false,
+      "requires_item": "ladder_placed"
+    },
+    {
+      "id": "bedroom",
+      "name": "Bedroom",
+      "base_description": "This was once the alchemist's bedchamber. A magnificent four-poster bed, now buried in dust, dominates the room. A yellowed mirror hangs on the wall.",
+      "static_elements": "The door to the east leads back to the corridor.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_state", "item_id": "nightstand", "state": "open", "value": false},
+          "text": "Beside the bed stands an elegant \"nightstand\". Its drawer looks like it can be opened."
+        },
+        {
+          "condition": {"type": "item_state", "item_id": "nightstand", "state": "open", "value": true},
+          "text": "The drawer of the \"nightstand\" beside the bed is hanging open."
+        },
+        {
+          "condition": {"type": "item_in_container", "container_id": "nightstand", "item_id": "small_key"},
+          "text": "A 'small key' lies inside the drawer."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "diary"},
+          "text": "A leather-bound 'diary' rests on the bed."
+        }
+      ],
+      "exits": {
+        "east": "corridor"
+      },
+      "dark": false,
+      "visited": false
+    },
+    {
+      "id": "kitchen",
+      "name": "Kitchen",
+      "base_description": "The abandoned kitchen is thick with the smell of damp rot. Broken pots and kitchenware are scattered across the counters.",
+      "static_elements": "The hall lies back to the east.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_state", "item_id": "fireplace", "state": "lit", "value": false},
+          "text": "A large \"fireplace\" stands in the corner, piled with dry wood that looks ready to burn."
+        },
+        {
+          "condition": {"type": "item_state", "item_id": "fireplace", "state": "lit", "value": true},
+          "text": "Warm firelight pours from the \"fireplace\" and fills the kitchen."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "bucket"},
+          "text": "A rusty 'bucket' sits in the corner."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "ladder"},
+          "text": "A wooden 'ladder' leans against the wall."
+        }
+      ],
+      "exits": {
+        "east": "hall"
+      },
+      "dark": false,
+      "visited": false
+    },
+    {
+      "id": "storage",
+      "name": "Storage Room",
+      "base_description": "This is a cramped storage room packed with clutter. Old tools and forgotten odds and ends are stacked on rough wooden shelves.",
+      "static_elements": "The door to the west returns to the hall.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_state", "item_id": "toolbox", "state": "open", "value": false},
+          "text": "A red \"toolbox\" stands out among the clutter."
+        },
+        {
+          "condition": {"type": "item_state", "item_id": "toolbox", "state": "open", "value": true},
+          "text": "The red \"toolbox\" is standing open."
+        },
+        {
+          "condition": {"type": "item_in_container", "container_id": "toolbox", "item_id": "key_fragment_b"},
+          "text": "Inside the toolbox, a green-lit 'key fragment B' catches your eye."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "oil_lamp"},
+          "text": "An 'oil lamp' sits in the corner."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "rope"},
+          "text": "A coil of 'rope' hangs from a shelf."
+        }
+      ],
+      "exits": {
+        "west": "hall"
+      },
+      "dark": false,
+      "visited": false,
+      "locked": true,
+      "lock_key": "small_key"
+    },
+    {
+      "id": "basement",
+      "name": "Basement",
+      "base_description": "The basement is cold and damp, its stone walls echoing every footstep. Several massive wine barrels rest along the walls.",
+      "static_elements": "A staircase leads back up to the hall.",
+      "dynamic_elements": [
+        {
+          "condition": {"type": "item_state", "item_id": "iron_door", "state": "open", "value": false},
+          "text": "Deep in the shadows stands a rusted \"iron door\" with a badly corroded lock."
+        },
+        {
+          "condition": {"type": "item_state", "item_id": "iron_door", "state": "open", "value": true},
+          "text": "The \"iron door\" now hangs open, revealing a hidden chamber."
+        },
+        {
+          "condition": {"type": "item_in_room", "item_id": "key_fragment_c"},
+          "text": "On the floor of the chamber lies a red-lit 'key fragment C'."
+        }
+      ],
+      "exits": {
+        "up": "hall"
+      },
+      "dark": true,
+      "dark_description": "The basement is pitch-black. You cannot make out anything around you. Damp, freezing air wraps around your body, and somewhere in the distance you hear water dripping. You will need a light source to explore further. The stairs leading up are barely visible.",
+      "visited": false
+    }
+  ]
+}

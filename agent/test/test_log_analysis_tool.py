@@ -14,19 +14,19 @@ from src.orchestrator import Orchestrator
 from src.tool_registry import (
     ToolInvocationResult,
     ToolRegistry,
-    register_game_action_tool,
+    register_environment_action_tool,
     register_log_analysis_tool,
 )
 from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
 
 class BackendStub:
-    backend_type = "game_client"
+    backend_type = "api"
 
     def start_session(self, run_context):  # noqa: ANN001
         del run_context
         return SessionHandle(
-            session_id="game-123",
+            session_id="session-123",
             backend_type=self.backend_type,
             initial_observation=Observation(
                 success=True,
@@ -40,7 +40,7 @@ class BackendStub:
     def describe_capabilities(self, session, refresh=False):  # noqa: ANN001
         del session, refresh
         return CapabilityDescriptor(
-            planner_summary="Use game_action or log_analyze.",
+            planner_summary="Use environment_action or log_analyze.",
             operator_context={},
         )
 
@@ -49,17 +49,17 @@ class BackendStub:
         return None
 
 
-class RuntimeLogProviderStub:
-    def read_debug_logs(self, game_id, clear=False):  # noqa: ANN001
+class RuntimeLogAdapterStub:
+    def read_debug_logs(self, session_id, clear=False):  # noqa: ANN001
         if clear:
-            return {"success": True, "game_id": game_id, "logs": ""}
+            return {"success": True, "session_id": session_id, "logs": ""}
         return {
             "success": True,
-            "game_id": game_id,
+            "session_id": session_id,
             "logs": "[12:00:00.000] ERROR simulated server failure",
         }
 
-    def read_session_log(self, game_id):  # noqa: ANN001
+    def read_session_log(self, session_id):  # noqa: ANN001
         commands = [
             {
                 "turn": 1,
@@ -85,7 +85,7 @@ class RuntimeLogProviderStub:
         ]
         return {
             "success": True,
-            "game_id": game_id,
+            "session_id": session_id,
             "data": {"commands": commands, "total_turns": 3, "result": "in_progress"},
         }
 
@@ -141,7 +141,7 @@ class ReporterStub:
 def _build_registry():
     registry = ToolRegistry()
 
-    def game_action_handler(payload, runtime_context):  # noqa: ANN001
+    def environment_action_handler(payload, runtime_context):  # noqa: ANN001
         del runtime_context
         action_text = payload["action"]
         return ToolInvocationResult(
@@ -154,14 +154,14 @@ def _build_registry():
             )
         )
 
-    register_game_action_tool(registry, game_action_handler)
-    register_log_analysis_tool(registry, RuntimeLogProviderStub(), LogAnalyzer())
+    register_environment_action_tool(registry, environment_action_handler)
+    register_log_analysis_tool(registry, RuntimeLogAdapterStub(), LogAnalyzer())
     return registry
 
 
 def _run(planner, *, log_analysis_interval=0):
     orchestrator = Orchestrator(
-        game_id="dark-castle",
+        task_id="dark-castle",
         execution_backend=BackendStub(),
         operator=None,
         tool_registry=_build_registry(),
@@ -212,9 +212,9 @@ def main() -> None:
                 "PlanResult",
                 (),
                 {
-                    "action": Action(tool="game_action", command="look"),
+                    "action": Action(tool="environment_action", command="look"),
                     "prompt": "planner prompt",
-                    "output": '{"tool":"game_action","action":"look"}',
+                    "output": '{"tool":"environment_action","action":"look"}',
                     "error": "",
                 },
             )(),

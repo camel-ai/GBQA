@@ -8,10 +8,10 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class Action:
-    """Represents a single action to send to the game."""
+    """Represents a single action to send to the active environment."""
 
     command: str
-    tool: str = "game_action"
+    tool: str = "environment_action"
     rationale: str = ""
     expected_outcome: str = ""
     bug_exist: bool = False
@@ -78,13 +78,13 @@ class ExecutionAttempt:
 
 @dataclass
 class Observation:
-    """Represents the game response."""
+    """Represents the environment response."""
 
     success: bool
     message: str
     state: Dict[str, Any]
     raw: Dict[str, Any] = field(default_factory=dict)
-    game_over: bool = False
+    terminal: bool = False
     turn: Optional[int] = None
     summary: str = ""
     env_state: Dict[str, Any] = field(default_factory=dict)
@@ -132,7 +132,7 @@ class SummaryRecord:
 class RunReport:
     """Aggregated run data."""
 
-    game_id: str
+    task_id: str
     steps: List[StepRecord] = field(default_factory=list)
     bugs: List[BugFinding] = field(default_factory=list)
     summaries: List[SummaryRecord] = field(default_factory=list)

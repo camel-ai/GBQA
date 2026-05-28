@@ -31,7 +31,7 @@ class ReflectionAnalyzer:
     def __init__(self, llm_client: LlmClient, prompt: str) -> None:
         self._prompt = prompt
         self._agent = llm_client.create_task_agent(
-            system_prompt="You are a QA agent reflecting on game behavior.",
+            system_prompt="You are a QA agent reflecting on environment behavior.",
             agent_id="reflection",
         )
 

@@ -1,0 +1,16 @@
+id = "{{ task_id }}"
+name = "{{ slug }}"
+description = "Draft GBQA task generated from environment sourcing."
+agent_timeout_sec = 600
+verifier_timeout_sec = 120
+
+[metadata]
+benchmark_status = "{{ benchmark_status }}"
+software_repository = "{{ repository }}"
+software_selected_version = "{{ baseline_release }}"
+software_fixed_reference_version = "{{ fixed_release }}"
+software_archive_url = "{{ baseline_archive_url }}"
+
+[environment]
+provider = "daytona"
+dockerfile = "environment/Dockerfile"

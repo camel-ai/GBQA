@@ -1,1 +1,0 @@
-"""Sourcing pipeline tests."""

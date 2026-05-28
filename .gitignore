@@ -164,6 +164,18 @@ $RECYCLE.BIN/
 # Project Specific
 # ========================================
 
+# Local research/checkouts
+/.research/
+/_research/
+/_tmp*/
+/openai-agents-python/
+
+# Benchmark/runtime outputs
+/jobs/
+/reports/
+/memory/
+/artifacts/
+
 # Cache directories
 cache/
 .cache/
@@ -183,9 +195,10 @@ tmp/
 temp/
 .playwright-mcp/
 
-# Hub sourcing generated outputs
-hub/catalog/
-hub/environment/
+# Environment preparation generated outputs
+environment/catalog/runs/
+environment/catalog/state/
+environment/review/data/
 
 
 # ========================================

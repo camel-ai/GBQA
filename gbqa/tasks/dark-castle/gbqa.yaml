@@ -1,0 +1,46 @@
+schema_version: "0.1"
+task:
+  id: "gbqa/dark-castle"
+  family: "game"
+  title: "Dark Castle: Night of Awakening"
+  profile: "Text adventure in a mysterious castle. Focus on exploration, items, puzzles, and narrative consistency. You can also use 'new game' to reset and 'close game' to end a session."
+software:
+  type: "github_release"
+  repository: "https://github.com/Tsumugii24/dark-castle"
+  release_page: "https://github.com/Tsumugii24/dark-castle/releases/tag/v0.1.0"
+  archive_url: "https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
+  selected_version: "v0.1.0"
+  selected_release_role: "latest_minus_one"
+  latest_version: "v0.2.0"
+  fixed_reference_version: "v0.2.0"
+  install_dir: "/sandbox/software/dark-castle"
+runtime:
+  default_provider: "daytona"
+  local_docker_supported: false
+interaction:
+  default_mode: "api"
+  supported_modes:
+    - "api"
+    - "browser"
+    - "computer_use"
+  adapters:
+    computer_use:
+      server_url: "http://127.0.0.1:8030"
+      startup_timeout: 30
+      sandbox_name: "gbqa-local-computer"
+      display:
+        width: 1280
+        height: 720
+service:
+  host: "127.0.0.1"
+  port: 5000
+  api_base_path: "/api/agent"
+  frontend_path: "/"
+  health_path: "/api/health"
+  session_id_field: "game_id"
+  terminal_field: "game_over"
+ground_truth:
+  path: "bugs/dark-castle.json"
+artifacts:
+  agent_dir: "/logs/agent/gbqa"
+  verifier_dir: "/logs/verifier"

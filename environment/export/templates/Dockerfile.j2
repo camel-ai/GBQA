@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+ARG SOFTWARE_ARCHIVE_URL="{{ baseline_archive_url }}"
+ARG SOFTWARE_INSTALL_DIR="/sandbox/software/{{ slug }}"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates tar gzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p "$SOFTWARE_INSTALL_DIR" /sandbox/agent /sandbox/gbqa /sandbox/runtime /logs/agent /logs/verifier /logs/artifacts \
+    && curl -L "$SOFTWARE_ARCHIVE_URL" -o /tmp/software.tar.gz \
+    && tar -xzf /tmp/software.tar.gz -C "$SOFTWARE_INSTALL_DIR" --strip-components=1 \
+    && rm /tmp/software.tar.gz
+
+WORKDIR /sandbox/software/{{ slug }}

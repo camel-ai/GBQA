@@ -115,7 +115,7 @@ class BugDetector:
 
     @classmethod
     def is_benign_failure(cls, observation: Observation) -> bool:
-        """Return whether a failed command looks like an expected game refusal."""
+        """Return whether a failed command looks like an expected environment refusal."""
         if observation.success:
             return False
         execution_origin = str(
@@ -182,7 +182,7 @@ class BugDetector:
         if not message:
             return BugFinding(
                 title="Command failed without explanation",
-                description="The game returned an unsuccessful response with no message.",
+                description="The environment returned an unsuccessful response with no message.",
                 confidence=0.85,
                 evidence={"command": action.command},
                 tags=["error_message", "missing_error_detail"],

@@ -1,4 +1,4 @@
-"""Smoke test for describe_capabilities on the game_client backend."""
+"""Smoke test for describe_capabilities on the API backend."""
 
 from __future__ import annotations
 
@@ -9,29 +9,30 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from src.execution_backends import GameClientExecutionBackend
+from src.execution_backends import ApiExecutionBackend
 from src.operator import Operator
-from src.tool_registry import ToolInvocationResult, ToolRegistry, register_game_action_tool
+from src.tool_registry import ToolInvocationResult, ToolRegistry, register_environment_action_tool
 from src.types import Action, Observation
 
 
-class FakeGameClient:
+class FakeEnvironmentClient:
     def __init__(self) -> None:
         self.sent_commands = []
 
-    def new_game(self):
+    def start_session(self):
         return {
-            "game_id": "fake-session",
+            "session_id": "fake-session",
             "success": True,
             "message": "Welcome",
             "state": {},
         }
 
-    def send_command(self, game_id, command):  # noqa: ANN001
-        self.sent_commands.append((game_id, command))
-        raise AssertionError("describe_capabilities should not hit the game command API")
+    def send_command(self, session_id, command):  # noqa: ANN001
+        self.sent_commands.append((session_id, command))
+        raise AssertionError("describe_capabilities should not hit the command API")
 
-    def get_state(self, game_id):  # noqa: ANN001
+    def get_state(self, session_id):  # noqa: ANN001
+        del session_id
         raise AssertionError("unused")
 
     def close(self) -> None:
@@ -49,15 +50,15 @@ class DummyLlmClient:
 
 
 def main() -> None:
-    backend = GameClientExecutionBackend(FakeGameClient())
+    backend = ApiExecutionBackend(FakeEnvironmentClient())
     session = backend.start_session({})
     capability = backend.describe_capabilities(session)
     operator = Operator(DummyLlmClient(), "unused prompt")
     registry = ToolRegistry()
 
-    def handle_game_action(payload, runtime_context):  # noqa: ANN001
+    def handle_environment_action(payload, runtime_context):  # noqa: ANN001
         result = operator.execute(
-            action=Action(command=payload["action"], tool="game_action"),
+            action=Action(command=payload["action"], tool="environment_action"),
             current_observation=runtime_context["current_observation"],
             capability=runtime_context["capability"],
             session=runtime_context["session"],
@@ -68,9 +69,9 @@ def main() -> None:
             refreshed_capability=result.refreshed_capability,
         )
 
-    register_game_action_tool(registry, handle_game_action)
+    register_environment_action_tool(registry, handle_environment_action)
     result = registry.invoke(
-        "game_action",
+        "environment_action",
         {"action": "describe_capabilities"},
         {
             "current_observation": Observation(
@@ -81,12 +82,12 @@ def main() -> None:
             ),
             "capability": capability,
             "session": session,
-            "planner_action": Action(command="describe_capabilities", tool="game_action"),
+            "planner_action": Action(command="describe_capabilities", tool="environment_action"),
         },
     )
 
     assert result.observation.success is True
-    assert "text-command game backend" in result.observation.summary
+    assert "text-command environment backend" in result.observation.summary
     print("describe_capabilities smoke test passed")
 
 

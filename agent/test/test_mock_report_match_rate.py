@@ -38,7 +38,8 @@ def main() -> None:
     ground_truth_path = (
         Path(ROOT_DIR)
         / ".."
-        / "hub"
+        / "gbqa"
+        / "tasks"
         / "dark-castle"
         / "bugs"
         / "dark-castle.json"

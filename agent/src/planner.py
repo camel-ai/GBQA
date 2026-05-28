@@ -37,7 +37,7 @@ class ActionPlanner:
 
     def plan(self, context: Dict[str, Any]) -> PlanResult:
         variables = {
-            "game_profile": context.get("game_profile", ""),
+            "task_profile": context.get("task_profile", ""),
             "memory_summary": context.get("memory_summary", ""),
             "recent_trace": context.get("recent_trace", ""),
             "current_observation": context.get("current_observation", ""),
@@ -94,13 +94,13 @@ class ActionPlanner:
         if decision is None or not decision.action.strip():
             return Action(
                 command="look",
-                tool="game_action",
+                tool="environment_action",
                 rationale="Fallback command due to invalid model output.",
                 expected_outcome="Refresh the room description.",
             )
         return Action(
             command=decision.action.strip(),
-            tool=decision.tool.strip() or "game_action",
+            tool=decision.tool.strip() or "environment_action",
             rationale=decision.rationale.strip(),
             expected_outcome=decision.expected_outcome.strip(),
             bug_exist=decision.bug_exist,

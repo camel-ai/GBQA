@@ -36,10 +36,10 @@ def main() -> None:
     truth_path.write_text(
         json.dumps(
             {
-                "game_name": "dark-castle",
+                "task_name": "dark-castle",
                 "bugs": [
                     {
-                        "id": "BUG-001",
+                        "id": 0,
                         "bug_type": "logic error",
                         "difficulty": "easy",
                         "minimal_reproduction": [
