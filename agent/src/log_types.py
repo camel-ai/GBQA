@@ -1,127 +1,142 @@
-"""Normalized log types and adapter protocol for log analysis.
-
-The LogAnalyzer works exclusively with these normalized types so that
-analysis logic is decoupled from any specific game backend log format.
-Each backend supplies a LogAdapter that converts its raw session data
-into the normalized schema.
+"""
+Data types and adapters for environment log analysis.
+Defines the contract between raw environment data and the analysis engine.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional, Protocol
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Protocol, Set, runtime_checkable
 
 
-@dataclass
+@dataclass(frozen=True)
 class CommandState:
-    """Normalized snapshot of game state at a single turn."""
+    """Represents the state of the environment at a specific point in time."""
 
-    room: Optional[str] = None
+    location: Optional[str] = None
     inventory: List[str] = field(default_factory=list)
+    # Generic metadata for fields that don't fit into location/inventory
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> CommandState:
+        """Create a CommandState from a raw dictionary."""
+        # Standard GBQA keys are 'room' and 'inventory'
+        return cls(
+            location=data.get("room") or data.get("url"),
+            inventory=data.get("inventory", []),
+            metadata={k: v for k, v in data.items() if k not in ("room", "inventory", "url")},
+        )
 
 
-@dataclass
+@dataclass(frozen=True)
 class NormalizedCommand:
-    """A single command-response pair in normalized form."""
+    """Represents a normalized record of a single command execution."""
 
     turn: int
-    timestamp: str
     command: str
     success: bool
     message: str
-    game_over: bool = False
+    terminal: bool = False
+    timestamp: Optional[datetime] = None
     state: Optional[CommandState] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
-            "turn": self.turn,
-            "timestamp": self.timestamp,
-            "command": self.command,
-            "success": self.success,
-            "message": self.message,
-            "game_over": self.game_over,
-        }
-        if self.state is not None:
-            d["state"] = asdict(self.state)
-        return d
+    # Raw response data for debugging or specialized analysis
+    raw_response: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class NormalizedSession:
-    """A full game session in normalized form."""
+    """Represents a full normalized environment session."""
 
     commands: List[NormalizedCommand]
-    total_turns: int
     result: str = "in_progress"
+    total_turns: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@runtime_checkable
 class LogAdapter(Protocol):
-    """Protocol for converting backend-specific log data into normalized form.
-
-    Implement this for each game backend to decouple log analysis from
-    the specific runtime log shape.
-    """
+    """Protocol for converting raw environment logs into normalized formats."""
 
     def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
-        """Convert raw session data (as returned by the backend) into a NormalizedSession."""
+        """Convert raw session data into a NormalizedSession."""
         ...
 
     def normalize_debug_output(self, raw_text: str) -> str:
-        """Normalize raw debug/stdout text. Return as-is if no transformation needed."""
+        """Optionally clean up or format raw debug output."""
+        ...
+
+    def get_movement_verbs(self) -> Set[str]:
+        """Return verbs that typically result in a location/URL change."""
+        ...
+
+    def get_removal_verbs(self) -> Set[str]:
+        """Return verbs that typically result in items being removed from inventory."""
         ...
 
 
 class DefaultLogAdapter:
-    """Adapter for the standard GBQA game backend log format.
-
-    Expected raw_data shape (as returned by RuntimeLogProvider.read_session_log):
-
-        {
-            "commands": [
-                {
-                    "turn": int,
-                    "timestamp": str (ISO),
-                    "command": str,
-                    "response": {"success": bool, "message": str, "game_over": bool},
-                    "state_snapshot": {"room": str | None, "inventory": [str, ...]}
-                },
-                ...
-            ],
-            "total_turns": int,
-            "result": str
-        }
-
-    Other backends should implement their own LogAdapter to normalize
-    their specific format into the same NormalizedSession structure.
-    """
+    """Default implementation for standard GBQA/Dark-Castle log format."""
 
     def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
-        commands: List[NormalizedCommand] = []
-        for cmd in raw_data.get("commands", []):
-            resp = cmd.get("response", {})
-            snap = cmd.get("state_snapshot") or {}
-            state = None
-            if snap:
-                state = CommandState(
-                    room=snap.get("room"),
-                    inventory=list(snap.get("inventory", [])),
-                )
-            commands.append(
+        raw_commands = raw_data.get("commands", [])
+        normalized_commands = []
+
+        for cmd_dict in raw_commands:
+            ts_str = cmd_dict.get("timestamp")
+            ts = None
+            if ts_str:
+                try:
+                    ts = datetime.fromisoformat(ts_str)
+                except (ValueError, TypeError):
+                    pass
+
+            resp = cmd_dict.get("response", {})
+            state_data = cmd_dict.get("state_snapshot", {})
+
+            normalized_commands.append(
                 NormalizedCommand(
-                    turn=cmd.get("turn", 0),
-                    timestamp=cmd.get("timestamp", ""),
-                    command=cmd.get("command", ""),
+                    turn=cmd_dict.get("turn", 0),
+                    command=cmd_dict.get("command", ""),
                     success=resp.get("success", True),
                     message=resp.get("message", ""),
-                    game_over=resp.get("game_over", False),
-                    state=state,
+                    terminal=resp.get("terminal", False),
+                    timestamp=ts,
+                    state=CommandState.from_dict(state_data) if state_data else None,
+                    raw_response=resp,
                 )
             )
+
         return NormalizedSession(
-            commands=commands,
-            total_turns=raw_data.get("total_turns", len(commands)),
+            commands=normalized_commands,
             result=raw_data.get("result", "in_progress"),
+            total_turns=raw_data.get("total_turns", len(normalized_commands)),
+            metadata={k: v for k, v in raw_data.items() if k not in ("commands", "result", "total_turns")},
         )
 
     def normalize_debug_output(self, raw_text: str) -> str:
         return raw_text
+
+    def get_movement_verbs(self) -> Set[str]:
+        return {"go", "enter", "climb", "down", "up", "move", "north", "south", "east", "west"}
+
+    def get_removal_verbs(self) -> Set[str]:
+        return {"drop", "put", "use", "combine", "give", "throw", "eat", "drink"}
+
+
+class PlaywrightLogAdapter:
+    """Adapter for Computer-Use / Web environments."""
+
+    def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
+        default_adapter = DefaultLogAdapter()
+        return default_adapter.normalize_session(raw_data)
+
+    def normalize_debug_output(self, raw_text: str) -> str:
+        return raw_text
+
+    def get_movement_verbs(self) -> Set[str]:
+        return {"click", "navigate", "type", "submit", "press"}
+
+    def get_removal_verbs(self) -> Set[str]:
+        return {"delete", "remove", "clear", "extract"}
