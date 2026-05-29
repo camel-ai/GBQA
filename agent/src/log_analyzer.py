@@ -9,10 +9,10 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .log_types import (
-    DefaultLogAdapter,
     LogAdapter,
     NormalizedCommand,
     NormalizedSession,
+    UniversalLogAdapter,
 )
 
 
@@ -27,7 +27,7 @@ class LogAnalyzer:
     )
 
     def __init__(self, adapter: Optional[LogAdapter] = None):
-        self.adapter = adapter or DefaultLogAdapter()
+        self.adapter = adapter or UniversalLogAdapter()
 
     def analyze_session(
         self,

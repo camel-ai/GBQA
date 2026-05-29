@@ -16,17 +16,15 @@ class CommandState:
 
     location: Optional[str] = None
     inventory: List[str] = field(default_factory=list)
-    # Generic metadata for fields that don't fit into location/inventory
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> CommandState:
-        """Create a CommandState from a raw dictionary."""
-        # Standard GBQA keys are 'room' and 'inventory'
+        """Heuristically extract state from a dictionary."""
         return cls(
-            location=data.get("room") or data.get("url"),
-            inventory=data.get("inventory", []),
-            metadata={k: v for k, v in data.items() if k not in ("room", "inventory", "url")},
+            location=data.get("room") or data.get("url") or data.get("location"),
+            inventory=data.get("inventory") or data.get("items") or [],
+            metadata={k: v for k, v in data.items() if k not in ("room", "url", "inventory", "items", "location")},
         )
 
 
@@ -41,7 +39,6 @@ class NormalizedCommand:
     terminal: bool = False
     timestamp: Optional[datetime] = None
     state: Optional[CommandState] = None
-    # Raw response data for debugging or specialized analysis
     raw_response: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -59,32 +56,49 @@ class NormalizedSession:
 class LogAdapter(Protocol):
     """Protocol for converting raw environment logs into normalized formats."""
 
+    def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession: ...
+    def normalize_debug_output(self, raw_text: str) -> str: ...
+    def get_movement_verbs(self) -> Set[str]: ...
+    def get_removal_verbs(self) -> Set[str]: ...
+
+
+class UniversalLogAdapter:
+    """
+    A single, robust adapter that handles various GBQA log formats (API, Daytona, Web)
+    using heuristic field mapping.
+    """
+
+    DEFAULT_MOVEMENT = {"go", "enter", "climb", "down", "up", "move", "north", "south", "east", "west", "navigate", "click"}
+    DEFAULT_REMOVAL = {"drop", "put", "use", "combine", "give", "throw", "eat", "drink", "delete", "remove"}
+
+    def __init__(self, movement_verbs: Optional[Set[str]] = None, removal_verbs: Optional[Set[str]] = None):
+        self._movement_verbs = movement_verbs or self.DEFAULT_MOVEMENT
+        self._removal_verbs = removal_verbs or self.DEFAULT_REMOVAL
+
     def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
-        """Convert raw session data into a NormalizedSession."""
-        ...
-
-    def normalize_debug_output(self, raw_text: str) -> str:
-        """Optionally clean up or format raw debug output."""
-        ...
-
-    def get_movement_verbs(self) -> Set[str]:
-        """Return verbs that typically result in a location/URL change."""
-        ...
-
-    def get_removal_verbs(self) -> Set[str]:
-        """Return verbs that typically result in items being removed from inventory."""
-        ...
-
-
-class DefaultLogAdapter:
-    """Default implementation for standard GBQA/Dark-Castle log format."""
-
-    def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
-        raw_commands = raw_data.get("commands", [])
+        # Heuristically find the list of steps/commands
+        steps = raw_data.get("steps") or raw_data.get("commands") or []
         normalized_commands = []
 
-        for cmd_dict in raw_commands:
-            ts_str = cmd_dict.get("timestamp")
+        for i, step in enumerate(steps):
+            if not isinstance(step, dict):
+                continue
+            
+            # 1. Extract observation/response (Daytona wraps in 'observation' or 'environment')
+            obs = step.get("observation") or step.get("environment") or step
+            resp = obs.get("response") or obs if isinstance(obs, dict) else {"message": str(obs), "success": True}
+            
+            # 2. Extract command text (Daytona wraps in 'action')
+            cmd_text = step.get("command") or step.get("action", {}).get("command") or "unknown"
+            
+            # 3. Extract state
+            state_data = {}
+            if isinstance(obs, dict):
+                # Try nested keys first, then fall back to the observation itself
+                state_data = obs.get("state_snapshot") or obs.get("state") or obs
+
+            # 4. Extract timestamp
+            ts_str = step.get("timestamp") or (obs.get("timestamp") if isinstance(obs, dict) else None)
             ts = None
             if ts_str:
                 try:
@@ -92,19 +106,16 @@ class DefaultLogAdapter:
                 except (ValueError, TypeError):
                     pass
 
-            resp = cmd_dict.get("response", {})
-            state_data = cmd_dict.get("state_snapshot", {})
-
             normalized_commands.append(
                 NormalizedCommand(
-                    turn=cmd_dict.get("turn", 0),
-                    command=cmd_dict.get("command", ""),
-                    success=resp.get("success", True),
-                    message=resp.get("message", ""),
-                    terminal=resp.get("terminal", False),
+                    turn=step.get("step") or step.get("turn") or i,
+                    command=str(cmd_text),
+                    success=resp.get("success", True) if isinstance(resp, dict) else True,
+                    message=str(resp.get("message", "")) if isinstance(resp, dict) else str(resp),
+                    terminal=resp.get("terminal", False) if isinstance(resp, dict) else False,
                     timestamp=ts,
                     state=CommandState.from_dict(state_data) if state_data else None,
-                    raw_response=resp,
+                    raw_response=resp if isinstance(resp, dict) else {"raw": resp},
                 )
             )
 
@@ -112,31 +123,14 @@ class DefaultLogAdapter:
             commands=normalized_commands,
             result=raw_data.get("result", "in_progress"),
             total_turns=raw_data.get("total_turns", len(normalized_commands)),
-            metadata={k: v for k, v in raw_data.items() if k not in ("commands", "result", "total_turns")},
+            metadata=raw_data,
         )
 
     def normalize_debug_output(self, raw_text: str) -> str:
         return raw_text
 
     def get_movement_verbs(self) -> Set[str]:
-        return {"go", "enter", "climb", "down", "up", "move", "north", "south", "east", "west"}
+        return self._movement_verbs
 
     def get_removal_verbs(self) -> Set[str]:
-        return {"drop", "put", "use", "combine", "give", "throw", "eat", "drink"}
-
-
-class PlaywrightLogAdapter:
-    """Adapter for Computer-Use / Web environments."""
-
-    def normalize_session(self, raw_data: Dict[str, Any]) -> NormalizedSession:
-        default_adapter = DefaultLogAdapter()
-        return default_adapter.normalize_session(raw_data)
-
-    def normalize_debug_output(self, raw_text: str) -> str:
-        return raw_text
-
-    def get_movement_verbs(self) -> Set[str]:
-        return {"click", "navigate", "type", "submit", "press"}
-
-    def get_removal_verbs(self) -> Set[str]:
-        return {"delete", "remove", "clear", "extract"}
+        return self._removal_verbs
