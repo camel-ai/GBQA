@@ -52,6 +52,8 @@ class CuaClient(Protocol):
 
     def wait(self, duration_ms: int) -> None: ...
 
+    def read_browser_logs(self) -> str: ...
+
 
 @dataclass(frozen=True)
 class CuaComputerUseSettings:
@@ -307,14 +309,28 @@ class CuaComputerUseExecutionBackend:
     ) -> Observation:
         screen_size = self._safe_screen_size(client)
         screenshot_path = self._save_screenshot(client.screenshot(), label=label)
+        
+        # Capture browser logs from the sandbox
+        browser_logs = ""
+        try:
+            browser_logs = client.read_browser_logs()
+        except Exception:  # noqa: BLE001
+            pass
+
         summary = (
             "Computer-use screenshot captured. "
             f"Screen size: {screen_size.get('width')}x{screen_size.get('height')}. "
             f"Screenshot artifact: {screenshot_path}."
         )
+        
+        # Append logs to message so LogAnalyzer can find error patterns
+        full_message = summary
+        if browser_logs:
+            full_message += f"\n\n[Browser Logs]:\n{browser_logs}"
+
         return Observation(
             success=True,
-            message=summary,
+            message=full_message,
             state={},
             summary=summary,
             env_state={
@@ -624,6 +640,21 @@ class CuaSandboxClient:
 
     def wait(self, duration_ms: int) -> None:
         time.sleep(max(duration_ms, 0) / 1000.0)
+
+    def read_browser_logs(self) -> str:
+        """Read the last few lines of browser logs from the sandbox."""
+        log_file = "/tmp/gbqa-browser.log"
+        try:
+            # We use tail to avoid pulling massive log files over the wire
+            sandbox = self._require_sandbox()
+            shell = getattr(sandbox, "shell", None)
+            if shell is not None and hasattr(shell, "run"):
+                result = self._run_async(shell.run(f"tail -n 50 {log_file}"))
+                # cua shell.run usually returns an object with stdout/stderr
+                return str(getattr(result, "stdout", result))
+            return ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _run_command(self, command: str, *, timeout_sec: int = 30) -> None:
         sandbox = self._require_sandbox()
