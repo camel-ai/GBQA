@@ -211,10 +211,19 @@ class LogAnalyzer:
             if not prev.state or not curr.state:
                 continue
 
-            # Check inventory shrinkage
-            prev_inv = set(prev.state.inventory)
-            curr_inv = set(curr.state.inventory)
-            vanished = prev_inv - curr_inv
+            # Check inventory shrinkage (extract IDs if items are dicts)
+            def _get_inv_ids(inv: List[Any]) -> Set[str]:
+                ids = set()
+                for item in inv:
+                    if isinstance(item, dict):
+                        ids.add(str(item.get("id") or item.get("name") or item))
+                    else:
+                        ids.add(str(item))
+                return ids
+
+            prev_inv_ids = _get_inv_ids(prev.state.inventory)
+            curr_inv_ids = _get_inv_ids(curr.state.inventory)
+            vanished = prev_inv_ids - curr_inv_ids
             
             verb = curr.command.strip().lower().split()[0] if curr.command else ""
             
