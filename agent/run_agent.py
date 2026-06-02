@@ -42,6 +42,7 @@ from src.tool_registry import (
     register_log_analysis_tool,
     register_runtime_log_tool,
 )
+from src.codebase_types import UniversalCodebaseAdapter
 from src.types import Action
 
 
@@ -378,26 +379,27 @@ def main() -> None:
     if not isinstance(interaction_adapters, dict):
         interaction_adapters = {}
 
+    # Codebase tool integration
     code_tool_config = interaction_adapters.get("code", {})
     if not isinstance(code_tool_config, dict):
         code_tool_config = {}
-    if code_tool_config.get("enabled", False):
-        code_tool_base_url = str(
-            code_tool_config.get("base_url") or service_base_url
-        ).strip()
-        if not code_tool_base_url:
-            raise ValueError(
-                "interaction.adapters.code.base_url is required when enabled=true"
-            )
-        register_code_tools(
-            tool_registry,
-            create_http_code_tool_adapter(
-                EnvironmentClientConfig(
-                    base_url=code_tool_base_url,
-                    timeout=int(code_tool_config.get("timeout", 60)),
+    
+    codebase_adapter = None
+    # 1. Automatic Sandbox Detection
+    if backend_spec.backend_type in {"computer_use", "daytona"}:
+        codebase_adapter = UniversalCodebaseAdapter(shell_client=backend)
+    # 2. Manual HTTP Toggle
+    elif code_tool_config.get("enabled", False):
+        base_url = str(code_tool_config.get("base_url") or service_base_url).strip()
+        if base_url:
+            codebase_adapter = UniversalCodebaseAdapter(
+                api_client=create_http_code_tool_adapter(
+                    EnvironmentClientConfig(base_url=base_url, timeout=int(code_tool_config.get("timeout", 60)))
                 )
-            ),
-        )
+            )
+
+    if codebase_adapter:
+        register_code_tools(tool_registry, adapter=None, codebase_adapter=codebase_adapter)
 
     runtime_log_config = interaction_adapters.get("logs", {})
     if not isinstance(runtime_log_config, dict):

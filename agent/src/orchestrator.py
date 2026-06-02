@@ -147,6 +147,13 @@ class Orchestrator:
                     report.bugs.append(bug)
                     self._memory.record_bug(bug, step)
                     self._reporter.log_bug(bug, step)
+                    
+                    # Auto-remediation/debugging assist
+                    if bug.confidence >= self._confidence_threshold:
+                        record.notes = self._append_note(
+                            record.notes, 
+                            self._auto_code_lookup(session, bug)
+                        )
 
                 if is_environment_action:
                     if current_observation.success:
@@ -394,6 +401,24 @@ class Orchestrator:
         if not summary:
             return ""
         return f"[Auto log analysis]\n{summary}"
+
+    def _auto_code_lookup(self, session: Any, bug: BugFinding) -> str:
+        """Heuristically search and read relevant code when a bug is suspected."""
+        if not self._has_tool("code_search") or not self._has_tool("code_read_file"):
+            return ""
+        
+        # Take key terms from bug description
+        terms = [t for t in bug.description.split() if len(t) > 3][:8]
+        query = "|".join(terms)
+        
+        try:
+            res = self._tool_registry.invoke("code_search", {"pattern": query}, {"session": session})
+            msg = res.observation.message
+            if "matches" not in msg and "result" not in msg:
+                return ""
+            return f"[Auto code lookup] Identified potential code locations:\n{msg[:500]}"
+        except Exception as exc: # noqa: BLE001
+            return f"[Auto code lookup] Failed: {exc}"
 
     def _has_tool(self, tool_name: str) -> bool:
         return any(tool.name == tool_name for tool in self._tool_registry.list_tools())
