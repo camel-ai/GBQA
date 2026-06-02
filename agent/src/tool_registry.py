@@ -348,27 +348,37 @@ def _invoke_log_analysis_tool(
     analyzer: LogAnalyzer,
 ) -> ToolInvocationResult:
     session = runtime_context.get("session")
-    if session is None or getattr(session, "backend_type", "") != "api":
-        raise RuntimeError(
-            "log_analyze is only available when the active backend exposes a stable current environment session"
-        )
+    if session is None:
+        raise RuntimeError("log_analyze requires an active session")
 
+    backend_type = getattr(session, "backend_type", "api")
     session_id = getattr(session, "session_id", "")
-    session_result = adapter.read_session_log(session_id)
-    if not bool(session_result.get("success", False)):
-        return ToolInvocationResult(
-            observation=_tool_observation("log_analyze", payload, session_result),
-        )
-
-    session_data = session_result.get("data", {})
-    debug_output = ""
-    debug_log_error = ""
-    if bool(payload.get("include_debug_output", True)):
-        debug_result = adapter.read_debug_logs(session_id, clear=False)
-        if bool(debug_result.get("success", False)):
-            debug_output = str(debug_result.get("logs", ""))
-        else:
-            debug_log_error = str(debug_result.get("message", "")).strip()
+    
+    # Standard API backend uses the adapter to fetch logs from the server
+    if backend_type == "api":
+        session_result = adapter.read_session_log(session_id)
+        if not bool(session_result.get("success", False)):
+            return ToolInvocationResult(
+                observation=_tool_observation("log_analyze", payload, session_result),
+            )
+        session_data = session_result.get("data", {})
+        debug_output = ""
+        if bool(payload.get("include_debug_output", True)):
+            debug_result = adapter.read_debug_logs(session_id, clear=False)
+            debug_output = str(debug_result.get("logs", "")) if debug_result.get("success") else ""
+    else:
+        # For non-API backends (computer_use, playwright), we use the history from the context
+        # and try to fetch latest live logs if the client supports it
+        session_data = {"commands": runtime_context.get("history", [])}
+        debug_output = ""
+        if bool(payload.get("include_debug_output", True)):
+            client = session.raw.get("client") if isinstance(session.raw, dict) else None
+            # If it's a CUA client, it now has read_browser_logs()
+            if client and hasattr(client, "read_browser_logs"):
+                try:
+                    debug_output = client.read_browser_logs()
+                except Exception:  # noqa: BLE001
+                    pass
 
     result: Dict[str, Any] = {
         "success": True,
