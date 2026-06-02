@@ -7,6 +7,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import dotenv
 
@@ -22,10 +23,10 @@ from src.execution_backends import build_execution_backend, resolve_backend_spec
 from src.environment_clients import (
     EnvironmentClientConfig,
     create_http_code_tool_adapter,
-    create_http_runtime_log_adapter,
 )
 from src.ground_truth import resolve_ground_truth_path
 from src.llm_client import DEFAULT_BASE_URL, LlmClient
+from src.log_sources import AgentTrajectoryLogSource, build_log_sources
 from src.memory import MemoryManager
 from src.operator import Operator
 from src.orchestrator import Orchestrator
@@ -39,8 +40,7 @@ from src.tool_registry import (
     ToolRegistry,
     register_code_tools,
     register_environment_action_tool,
-    register_log_analysis_tool,
-    register_runtime_log_tool,
+    register_log_tools,
 )
 from src.types import Action
 
@@ -76,6 +76,16 @@ def _resolve_task_endpoints(
     if not frontend_url and port is not None:
         frontend_url = f"http://localhost:{port}"
     return service_base_url, frontend_url
+
+
+def build_log_tool_sources(log_config: dict[str, Any]) -> list[Any]:
+    """Build final log-tool sources from configured internal logs and trajectory."""
+    if not log_config.get("enabled", False):
+        return []
+    configured_sources = log_config.get("sources", [])
+    if not isinstance(configured_sources, list):
+        configured_sources = []
+    return [AgentTrajectoryLogSource(), *build_log_sources(configured_sources)]
 
 
 def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
@@ -140,6 +150,7 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
         log_settings.setdefault("base_url", metadata.service_api_base_url)
         log_settings.setdefault("timeout", 60)
         log_settings.setdefault("session_id_field", metadata.service_session_id_field)
+        log_settings.setdefault("sources", metadata.internal_log_sources)
 
     tasks = config.raw.setdefault("tasks", {})
     tasks[metadata.task_slug] = {
@@ -402,32 +413,11 @@ def main() -> None:
     runtime_log_config = interaction_adapters.get("logs", {})
     if not isinstance(runtime_log_config, dict):
         runtime_log_config = {}
-    if runtime_log_config.get("enabled", False) and backend_spec.backend_type == "api":
-        runtime_log_base_url = str(
-            runtime_log_config.get("base_url") or service_base_url
-        ).strip()
-        if not runtime_log_base_url:
-            raise ValueError(
-                "interaction.adapters.logs.base_url is required when enabled=true"
-            )
-        runtime_log_adapter = create_http_runtime_log_adapter(
-            EnvironmentClientConfig(
-                base_url=runtime_log_base_url,
-                timeout=int(runtime_log_config.get("timeout", 60)),
-                session_id_field=str(
-                    task_config.get("session_id_field")
-                    or runtime_log_config.get("session_id_field")
-                    or "session_id"
-                ),
-            )
-        )
-        register_runtime_log_tool(
+    log_sources = build_log_tool_sources(runtime_log_config)
+    if log_sources:
+        register_log_tools(
             tool_registry,
-            runtime_log_adapter,
-        )
-        register_log_analysis_tool(
-            tool_registry,
-            runtime_log_adapter,
+            log_sources,
             LogAnalyzer(),
         )
 

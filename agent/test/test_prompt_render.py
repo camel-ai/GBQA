@@ -37,8 +37,9 @@ def _build_sample_context() -> Dict[str, str]:
 - code_search: Search source code using a regex pattern. Format: `pattern`.
 - code_write_file: Modify a source file using JSON payload or path:old_text->new_text patch shorthand. Format: `JSON string or path:old_text->new_text`.
 - code_restore_file: Restore a file previously modified by code_write_file. Format: `path`.
-- code_read_debug_logs: Read or clear runtime debug logs for the current active environment session. Format: `read or clear`.
-- log_analyze: Analyze the current environment session log for anomalies and optionally show filtered commands. Format: `analyze, failures, or JSON object with start_turn/end_turn/failures_only/limit/include_debug_output`.""",
+- log_list: List exposed runtime and agent trajectory log sources. Format: `any non-empty text (ignored)`.
+- log_read: Read exposed runtime or agent trajectory log sources. Format: `source name or 'all'`.
+- log_analyze: Analyze exposed runtime logs and agent trajectory for anomalies. Format: `analyze, failures, or JSON object with source/start_turn/end_turn/failures_only/limit/include_debug_output`.""",
     }
 
 

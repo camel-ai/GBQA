@@ -1,4 +1,4 @@
-"""HTTP clients and protocols for environment actions, code tools, and runtime logs."""
+"""HTTP clients and protocols for environment actions and code tools."""
 
 from __future__ import annotations
 
@@ -44,16 +44,6 @@ class CodeToolAdapter(Protocol):
         ...
 
     def restore_code_file(self, path: str) -> Dict[str, Any]:
-        ...
-
-
-class RuntimeLogAdapter(Protocol):
-    """Protocol for runtime log interaction tools."""
-
-    def read_debug_logs(self, session_id: str, clear: bool = False) -> Dict[str, Any]:
-        ...
-
-    def read_session_log(self, session_id: str) -> Dict[str, Any]:
         ...
 
 
@@ -207,48 +197,6 @@ class HttpCodeToolApiClient(_HttpBaseClient):
         return response.json()
 
 
-class HttpRuntimeLogApiClient(_HttpBaseClient):
-    """HTTP client for runtime debug-log APIs."""
-
-    def __init__(
-        self,
-        base_url: str,
-        timeout: int = 30,
-        *,
-        session_id_field: str = "session_id",
-    ) -> None:
-        super().__init__(base_url=base_url, timeout=timeout)
-        self._session_id_field = session_id_field
-
-    def _api_root_url(self) -> str:
-        if self._base_url.endswith("/agent"):
-            return self._base_url[: -len("/agent")]
-        return self._base_url
-
-    def read_debug_logs(self, session_id: str, clear: bool = False) -> Dict[str, Any]:
-        method = "DELETE" if clear else "GET"
-        response = self._session.request(
-            method,
-            f"{self._base_url}/code/debug_logs",
-            params={self._session_id_field: session_id},
-            timeout=self._timeout,
-        )
-        if response.status_code >= 400:
-            return response.json()
-        response.raise_for_status()
-        return response.json()
-
-    def read_session_log(self, session_id: str) -> Dict[str, Any]:
-        response = self._session.get(
-            f"{self._api_root_url()}/logs/current/{session_id}",
-            timeout=self._timeout,
-        )
-        if response.status_code >= 400:
-            return response.json()
-        response.raise_for_status()
-        return response.json()
-
-
 def create_http_environment_action_client(
     config: EnvironmentClientConfig,
 ) -> HttpEnvironmentActionClient:
@@ -266,14 +214,3 @@ def create_http_code_tool_adapter(
 ) -> HttpCodeToolApiClient:
     """Build a standardized HTTP code-tool adapter."""
     return HttpCodeToolApiClient(base_url=config.base_url, timeout=config.timeout)
-
-
-def create_http_runtime_log_adapter(
-    config: EnvironmentClientConfig,
-) -> HttpRuntimeLogApiClient:
-    """Build a standardized HTTP runtime-log adapter."""
-    return HttpRuntimeLogApiClient(
-        base_url=config.base_url,
-        timeout=config.timeout,
-        session_id_field=config.session_id_field,
-    )

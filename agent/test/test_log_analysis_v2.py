@@ -1,17 +1,18 @@
-import pytest
 from datetime import datetime, timedelta
-from agent.src.log_analyzer import LogAnalyzer
-from agent.src.log_types import (
+import os
+import sys
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from src.log_analyzer import LogAnalyzer
+from src.log_types import (
     CommandState,
     NormalizedCommand,
     NormalizedSession,
     UniversalLogAdapter,
 )
-
-
-@pytest.fixture
-def analyzer():
-    return LogAnalyzer() # Uses UniversalLogAdapter by default
 
 
 def test_universal_adapter_api_format():
@@ -57,7 +58,8 @@ def test_universal_adapter_daytona_format():
     assert session.commands[0].state.inventory == ["cookie"]
 
 
-def test_streak_detection(analyzer):
+def test_streak_detection():
+    analyzer = LogAnalyzer()
     commands = [
         NormalizedCommand(i, "cmd", False, "Error") for i in range(1, 5)
     ]
@@ -67,7 +69,8 @@ def test_streak_detection(analyzer):
     assert len(anomalies) == 1
 
 
-def test_repeated_command_detection(analyzer):
+def test_repeated_command_detection():
+    analyzer = LogAnalyzer()
     commands = [
         NormalizedCommand(i, "jump", True, "Ok") for i in range(1, 5)
     ]
@@ -77,7 +80,8 @@ def test_repeated_command_detection(analyzer):
     assert len(anomalies) == 1
 
 
-def test_state_inconsistency_location(analyzer):
+def test_state_inconsistency_location():
+    analyzer = LogAnalyzer()
     t1 = datetime.now()
     # Using the universal adapter's default move verbs
     commands = [
@@ -91,7 +95,8 @@ def test_state_inconsistency_location(analyzer):
     assert "Location changed" in anomalies[0]["description"]
 
 
-def test_error_pattern_detection(analyzer):
+def test_error_pattern_detection():
+    analyzer = LogAnalyzer()
     commands = [
         NormalizedCommand(1, "test", False, "Fatal KeyError happened"),
     ]
@@ -99,3 +104,45 @@ def test_error_pattern_detection(analyzer):
     results = analyzer.analyze_session(session)
     anomalies = [a for a in results["anomalies"] if a["type"] == "error_in_response"]
     assert len(anomalies) == 1
+
+
+def test_inventory_shrink_anomaly_does_not_crash():
+    session = NormalizedSession(
+        commands=[
+            NormalizedCommand(
+                turn=1,
+                command="look",
+                success=True,
+                message="ok",
+                state=CommandState(location="hall", inventory=["key"]),
+            ),
+            NormalizedCommand(
+                turn=2,
+                command="look",
+                success=True,
+                message="ok",
+                state=CommandState(location="hall", inventory=[]),
+            ),
+        ],
+        total_turns=2,
+    )
+
+    result = LogAnalyzer().analyze_session(session)
+
+    assert result["anomaly_count"] == 1
+    assert result["anomalies"][0]["type"] == "state_inconsistency"
+
+
+def main():
+    test_universal_adapter_api_format()
+    test_universal_adapter_daytona_format()
+    test_streak_detection()
+    test_repeated_command_detection()
+    test_state_inconsistency_location()
+    test_error_pattern_detection()
+    test_inventory_shrink_anomaly_does_not_crash()
+    print("log analysis v2 tests passed")
+
+
+if __name__ == "__main__":
+    main()

@@ -9,8 +9,13 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from run_agent import _apply_task_metadata, _resolve_task_endpoints
+from run_agent import _apply_task_metadata, _resolve_task_endpoints, build_log_tool_sources
 from src.config import Config
+from src.log_sources import (
+    AgentTrajectoryLogSource,
+    FileDirectoryRuntimeLogSource,
+    FileRuntimeLogSource,
+)
 
 
 def main() -> None:
@@ -87,6 +92,28 @@ def main() -> None:
     assert computer_interaction["adapters"]["computer_use"]["frontend_url"] == (
         "http://127.0.0.1:5000/"
     )
+
+    sources = build_log_tool_sources(
+        {
+            "enabled": True,
+            "sources": [
+                {
+                    "name": "server",
+                    "kind": "file",
+                    "path": "/logs/runtime/server.log",
+                },
+                {
+                    "name": "sessions",
+                    "kind": "file_directory",
+                    "path": "/sandbox/software/example/.cache/log",
+                    "glob": "game_*.json",
+                },
+            ],
+        }
+    )
+    assert any(isinstance(source, AgentTrajectoryLogSource) for source in sources)
+    assert any(isinstance(source, FileRuntimeLogSource) for source in sources)
+    assert any(isinstance(source, FileDirectoryRuntimeLogSource) for source in sources)
     print("run_agent endpoint resolution smoke test passed")
 
 
