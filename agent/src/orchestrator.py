@@ -384,7 +384,7 @@ class Orchestrator:
 
     def _auto_log_analysis(self, session: Any, steps: List[StepRecord]) -> str:
         try:
-            result = self._tool_registry.invoke(
+            result = self._tool_registry.invoke_internal(
                 "log_analyze",
                 {"include_debug_output": True},
                 {"session": session, "steps": steps},

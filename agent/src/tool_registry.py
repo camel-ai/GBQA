@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .environment_clients import CodeToolAdapter
@@ -47,17 +48,81 @@ class Tool:
         return self.action_parser(action_text)
 
 
+@dataclass
+class SkillCard:
+    """Agent Skills-style metadata loaded before activation."""
+
+    name: str
+    description: str
+    instructions: str = ""
+    path: str = ""
+
+
 class ToolRegistry:
-    """Registers planner-visible tools and dispatches invocations."""
+    """Registers executable tools and discloses optional tools progressively."""
 
     def __init__(self) -> None:
         self._tools: Dict[str, Tool] = {}
+        self._tool_skills: Dict[str, str] = {}
+        self._skills: Dict[str, SkillCard] = {}
+        self._activated_skills: set[str] = set()
 
-    def register(self, tool: Tool) -> None:
+    def register(self, tool: Tool, *, skill_name: str = "") -> None:
         self._tools[tool.name] = tool
+        if skill_name:
+            self._tool_skills[tool.name] = skill_name
+            if skill_name not in self._skills:
+                self.register_skill(
+                    SkillCard(
+                        name=skill_name,
+                        description=f"Optional skill for {skill_name} tools.",
+                    )
+                )
 
     def list_tools(self) -> List[Tool]:
         return list(self._tools.values())
+
+    def list_visible_tools(self) -> List[Tool]:
+        return [
+            tool
+            for tool in self._tools.values()
+            if self._is_tool_visible(tool.name)
+        ]
+
+    def register_skill(self, skill: SkillCard) -> None:
+        name = skill.name.strip()
+        if not name:
+            raise ValueError("Skill name must not be empty")
+        self._skills[name] = SkillCard(
+            name=name,
+            description=skill.description.strip(),
+            instructions=skill.instructions.strip(),
+            path=skill.path.strip(),
+        )
+        self._ensure_use_skill_tool()
+
+    def activate_skill(self, skill_name: str) -> Dict[str, Any]:
+        name = str(skill_name).strip()
+        if name not in self._skills:
+            return {
+                "success": False,
+                "skill": name,
+                "message": f"Unknown or disabled skill: {name}",
+            }
+        self._activated_skills.add(name)
+        visible_tools = [
+            tool.name
+            for tool in self._tools.values()
+            if self._tool_skills.get(tool.name) == name
+        ]
+        return {
+            "success": True,
+            "skill": name,
+            "description": self._skills[name].description,
+            "instructions": self._skills[name].instructions,
+            "path": self._skills[name].path,
+            "tools": visible_tools,
+        }
 
     def parse_action(self, name: str, action_text: str) -> ToolPayload:
         return self._get(name).parse_action(action_text)
@@ -70,18 +135,86 @@ class ToolRegistry:
     ) -> ToolInvocationResult:
         return self._get(name).invoke(payload, runtime_context)
 
+    def invoke_internal(
+        self,
+        name: str,
+        payload: ToolPayload,
+        runtime_context: ToolRuntimeContext,
+    ) -> ToolInvocationResult:
+        return self._get(name, include_hidden=True).invoke(payload, runtime_context)
+
     def render_prompt_section(self) -> str:
         lines = ["## Available Tools:"]
-        for tool in self.list_tools():
+        for tool in self.list_visible_tools():
             lines.append(
                 f"- {tool.name}: {tool.description} Format: `{tool.action_format}`."
             )
+        activated_skills = [
+            skill
+            for skill in self._skills.values()
+            if skill.name in self._activated_skills and skill.instructions
+        ]
+        if activated_skills:
+            lines.extend(["", "## Activated Skill Instructions:"])
+            for skill in activated_skills:
+                lines.append(f"### {skill.name}")
+                lines.append(skill.instructions)
+        available_skills = [
+            skill
+            for skill in self._skills.values()
+            if skill.name not in self._activated_skills
+        ]
+        if available_skills:
+            lines.extend(
+                [
+                    "",
+                    "## Available Skills:",
+                    (
+                        "Use `use_skill` with the skill name to load that skill's "
+                        "full SKILL.md instructions when relevant."
+                    ),
+                ]
+            )
+            for skill in available_skills:
+                path = f" (SKILL.md: {skill.path})" if skill.path else ""
+                lines.append(f"- {skill.name}: {skill.description}{path}")
         return "\n".join(lines)
 
-    def _get(self, name: str) -> Tool:
+    def _get(self, name: str, *, include_hidden: bool = False) -> Tool:
         if name not in self._tools:
             raise KeyError(f"Unknown tool: {name}")
+        if not include_hidden and not self._is_tool_visible(name):
+            skill_name = self._tool_skills.get(name, "")
+            if skill_name:
+                raise KeyError(
+                    f"Tool '{name}' is not currently visible. "
+                    f"Open skill '{skill_name}' first."
+                )
+            raise KeyError(f"Tool '{name}' is not currently visible")
         return self._tools[name]
+
+    def _is_tool_visible(self, name: str) -> bool:
+        skill_name = self._tool_skills.get(name, "")
+        return not skill_name or skill_name in self._activated_skills
+
+    def _ensure_use_skill_tool(self) -> None:
+        if "use_skill" in self._tools:
+            return
+        self.register(
+            Tool(
+                name="use_skill",
+                description="Load an available skill's SKILL.md instructions and reveal its tools",
+                action_format="skill name",
+                handler=lambda payload, runtime: _invoke_use_skill_tool(
+                    payload,
+                    runtime,
+                    self,
+                ),
+                action_parser=lambda action_text: {
+                    "skill": _require_action(action_text)
+                },
+            )
+        )
 
 
 def register_environment_action_tool(
@@ -107,6 +240,8 @@ def register_code_tools(
     adapter: CodeToolAdapter,
 ) -> None:
     """Register white-box source-code tools."""
+    skill_name = "code"
+    registry.register_skill(_load_builtin_skill(skill_name))
     registry.register(
         Tool(
             name="code_list_files",
@@ -119,7 +254,8 @@ def register_code_tools(
                 adapter.list_code_files(),
             ),
             action_parser=lambda _action_text: {},
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -137,7 +273,8 @@ def register_code_tools(
                 ),
             ),
             action_parser=_parse_code_read_action,
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -151,7 +288,8 @@ def register_code_tools(
                 adapter.search_code(payload["pattern"]),
             ),
             action_parser=lambda action_text: {"pattern": _require_action(action_text)},
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -169,7 +307,8 @@ def register_code_tools(
                 ),
             ),
             action_parser=_parse_code_write_action,
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -183,7 +322,8 @@ def register_code_tools(
                 adapter.restore_code_file(payload["path"]),
             ),
             action_parser=lambda action_text: {"path": _require_action(action_text)},
-        )
+        ),
+        skill_name=skill_name,
     )
 
 
@@ -196,6 +336,8 @@ def register_log_tools(
     active_sources = list(sources)
     if not active_sources:
         return
+    skill_name = "logs"
+    registry.register_skill(_load_builtin_skill(skill_name))
     registry.register(
         Tool(
             name="log_list",
@@ -207,7 +349,8 @@ def register_log_tools(
                 active_sources,
             ),
             action_parser=lambda _action_text: {},
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -220,7 +363,8 @@ def register_log_tools(
                 active_sources,
             ),
             action_parser=lambda action_text: {"source": _require_action(action_text)},
-        )
+        ),
+        skill_name=skill_name,
     )
     registry.register(
         Tool(
@@ -237,7 +381,8 @@ def register_log_tools(
                 analyzer,
             ),
             action_parser=_parse_log_analysis_action,
-        )
+        ),
+        skill_name=skill_name,
     )
 
 
@@ -246,6 +391,47 @@ def _require_action(action_text: str) -> str:
     if not text:
         raise ValueError("Planner action must not be empty")
     return text
+
+
+def _load_builtin_skill(skill_name: str) -> SkillCard:
+    skill_path = Path(__file__).resolve().parents[1] / "skills" / skill_name / "SKILL.md"
+    return _load_skill_file(skill_path)
+
+
+def _load_skill_file(path: Path) -> SkillCard:
+    if not path.exists():
+        raise FileNotFoundError(f"Skill file not found: {path}")
+    text = path.read_text(encoding="utf-8")
+    metadata, body = _parse_skill_markdown(text)
+    name = str(metadata.get("name") or "").strip()
+    description = str(metadata.get("description") or "").strip()
+    if not name or not description:
+        raise ValueError(f"Skill file must define name and description: {path}")
+    return SkillCard(
+        name=name,
+        description=description,
+        instructions=body,
+        path=str(path),
+    )
+
+
+def _parse_skill_markdown(text: str) -> tuple[Dict[str, str], str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("Skill file must start with YAML frontmatter")
+    metadata: Dict[str, str] = {}
+    end_index = 0
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end_index = index
+            break
+        key, separator, value = line.partition(":")
+        if separator:
+            metadata[key.strip()] = value.strip()
+    if end_index == 0:
+        raise ValueError("Skill file must close YAML frontmatter with ---")
+    body = "\n".join(lines[end_index + 1 :]).strip()
+    return metadata, body
 
 
 def _parse_code_read_action(action_text: str) -> ToolPayload:
@@ -316,6 +502,18 @@ def _invoke_code_tool(
     del runtime_context
     return ToolInvocationResult(
         observation=_tool_observation(tool_name, payload, result),
+    )
+
+
+def _invoke_use_skill_tool(
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    registry: ToolRegistry,
+) -> ToolInvocationResult:
+    del runtime_context
+    result = registry.activate_skill(str(payload.get("skill") or ""))
+    return ToolInvocationResult(
+        observation=_tool_observation("use_skill", payload, result),
     )
 
 
@@ -473,6 +671,23 @@ def _tool_observation(
 
 
 def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
+    if tool_name == "use_skill":
+        skill_name = str(result.get("skill", "")).strip()
+        if not bool(result.get("success", False)):
+            message = str(result.get("message", "")).strip()
+            return message or f"Skill activation failed: {skill_name}"
+        tools = result.get("tools", [])
+        tool_list = ", ".join(str(tool) for tool in tools) if isinstance(tools, list) else ""
+        instructions = str(result.get("instructions", "")).strip()
+        path = str(result.get("path", "")).strip()
+        parts = [f"Skill loaded: {skill_name}"]
+        if path:
+            parts.append(f"Loaded from: {path}")
+        if tool_list:
+            parts.append(f"Revealed tools: {tool_list}")
+        if instructions:
+            parts.append(f"SKILL.md instructions:\n{instructions}")
+        return "\n".join(parts)
     if tool_name == "code_list_files":
         files = result.get("files", [])
         if isinstance(files, list) and files:

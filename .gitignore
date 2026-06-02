@@ -185,6 +185,8 @@ cache/
 *.log
 logs/
 **/logs/
+!agent/skills/logs/
+!agent/skills/logs/SKILL.md
 
 server.*
 
