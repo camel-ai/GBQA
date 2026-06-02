@@ -6,7 +6,7 @@ Detect anomalies in environment session logs and debug output using normalized d
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .log_types import (
     LogAdapter,
@@ -234,8 +234,8 @@ class LogAnalyzer:
                     "turns": [prev.turn, curr.turn],
                     "description": f"Items {vanished} vanished from inventory after '{curr.command}' (not a remove verb)",
                     "evidence": [
-                        {"turn": prev.turn, "inventory": list(prev_inv)},
-                        {"turn": curr.turn, "inventory": list(curr_inv), "command": curr.command},
+                        {"turn": prev.turn, "inventory": sorted(prev_inv_ids)},
+                        {"turn": curr.turn, "inventory": sorted(curr_inv_ids), "command": curr.command},
                     ]
                 })
 

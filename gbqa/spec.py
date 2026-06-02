@@ -74,6 +74,13 @@ class GBQAMetadata:
         return str(self.raw["runtime"]["default_provider"])
 
     @property
+    def internal_log_sources(self) -> list[dict[str, Any]]:
+        sources = self.raw.get("runtime", {}).get("internal_log_sources", [])
+        if not isinstance(sources, list):
+            return []
+        return [dict(item) for item in sources if isinstance(item, dict)]
+
+    @property
     def default_interaction_mode(self) -> str:
         return str(self.raw["interaction"]["default_mode"])
 

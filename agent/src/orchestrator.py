@@ -125,6 +125,7 @@ class Orchestrator:
                     current_observation=current_observation,
                     capability=capability,
                     session=session,
+                    steps=report.steps,
                 )
 
                 record = StepRecord(
@@ -166,7 +167,7 @@ class Orchestrator:
                 ):
                     record.notes = self._append_note(
                         record.notes,
-                        self._auto_log_analysis(session),
+                        self._auto_log_analysis(session, report.steps),
                     )
 
                 should_reflect = is_environment_action and self._should_reflect(
@@ -381,12 +382,12 @@ class Orchestrator:
             return True
         return bool(findings)
 
-    def _auto_log_analysis(self, session: Any) -> str:
+    def _auto_log_analysis(self, session: Any, steps: List[StepRecord]) -> str:
         try:
             result = self._tool_registry.invoke(
                 "log_analyze",
                 {"include_debug_output": True},
-                {"session": session},
+                {"session": session, "steps": steps},
             )
         except Exception as exc:  # noqa: BLE001
             return f"[Auto log analysis] Failed: {exc}"
@@ -486,6 +487,7 @@ class Orchestrator:
         current_observation: Observation,
         capability: Any,
         session: Any,
+        steps: List[StepRecord],
     ) -> tuple[Observation, Any]:
         try:
             payload = self._tool_registry.parse_action(action.tool, action.command)
@@ -497,6 +499,7 @@ class Orchestrator:
                     "current_observation": current_observation,
                     "capability": capability,
                     "session": session,
+                    "steps": steps,
                 },
             )
         except Exception as exc:  # noqa: BLE001

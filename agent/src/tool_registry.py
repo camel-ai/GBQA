@@ -6,8 +6,9 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Dict, List, Optional
 
-from .environment_clients import CodeToolAdapter, RuntimeLogAdapter
+from .environment_clients import CodeToolAdapter
 from .log_analyzer import LogAnalyzer
+from .log_sources import LogSource
 from .types import CapabilityDescriptor, Observation
 
 
@@ -186,50 +187,53 @@ def register_code_tools(
     )
 
 
-def register_runtime_log_tool(
+def register_log_tools(
     registry: ToolRegistry,
-    adapter: RuntimeLogAdapter,
-) -> None:
-    """Register runtime debug-log access."""
-    registry.register(
-        Tool(
-            name="code_read_debug_logs",
-            description=(
-                "Read or clear runtime debug logs for the current active environment session; "
-                "the session id is inferred automatically"
-            ),
-            action_format="read or clear",
-            handler=lambda payload, runtime: _invoke_runtime_log_tool(
-                payload,
-                runtime,
-                adapter,
-            ),
-            action_parser=_parse_debug_log_action,
-        )
-    )
-
-
-def register_log_analysis_tool(
-    registry: ToolRegistry,
-    adapter: RuntimeLogAdapter,
+    sources: List[LogSource],
     analyzer: LogAnalyzer,
 ) -> None:
-    """Register session-log analysis using the active API-backed session."""
+    """Register source-backed log reading and analysis tools."""
+    active_sources = list(sources)
+    if not active_sources:
+        return
+    registry.register(
+        Tool(
+            name="log_list",
+            description="List exposed runtime and agent trajectory log sources",
+            action_format="any non-empty text (ignored)",
+            handler=lambda payload, runtime: _invoke_log_list_tool(
+                payload,
+                runtime,
+                active_sources,
+            ),
+            action_parser=lambda _action_text: {},
+        )
+    )
+    registry.register(
+        Tool(
+            name="log_read",
+            description="Read exposed runtime or agent trajectory log sources",
+            action_format="source name or 'all'",
+            handler=lambda payload, runtime: _invoke_log_read_tool(
+                payload,
+                runtime,
+                active_sources,
+            ),
+            action_parser=lambda action_text: {"source": _require_action(action_text)},
+        )
+    )
     registry.register(
         Tool(
             name="log_analyze",
-            description=(
-                "Analyze the current environment session log for anomalies and optionally "
-                "show filtered commands"
-            ),
+            description="Analyze exposed runtime logs and agent trajectory for anomalies",
             action_format=(
-                "analyze, failures, or JSON object with start_turn/end_turn/"
+                "analyze, failures, or JSON object with source/start_turn/end_turn/"
                 "failures_only/limit/include_debug_output"
             ),
-            handler=lambda payload, runtime: _invoke_log_analysis_tool(
+            handler=lambda payload, runtime: _invoke_source_log_analysis_tool(
                 payload,
                 runtime,
-                adapter,
+                active_sources,
                 analyzer,
             ),
             action_parser=_parse_log_analysis_action,
@@ -285,13 +289,6 @@ def _parse_code_write_action(action_text: str) -> ToolPayload:
     }
 
 
-def _parse_debug_log_action(action_text: str) -> ToolPayload:
-    text = _require_action(action_text).lower()
-    if text not in {"read", "clear"}:
-        raise ValueError("code_read_debug_logs action must be 'read' or 'clear'")
-    return {"clear": text == "clear"}
-
-
 def _parse_log_analysis_action(action_text: str) -> ToolPayload:
     text = _require_action(action_text)
     lowered = text.lower()
@@ -322,83 +319,116 @@ def _invoke_code_tool(
     )
 
 
-def _invoke_runtime_log_tool(
+def _invoke_log_list_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
-    adapter: RuntimeLogAdapter,
+    sources: List[LogSource],
 ) -> ToolInvocationResult:
-    session = runtime_context.get("session")
-    if session is None or getattr(session, "backend_type", "") != "api":
-        raise RuntimeError(
-            "code_read_debug_logs is only available when the active backend exposes a stable current environment session"
-        )
-    result = adapter.read_debug_logs(
-        getattr(session, "session_id", ""),
-        clear=bool(payload.get("clear", False)),
-    )
+    del runtime_context
+    source_payload = [
+        {
+            "name": source.spec.name,
+            "kind": source.spec.kind,
+            "path": source.spec.path,
+            "glob": source.spec.glob,
+            "description": source.spec.description,
+        }
+        for source in sources
+    ]
     return ToolInvocationResult(
-        observation=_tool_observation("code_read_debug_logs", payload, result),
+        observation=_tool_observation(
+            "log_list",
+            payload,
+            {"success": True, "sources": source_payload},
+        )
     )
 
 
-def _invoke_log_analysis_tool(
+def _invoke_log_read_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
-    adapter: RuntimeLogAdapter,
+    sources: List[LogSource],
+) -> ToolInvocationResult:
+    requested = str(payload.get("source") or "all").strip()
+    selected = [
+        source
+        for source in sources
+        if requested == "all" or source.spec.name == requested
+    ]
+    if not selected:
+        raise RuntimeError(f"Unknown log source: {requested}")
+    results = [source.read(runtime_context).__dict__ for source in selected]
+    return ToolInvocationResult(
+        observation=_tool_observation(
+            "log_read",
+            payload,
+            {"success": True, "sources": results},
+        )
+    )
+
+
+def _invoke_source_log_analysis_tool(
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+    sources: List[LogSource],
     analyzer: LogAnalyzer,
 ) -> ToolInvocationResult:
-    session = runtime_context.get("session")
-    if session is None:
-        raise RuntimeError("log_analyze requires an active session")
+    requested = str(payload.get("source") or "all").strip()
+    selected = [
+        source
+        for source in sources
+        if requested == "all" or source.spec.name == requested
+    ]
+    if not selected:
+        raise RuntimeError(f"Unknown log source: {requested}")
 
-    backend_type = getattr(session, "backend_type", "api")
-    session_id = getattr(session, "session_id", "")
-    
-    # Standard API backend uses the adapter to fetch logs from the server
-    if backend_type == "api":
-        session_result = adapter.read_session_log(session_id)
-        if not bool(session_result.get("success", False)):
-            return ToolInvocationResult(
-                observation=_tool_observation("log_analyze", payload, session_result),
-            )
-        session_data = session_result.get("data", {})
-        debug_output = ""
-        if bool(payload.get("include_debug_output", True)):
-            debug_result = adapter.read_debug_logs(session_id, clear=False)
-            debug_output = str(debug_result.get("logs", "")) if debug_result.get("success") else ""
-    else:
-        # For non-API backends (computer_use, playwright), we use the history from the context
-        # and try to fetch latest live logs if the client supports it
-        session_data = {"commands": runtime_context.get("history", [])}
-        debug_output = ""
-        if bool(payload.get("include_debug_output", True)):
-            client = session.raw.get("client") if isinstance(session.raw, dict) else None
-            # If it's a CUA client, it now has read_browser_logs()
-            if client and hasattr(client, "read_browser_logs"):
-                try:
-                    debug_output = client.read_browser_logs()
-                except Exception:  # noqa: BLE001
-                    pass
+    sessions: List[Dict[str, Any]] = []
+    debug_chunks: List[str] = []
+    read_errors: List[Dict[str, str]] = []
+    include_debug_output = bool(payload.get("include_debug_output", True))
+    for source in selected:
+        read_result = source.read(runtime_context)
+        if not read_result.success:
+            read_errors.append({"source": read_result.name, "error": read_result.error})
+            continue
+        if read_result.session:
+            sessions.append(read_result.session)
+        if include_debug_output and read_result.text:
+            debug_chunks.append(f"== {read_result.name} ==\n{read_result.text}")
 
+    merged_session = _merge_log_sessions(sessions)
+    debug_output = "\n\n".join(debug_chunks)
     result: Dict[str, Any] = {
         "success": True,
-        "session_id": session_id,
-        "analysis": analyzer.analyze_session(session_data, debug_output),
+        "analysis": analyzer.analyze_session(merged_session, debug_output),
+        "sources": [source.spec.name for source in selected],
     }
+    if read_errors:
+        result["read_errors"] = read_errors
     if _has_log_analysis_filters(payload):
         result["filtered_commands"] = analyzer.filter_commands(
-            session_data,
+            merged_session,
             start_turn=int(payload.get("start_turn", 0)),
             end_turn=int(payload.get("end_turn", 0)),
             failures_only=bool(payload.get("failures_only", False)),
             limit=int(payload.get("limit", 50)),
         )
-    if debug_log_error:
-        result["debug_log_error"] = debug_log_error
-
     return ToolInvocationResult(
         observation=_tool_observation("log_analyze", payload, result),
     )
+
+
+def _merge_log_sessions(sessions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    commands: List[Dict[str, Any]] = []
+    for session in sessions:
+        raw_commands = session.get("commands", [])
+        if isinstance(raw_commands, list):
+            commands.extend(item for item in raw_commands if isinstance(item, dict))
+    return {
+        "commands": commands,
+        "total_turns": len(commands),
+        "result": "in_progress",
+    }
 
 
 def _has_log_analysis_filters(payload: ToolPayload) -> bool:
@@ -472,10 +502,29 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
             if lines:
                 return "Code tool result (search matches):\n" + "\n".join(lines)
         return "Code tool result: no search matches found."
-    if tool_name == "code_read_debug_logs":
-        logs = str(result.get("logs", "")).strip()
-        if logs:
-            return f"Runtime log result:\n{logs}"
+    if tool_name == "log_list":
+        sources = result.get("sources", [])
+        if isinstance(sources, list):
+            lines = ["Available log sources:"]
+            for source in sources:
+                if not isinstance(source, dict):
+                    continue
+                name = str(source.get("name", "")).strip()
+                kind = str(source.get("kind", "")).strip()
+                description = str(source.get("description", "")).strip()
+                lines.append(f"- {name} ({kind}): {description}".rstrip())
+            return "\n".join(lines)
+        return "Available log sources: none."
+    if tool_name == "log_read":
+        sources = result.get("sources", [])
+        if isinstance(sources, list):
+            return "Log read result:\n" + json.dumps(
+                sources,
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+        return "Log read result."
     if tool_name == "log_analyze":
         parts: List[str] = []
         analysis = result.get("analysis", {})
@@ -517,9 +566,14 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
                         f"  T{command.get('turn', '?')}: [{status}] "
                         f"{str(command.get('command', '')).strip()}"
                     )
-        debug_log_error = str(result.get("debug_log_error", "")).strip()
-        if debug_log_error:
-            parts.append(f"Debug log read failed: {debug_log_error}")
+        read_errors = result.get("read_errors", [])
+        if isinstance(read_errors, list) and read_errors:
+            for item in read_errors[:5]:
+                if not isinstance(item, dict):
+                    continue
+                source = str(item.get("source", "")).strip() or "unknown"
+                error = str(item.get("error", "")).strip()
+                parts.append(f"Log source read failed ({source}): {error}")
         if parts:
             return "\n".join(parts)
     path = str(result.get("path", "")).strip()

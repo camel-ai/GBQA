@@ -115,6 +115,7 @@ def render_agent_config(
                     "base_url": base_url,
                     "timeout": 60,
                     "session_id_field": metadata.service_session_id_field,
+                    "sources": metadata.internal_log_sources,
                 },
             },
         },

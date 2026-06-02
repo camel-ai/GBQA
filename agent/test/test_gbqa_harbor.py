@@ -53,6 +53,30 @@ def test_metadata_loader() -> None:
         "https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
     )
     assert metadata.software_install_dir == "/sandbox/software/dark-castle"
+    assert metadata.internal_log_sources == [
+        {
+            "name": "stdout_stderr",
+            "kind": "file",
+            "path": "/logs/runtime/dark-castle-server.log",
+            "description": (
+                "Dark Castle backend stdout/stderr captured by the GBQA "
+                "environment launcher."
+            ),
+            "tail_bytes": 200000,
+        },
+        {
+            "name": "software_session_logs",
+            "kind": "file_directory",
+            "path": "/sandbox/software/dark-castle/.cache/log",
+            "glob": "game_*.json",
+            "description": (
+                "Dark Castle software-owned per-session JSON logs written by "
+                "the game backend."
+            ),
+            "tail_bytes": 200000,
+            "max_files": 5,
+        }
+    ]
 
 
 def test_config_rendering() -> None:
@@ -95,6 +119,16 @@ def test_config_rendering() -> None:
     assert api_payload["interaction"]["adapters"]["logs"]["session_id_field"] == (
         metadata.service_session_id_field
     )
+    log_sources = api_payload["interaction"]["adapters"]["logs"]["sources"]
+    assert log_sources[0]["name"] == (
+        "stdout_stderr"
+    )
+    assert log_sources[0]["path"] == (
+        "/logs/runtime/dark-castle-server.log"
+    )
+    assert log_sources[1]["name"] == "software_session_logs"
+    assert log_sources[1]["kind"] == "file_directory"
+    assert log_sources[1]["glob"] == "game_*.json"
     assert "analysis_" + "enabled" not in api_payload["interaction"]["adapters"]["logs"]
     assert api_payload["interaction"]["adapters"]["code"]["enabled"] is False
     assert "input_token_limit" in api_payload["llm"]
@@ -378,6 +412,59 @@ def test_harbor_agent_setup_with_fake_environment() -> None:
     asyncio.run(_exercise_setup_with_fake_environment())
 
 
+async def _exercise_dark_castle_runtime_log_capture() -> None:
+    class Result:
+        return_code = 0
+
+    class FakeEnvironment:
+        def __init__(self) -> None:
+            self.commands = []
+
+        async def exec(self, command, **kwargs):  # noqa: ANN001
+            self.commands.append((command, kwargs))
+            return Result()
+
+    env = FakeEnvironment()
+    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")
+    await agent._start_dark_castle(env)
+
+    command = env.commands[-1][0]
+    assert "mkdir -p /logs/agent/gbqa /logs/runtime" in command
+    assert "> /logs/runtime/dark-castle-server.log" in command
+    assert "2>&1" in command
+
+
+def test_dark_castle_start_captures_server_stdout_to_runtime_logs() -> None:
+    asyncio.run(_exercise_dark_castle_runtime_log_capture())
+
+
+async def _exercise_runtime_log_artifact_export() -> None:
+    class Result:
+        return_code = 0
+
+    class FakeEnvironment:
+        def __init__(self) -> None:
+            self.commands = []
+
+        async def exec(self, command, **kwargs):  # noqa: ANN001
+            self.commands.append((command, kwargs))
+            return Result()
+
+    env = FakeEnvironment()
+    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")
+    await agent._export_artifacts(env)
+
+    command = env.commands[-1][0]
+    assert "cp -a /sandbox/software/dark-castle/.cache/log/." in command
+    assert "/logs/runtime/software_session_logs/" in command
+    assert "cp -a /logs/runtime/." in command
+    assert "/logs/agent/gbqa/artifacts/runtime_logs/" in command
+
+
+def test_export_artifacts_copies_runtime_logs() -> None:
+    asyncio.run(_exercise_runtime_log_artifact_export())
+
+
 async def _exercise_computer_use_setup_starts_no_gui_services() -> None:
     class Result:
         return_code = 0
@@ -452,6 +539,8 @@ def main() -> None:
     test_harbor_agent_requires_model_key_and_name()
     test_root_dotenv_feeds_harbor_agent_runtime_env()
     test_harbor_agent_setup_with_fake_environment()
+    test_dark_castle_start_captures_server_stdout_to_runtime_logs()
+    test_export_artifacts_copies_runtime_logs()
     test_computer_use_setup_starts_no_gui_services()
     test_computer_use_preflight_explains_default_environment()
     print("gbqa harbor smoke tests passed")
