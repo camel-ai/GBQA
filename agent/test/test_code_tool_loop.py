@@ -43,8 +43,25 @@ class BackendStub:
 
 
 class PlannerStub:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def plan(self, context):  # noqa: ANN001
-        del context
+        self.calls += 1
+        if self.calls == 1:
+            assert "code_read_file" not in context["available_tools_prompt_section"]
+            assert "- code:" in context["available_tools_prompt_section"]
+            return type(
+                "PlanResult",
+                (),
+                {
+                    "action": Action(tool="use_skill", command="code"),
+                    "prompt": "planner prompt",
+                    "output": '{"tool":"use_skill","action":"code"}',
+                    "error": "",
+                },
+            )()
+        assert "code_read_file" in context["available_tools_prompt_section"]
         return type(
             "PlanResult",
             (),
@@ -148,7 +165,7 @@ def main() -> None:
         detector=DetectorStub(),
         reporter=ReporterStub(),
         evaluator=None,
-        max_steps=1,
+        max_steps=2,
         reflection_analyzer=None,
         reflection_threshold=3,
         max_consecutive_failures=5,
@@ -158,10 +175,11 @@ def main() -> None:
     )
 
     report = orchestrator.run("Text adventure")
-    assert len(report.steps) == 1
-    assert report.steps[0].action.tool == "code_read_file"
-    assert "Code tool result" in report.steps[0].observation.summary
-    assert report.steps[0].observation.env_state == {}
+    assert len(report.steps) == 2
+    assert report.steps[0].action.tool == "use_skill"
+    assert report.steps[1].action.tool == "code_read_file"
+    assert "Code tool result" in report.steps[1].observation.summary
+    assert report.steps[1].observation.env_state == {}
     print("code tool loop smoke test passed")
 
 

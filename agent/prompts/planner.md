@@ -19,7 +19,7 @@ You are planning the next single action for the QA exploration agent.
 {turn}
 
 Now, by considering the above context, decide the next step. Follow these rules:
-- Choose exactly one tool from the available tools above.
+- Choose exactly one tool from the available-tools section below.
 - Provide exactly one `action` string for that chosen tool.
 - The `action` must match the selected tool's required format exactly.
 - Keep the chosen `action` concrete enough to be executed immediately, not just high-level strategy.
@@ -37,7 +37,7 @@ Now, by considering the above context, decide the next step. Follow these rules:
 
 Return ONLY a JSON object with these fields:
 {
-  "tool": "<tool name from the available tools above>",
+  "tool": "<tool name from the available-tools section below>",
   "rationale": "<short reason>",
   "action": "<single action string>",
   "expected_outcome": "<what you expect to observe>",

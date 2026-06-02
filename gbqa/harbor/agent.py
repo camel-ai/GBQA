@@ -46,7 +46,7 @@ class GBQAHarborAgent(BaseAgent):
     _REMOTE_RUNTIME_DIR = "/sandbox/runtime"
     _REMOTE_PYTHON = "/opt/venv/bin/python"
     _TASK_METADATA_RELATIVE = Path("gbqa/tasks/dark-castle/gbqa.yaml")
-    _AGENT_UPLOAD_ITEMS = ("run_agent.py", "src", "prompts")
+    _AGENT_UPLOAD_ITEMS = ("run_agent.py", "src", "prompts", "skills")
     _UPLOAD_IGNORE = shutil.ignore_patterns(
         ".env",
         ".venv",
@@ -58,7 +58,6 @@ class GBQAHarborAgent(BaseAgent):
         "reports",
         "memory",
         "tmp",
-        "logs",
         "artifacts",
         "node_modules",
         "*.log",

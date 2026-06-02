@@ -393,6 +393,8 @@ async def _exercise_setup_with_fake_environment() -> None:
     assert any(
         path.startswith("prompts/") for path in env.upload_snapshots["/sandbox/agent"]
     )
+    assert "skills/code/SKILL.md" in env.upload_snapshots["/sandbox/agent"]
+    assert "skills/logs/SKILL.md" in env.upload_snapshots["/sandbox/agent"]
     assert not any(
         path.startswith((".playwright-mcp/", "reports/", "memory/", "tmp/"))
         or path == ".env"
