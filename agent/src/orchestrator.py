@@ -128,13 +128,15 @@ class Orchestrator:
             # Re-render prompt section if skills might have changed
             capability_prompt = self._tool_registry.render_prompt_section()
             
-            # Use the new dictionary-based context for planning
+            # Use dictionary context aligned with ActionPlanner's internal processing
+            # (Matches keys used in src/planner.py and prompts/planner.md)
             plan = self._planner.plan({
                 "task_profile": task_profile,
-                "observation": current_observation,
-                "memory": self._memory,
-                "capability_summary": capability_prompt,
-                "step": step,
+                "current_observation": current_observation.message,
+                "memory_summary": self._memory.get_long_term_summary(),
+                "recent_trace": self._memory.get_recent_trace(),
+                "available_tools_prompt_section": capability_prompt,
+                "turn": step,
             })
 
             action = plan.action

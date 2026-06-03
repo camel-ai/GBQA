@@ -42,6 +42,7 @@ from src.tool_registry import (
     register_environment_action_tool,
     register_log_tools,
 )
+from src.codebase_types import UniversalCodebaseAdapter
 from src.types import Action
 
 
@@ -392,25 +393,27 @@ def main() -> None:
     code_tool_config = interaction_adapters.get("code", {})
     if not isinstance(code_tool_config, dict):
         code_tool_config = {}
-    codebase_adapter = None
-    if hasattr(backend, "shell") or str(getattr(backend, "backend_type", "")).lower() in {"computer_use", "daytona"}:
-        codebase_adapter = UniversalCodebaseAdapter(shell_client=backend)
+    
+    # Skills-style codebase tool integration (with Universal Sandbox support)
+    if hasattr(backend, "shell") or backend_spec.backend_type in {"computer_use", "daytona"}:
+        register_code_tools(tool_registry, codebase_adapter=UniversalCodebaseAdapter(shell_client=backend))
     elif code_tool_config.get("enabled", False):
         code_tool_base_url = str(
             code_tool_config.get("base_url") or service_base_url
         ).strip()
-        if code_tool_base_url:
-            codebase_adapter = UniversalCodebaseAdapter(
-                api_client=create_http_code_tool_adapter(
-                    EnvironmentClientConfig(
-                        base_url=code_tool_base_url,
-                        timeout=int(code_tool_config.get("timeout", 60)),
-                    )
-                )
+        if not code_tool_base_url:
+            raise ValueError(
+                "interaction.adapters.code.base_url is required when enabled=true"
             )
-
-    if codebase_adapter:
-        register_code_tools(tool_registry, codebase_adapter=codebase_adapter)
+        register_code_tools(
+            tool_registry,
+            create_http_code_tool_adapter(
+                EnvironmentClientConfig(
+                    base_url=code_tool_base_url,
+                    timeout=int(code_tool_config.get("timeout", 60)),
+                )
+            ),
+        )
 
     runtime_log_config = interaction_adapters.get("logs", {})
     if not isinstance(runtime_log_config, dict):

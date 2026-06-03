@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .codebase_types import UniversalCodebaseAdapter
-from .environment_clients import CodeToolAdapter
 from .log_analyzer import LogAnalyzer
 from .log_sources import LogSource
 from .types import CapabilityDescriptor, Observation
@@ -106,7 +105,7 @@ class ToolRegistry:
     def activate_skill(self, skill_name: str) -> Dict[str, Any]:
         name = str(skill_name).strip().lower()
         
-        # Hardcore self-heal for the 'code' skill in sandbox environments
+        # Self-heal for the 'code' skill in sandbox environments
         if name == "code" and name not in self._skills:
             self.register_skill(
                 SkillCard(
