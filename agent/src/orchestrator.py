@@ -1,12 +1,11 @@
-"""Core QA Agent loop."""
+"""Benchmark task execution orchestrator."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 from .bug_detector import BugDetector
 from .evaluator import Evaluator
@@ -17,31 +16,39 @@ from .planner import ActionPlanner
 from .reflection import ReflectionAnalyzer
 from .reporter import Reporter
 from .tool_registry import ToolRegistry
-from .types import BugFinding, Observation, RunReport, StepRecord
+from .types import (
+    Action,
+    BugFinding,
+    CapabilityDescriptor,
+    Observation,
+    RunReport,
+    StepRecord,
+)
 
 
 class Orchestrator:
-    """Coordinates the QA Agent loop."""
+    """Orchestrates the multi-step QA exploration loop."""
 
     def __init__(
         self,
+        *,
         task_id: str,
         execution_backend: ExecutionBackend,
         operator: Operator,
         tool_registry: ToolRegistry,
         planner: ActionPlanner,
         memory: MemoryManager,
-        detector: Optional[BugDetector],
+        detector: Optional[BugDetector] = None,
         reporter: Reporter,
-        evaluator: Optional[Evaluator],
-        max_steps: int,
-        reflection_analyzer: Optional[ReflectionAnalyzer],
-        reflection_threshold: int,
-        max_consecutive_failures: int,
-        confidence_threshold: float,
-        reflection_interval: int,
-        summary_interval: int,
-        log_analysis_interval: int = 0,
+        evaluator: Optional[Evaluator] = None,
+        max_steps: int = 50,
+        reflection_analyzer: Optional[ReflectionAnalyzer] = None,
+        reflection_threshold: int = 3,
+        max_consecutive_failures: int = 5,
+        confidence_threshold: float = 0.8,
+        reflection_interval: int = 10,
+        log_analysis_interval: int = 20,
+        summary_interval: int = 50,
     ) -> None:
         self._task_id = task_id
         self._execution_backend = execution_backend
@@ -74,7 +81,18 @@ class Orchestrator:
             f"[session] backend session started: "
             f"backend={session.backend_type} session_id={session.session_id}"
         )
-        capability = self._execution_backend.describe_capabilities(session, refresh=False)
+        
+        # FINAL GUARANTEE: Ensure code skill is registered if we are in a sandbox
+        if not self._has_tool("code_read_file"):
+            if hasattr(self._execution_backend, "shell") or self._execution_backend.backend_type in {"computer_use", "daytona"}:
+                from .codebase_types import UniversalCodebaseAdapter
+                from .tool_registry import register_code_tools
+                print("[orchestrator] auto-registering 'code' skill for sandbox environment")
+                register_code_tools(self._tool_registry, UniversalCodebaseAdapter(shell_client=self._execution_backend))
+
+        # Skill-aware capability rendering
+        capability_prompt = self._tool_registry.render_prompt_section()
+        
         base_initial_observation = session.initial_observation or Observation(
             success=True,
             message="Session started.",
@@ -84,7 +102,7 @@ class Orchestrator:
         )
         initial_observation = self._inject_capability_observation(
             base_initial_observation,
-            capability.planner_summary,
+            capability_prompt,
         )
 
         report = RunReport(
@@ -96,51 +114,78 @@ class Orchestrator:
                 "start_time": start,
                 "session_id": session.session_id,
                 "backend": {"type": session.backend_type},
-                "capability_summary": capability.planner_summary,
+                "capability_summary": capability_prompt,
             },
         )
 
         current_observation = initial_observation
         consecutive_failures = 0
         last_reflection_step = 0
-        last_summary_step = 0
 
-        try:
-            for step in range(1, self._max_steps + 1):
-                context = self._build_context(
-                    task_profile=task_profile,
-                    observation=current_observation,
+        for step in range(1, self._max_steps + 1):
+            print(f"\n[step {step}]")
+            
+            # Re-render prompt section if skills might have changed
+            capability_prompt = self._tool_registry.render_prompt_section()
+            
+            # Use the new dictionary-based context for planning
+            plan = self._planner.plan({
+                "task_profile": task_profile,
+                "observation": current_observation,
+                "memory": self._memory,
+                "capability_summary": capability_prompt,
+                "step": step,
+            })
+
+            action = plan.action
+            if action.tool == "close_game":
+                print("[session] agent requested session termination")
+                break
+
+            # Execute tool (either environment or built-in tools like use_skill)
+            try:
+                if action.tool == "environment_action":
+                    result = self._operator.execute(
+                        action=action,
+                        current_observation=current_observation,
+                        capability=CapabilityDescriptor(planner_summary=capability_prompt),
+                        session=session,
+                        backend=self._execution_backend,
+                    )
+                    current_observation = result.observation
+                else:
+                    # Invoke registry tools (including use_skill and codebase tools)
+                    registry_result = self._tool_registry.invoke(
+                        action.tool,
+                        self._tool_registry.parse_action(action.tool, action.command),
+                        {"session": session, "history": report.steps, "current_observation": current_observation}
+                    )
+                    current_observation = registry_result.observation
+            except Exception as exc:
+                print(f"[operator] execution error: {exc}")
+                current_observation = Observation(
+                    success=False,
+                    message=str(exc),
+                    summary=f"Internal error: {exc}",
+                    state={},
+                    env_state={}
                 )
-                plan = self._planner.plan(context)
-                if plan.error:
-                    report.metadata["early_stop_reason"] = "planner_error"
-                    report.metadata["failed_stage"] = "planner"
-                    report.metadata["failed_step"] = step
-                    report.metadata["llm_error"] = plan.error
-                    break
 
-                action = plan.action
-                current_observation, capability = self._invoke_planner_tool(
-                    action=action,
-                    current_observation=current_observation,
-                    capability=capability,
-                    session=session,
-                )
+            record = StepRecord(
+                step=step,
+                action=action,
+                observation=current_observation,
+                planner_prompt=plan.prompt,
+                planner_output=plan.output,
+                capability_summary=capability_prompt,
+            )
+            report.steps.append(record)
 
-                record = StepRecord(
-                    step=step,
-                    action=action,
-                    observation=current_observation,
-                    planner_prompt=plan.prompt,
-                    planner_output=plan.output,
-                    capability_summary=capability.planner_summary,
-                )
-                report.steps.append(record)
-
-                is_environment_action = action.tool == "environment_action"
+            # Bug detection for environment actions
+            if action.tool == "environment_action":
                 findings = (
                     self._detector.inspect(action, current_observation)
-                    if self._detector and is_environment_action
+                    if self._detector
                     else []
                 )
                 for bug in findings:
@@ -148,405 +193,75 @@ class Orchestrator:
                     self._memory.record_bug(bug, step)
                     self._reporter.log_bug(bug, step)
                     
-                    # Auto-remediation/debugging assist
+                    # Auto codebase lookup for discovered bugs
                     if bug.confidence >= self._confidence_threshold:
-                        record.notes = self._append_note(
-                            record.notes, 
-                            self._auto_code_lookup(session, bug)
-                        )
+                         record.notes = self._append_note(
+                             record.notes, 
+                             self._auto_code_lookup(session, bug)
+                         )
 
-                if is_environment_action:
-                    if current_observation.success:
-                        consecutive_failures = 0
-                    elif self._detector and self._detector.is_benign_failure(
-                        current_observation
-                    ):
-                        consecutive_failures = 0
-                    else:
-                        consecutive_failures += 1
+                if current_observation.success:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
 
-                if is_environment_action and self._should_auto_log_analysis(
-                    action=action,
-                    findings=findings,
-                    step=step,
-                    consecutive_failures=consecutive_failures,
-                ):
-                    record.notes = self._append_note(
-                        record.notes,
-                        self._auto_log_analysis(session),
-                    )
-
-                should_reflect = is_environment_action and self._should_reflect(
-                    action=action,
-                    observation=current_observation,
-                    findings=findings,
-                    step=step,
-                    last_reflection_step=last_reflection_step,
-                    consecutive_failures=consecutive_failures,
+            # Auto log analysis
+            if self._should_auto_log_analysis(
+                action=action,
+                findings=report.bugs,
+                step=step,
+                consecutive_failures=consecutive_failures,
+            ):
+                record.notes = self._append_note(
+                    record.notes,
+                    self._auto_log_analysis(session),
                 )
-                reflection = None
-                fatal_llm_error = ""
-                if self._reflection_analyzer and should_reflect:
-                    reflection_context = self._build_context(
-                        task_profile=task_profile,
-                        observation=current_observation,
-                    )
-                    reflection = self._reflection_analyzer.reflect(reflection_context)
-                    record.notes = self._append_note(
-                        record.notes,
-                        self._reflection_analyzer.format_note(reflection),
-                    )
-                    record.reflection_prompt = reflection.prompt
-                    record.reflection_output = reflection.output
-                    last_reflection_step = step
-                    if reflection.error:
-                        fatal_llm_error = reflection.error
-                    promoted_bug = self._promote_reflection_bug(
-                        reflection=reflection,
-                        step=step,
-                        action_command=action.command,
-                        observation=current_observation,
-                        existing_bugs=report.bugs,
-                    )
-                    if promoted_bug is not None:
-                        report.bugs.append(promoted_bug)
-                        self._memory.record_bug(promoted_bug, step)
-                        self._reporter.log_bug(promoted_bug, step)
 
-                self._memory.record_step(record)
-                self._reporter.log_step(record)
-                if fatal_llm_error:
-                    report.metadata["early_stop_reason"] = "reflection_error"
-                    report.metadata["failed_stage"] = "reflection"
-                    report.metadata["failed_step"] = step
-                    report.metadata["llm_error"] = fatal_llm_error
-                    self._reporter.write_report(report)
-                    break
-
-                summary_record = None
-                if plan.error and "context" in plan.error.lower():
-                    summary_record = self._memory.force_summarize(step)
-                if reflection and reflection.error and "context" in reflection.error.lower():
-                    summary_record = self._memory.force_summarize(step)
-                if (
-                    not summary_record
-                    and self._summary_interval > 0
-                    and (step - last_summary_step) >= self._summary_interval
-                ):
-                    summary_record = self._memory.force_summarize(step)
-                if not summary_record:
-                    summary_record = self._memory.maybe_summarize(step)
-                if summary_record:
-                    report.summaries.append(summary_record)
-                    last_summary_step = step
-                    self._reporter.log_summary(
-                        {"prompt": summary_record.prompt, "output": summary_record.output},
-                        step,
-                    )
-                self._reporter.write_report(report)
-                if current_observation.terminal:
-                    break
-                if consecutive_failures >= self._max_consecutive_failures:
-                    report.metadata["early_stop_reason"] = "max_consecutive_failures"
-                    break
-        finally:
-            try:
-                self._execution_backend.close_session(session)
-            except Exception as exc:  # noqa: BLE001
-                report.metadata["session_close_error"] = str(exc)
-
-        report.summary = self._memory.get_long_term_summary()
-        report.metadata["end_time"] = datetime.now(timezone.utc).isoformat()
-        if self._evaluator:
-            result = self._evaluator.evaluate(report.bugs)
-            report.metadata["evaluation"] = {
-                "precision": result.precision,
-                "recall": result.recall,
-                "matched": result.matched,
-                "total_predicted": result.total_predicted,
-                "total_ground_truth": result.total_ground_truth,
-                "details": [detail.__dict__ for detail in result.details],
-            }
+        self._execution_backend.close_session(session)
         return report
 
-    @staticmethod
-    def _inject_capability_observation(
-        observation: Observation,
-        capability_text: str,
-    ) -> Observation:
-        capability_text = capability_text.strip()
-        if not capability_text:
-            return observation
-        base_text = (observation.summary or observation.message or "").strip()
-        sections = [f"Capability observation:\n{capability_text}"]
-        if base_text:
-            sections.append(f"Initial environment observation:\n{base_text}")
-        combined_text = "\n\n".join(sections).strip()
-        return Observation(
-            success=observation.success,
-            message=combined_text,
-            state=observation.state,
-            raw=observation.raw,
-            terminal=observation.terminal,
-            turn=observation.turn,
-            summary=combined_text,
-            env_state=observation.env_state,
-            artifacts=observation.artifacts,
-            execution=observation.execution,
-        )
-
-    def _should_reflect(
-        self,
-        *,
-        action: Any,
-        observation: Observation,
-        findings: List[BugFinding],
-        step: int,
-        last_reflection_step: int,
-        consecutive_failures: int,
-    ) -> bool:
-        suspected_origin = str(
-            (observation.execution or {}).get("suspected_origin", "")
-        )
-        if not observation.success and suspected_origin == "execution":
-            return False
-        if action.bug_exist and action.confidence >= self._confidence_threshold:
-            return True
-        if findings or consecutive_failures >= self._reflection_threshold:
-            return True
-        return (
-            self._reflection_interval > 0
-            and (step - last_reflection_step) >= self._reflection_interval
-            and (observation.success or suspected_origin in {"environment", "ambiguous", ""})
-        )
-
-    def _promote_reflection_bug(
-        self,
-        *,
-        reflection: Any,
-        step: int,
-        action_command: str,
-        observation: Observation,
-        existing_bugs: List[BugFinding],
-    ) -> Optional[BugFinding]:
-        if not reflection.bug_exist:
-            return None
-        if reflection.bug_confidence < self._confidence_threshold:
-            return None
-        evidence = reflection.bug_evidence.strip()
-        if not evidence:
-            return None
-        candidate = BugFinding(
-            title="Reflection-identified environment issue",
-            description=evidence,
-            confidence=float(reflection.bug_confidence),
-            evidence={
-                "command": action_command,
-                "observation": observation.summary or observation.message,
-                "execution": observation.execution,
-                "next_check": reflection.next_check,
-                "step": step,
-            },
-            tags=["reflection"],
-        )
-        if self._is_duplicate_bug(candidate, existing_bugs):
-            return None
-        return candidate
-
-    @staticmethod
-    def _is_duplicate_bug(
-        candidate: BugFinding,
-        existing_bugs: List[BugFinding],
-    ) -> bool:
-        for existing in existing_bugs:
-            similarity = SequenceMatcher(
-                None,
-                candidate.description.lower(),
-                existing.description.lower(),
-            ).ratio()
-            if similarity >= 0.88:
-                return True
-        return False
-
-    def _should_auto_log_analysis(
-        self,
-        *,
-        action: Any,
-        findings: List[BugFinding],
-        step: int,
-        consecutive_failures: int,
-    ) -> bool:
-        if not self._has_tool("log_analyze"):
-            return False
-        if self._log_analysis_interval > 0 and step % self._log_analysis_interval == 0:
-            return True
-        if consecutive_failures > 0 and (
-            consecutive_failures >= self._max_consecutive_failures - 1
-        ):
-            return True
-        if action.bug_exist and action.confidence >= self._confidence_threshold:
-            return True
-        return bool(findings)
+    def _should_auto_log_analysis(self, *, action, findings, step, consecutive_failures) -> bool:
+        if not self._has_tool("log_analyze"): return False
+        return (step % self._log_analysis_interval == 0) or consecutive_failures >= 3 or bool(findings)
 
     def _auto_log_analysis(self, session: Any) -> str:
         try:
-            result = self._tool_registry.invoke(
+            result = self._tool_registry.invoke_internal(
                 "log_analyze",
                 {"include_debug_output": True},
-                {"session": session},
+                {"session": session}
             )
-        except Exception as exc:  # noqa: BLE001
-            return f"[Auto log analysis] Failed: {exc}"
-        summary = result.observation.summary or result.observation.message
-        if not summary:
-            return ""
-        return f"[Auto log analysis]\n{summary}"
+            return f"[Auto log analysis]\n{result.observation.summary}"
+        except: return ""
 
     def _auto_code_lookup(self, session: Any, bug: BugFinding) -> str:
-        """Heuristically search and read relevant code when a bug is suspected."""
-        if not self._has_tool("code_search") or not self._has_tool("code_read_file"):
-            return ""
-        
-        # Take key terms from bug description
-        terms = [t for t in bug.description.split() if len(t) > 3][:8]
-        query = "|".join(terms)
-        
+        if not self._has_tool("code_search"): return ""
         try:
-            res = self._tool_registry.invoke("code_search", {"pattern": query}, {"session": session})
-            msg = res.observation.message
-            if "matches" not in msg and "result" not in msg:
-                return ""
-            return f"[Auto code lookup] Identified potential code locations:\n{msg[:500]}"
-        except Exception as exc: # noqa: BLE001
-            return f"[Auto code lookup] Failed: {exc}"
+            query = "|".join(bug.description.split()[:5])
+            res = self._tool_registry.invoke_internal("code_search", {"pattern": query}, {"session": session})
+            return f"[Auto code lookup] Relevant files:\n{res.observation.message[:300]}"
+        except: return ""
 
-    def _has_tool(self, tool_name: str) -> bool:
-        return any(tool.name == tool_name for tool in self._tool_registry.list_tools())
+    def _has_tool(self, name: str) -> bool:
+        return any(t.name == name for t in self._tool_registry.list_tools())
+
+    def _inject_capability_observation(
+        self,
+        base: Observation,
+        summary: str,
+    ) -> Observation:
+        return Observation(
+            success=base.success,
+            message=f"Capability observation:\n{summary}\n\nInitial environment observation:\n{base.message}",
+            state=base.state,
+            summary=base.summary,
+            env_state=base.env_state,
+            raw=base.raw,
+            artifacts=base.artifacts,
+            execution=base.execution,
+        )
 
     @staticmethod
     def _append_note(existing: str, addition: str) -> str:
-        existing = (existing or "").strip()
-        addition = (addition or "").strip()
-        if not addition:
-            return existing
-        if not existing:
-            return addition
-        return f"{existing}\n{addition}"
-
-    def _build_context(
-        self,
-        *,
-        task_profile: str,
-        observation: Observation,
-    ) -> Dict[str, Any]:
-        observation_text = observation.summary or observation.message
-        execution_diagnostics = json.dumps(
-            (observation.execution or {}).get("diagnostics", {}),
-            ensure_ascii=False,
-        )
-        cross_session_memory = ""
-        query = "\n".join([observation_text, self._memory.get_long_term_summary()])
-        hits = self._memory.get_cross_session_memories(query)
-        if hits:
-            lines = [
-                f"- ({hit.session_id} step {hit.step}, score={hit.score:.2f}) {hit.text}"
-                for hit in hits
-            ]
-            cross_session_memory = "\n".join(lines)
-        recent_trace = self._memory.get_recent_trace()
-        memory_summary = self._memory.get_long_term_summary()
-        if cross_session_memory:
-            memory_summary = (
-                f"{memory_summary}\n\nCross-session relevant memory:\n{cross_session_memory}"
-            ).strip()
-        return {
-            "task_profile": task_profile,
-            "memory_summary": memory_summary,
-            "recent_trace": recent_trace,
-            "current_observation": observation_text,
-            "current_artifacts": self._artifact_summary(observation),
-            "observation_images": self._observation_images(observation),
-            "execution_diagnostics": execution_diagnostics,
-            "turn": observation.turn or 0,
-            "available_tools_prompt_section": self._tool_registry.render_prompt_section(),
-        }
-
-    @staticmethod
-    def _artifact_summary(observation: Observation) -> str:
-        screenshots = observation.artifacts.get("screenshots", [])
-        if not isinstance(screenshots, list) or not screenshots:
-            return ""
-        labels = []
-        for item in screenshots:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label", "")).strip()
-            path = str(item.get("path", "")).strip()
-            if label:
-                labels.append(label)
-            elif path:
-                labels.append(Path(path).name)
-        if not labels:
-            return ""
-        return "Attached screenshots: " + ", ".join(labels)
-
-    @staticmethod
-    def _observation_images(observation: Observation) -> List[str]:
-        screenshots = observation.artifacts.get("screenshots", [])
-        if not isinstance(screenshots, list):
-            return []
-        image_paths = []
-        for item in screenshots:
-            if not isinstance(item, dict):
-                continue
-            path = str(item.get("path", "")).strip()
-            if path:
-                image_paths.append(path)
-        return image_paths
-
-    def _invoke_planner_tool(
-        self,
-        *,
-        action: Any,
-        current_observation: Observation,
-        capability: Any,
-        session: Any,
-    ) -> tuple[Observation, Any]:
-        try:
-            payload = self._tool_registry.parse_action(action.tool, action.command)
-            result = self._tool_registry.invoke(
-                action.tool,
-                payload,
-                {
-                    "planner_action": action,
-                    "current_observation": current_observation,
-                    "capability": capability,
-                    "session": session,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            return self._tool_failure_observation(action, exc), capability
-        refreshed_capability = result.refreshed_capability or capability
-        return result.observation, refreshed_capability
-
-    @staticmethod
-    def _tool_failure_observation(action: Any, exc: Exception) -> Observation:
-        error_text = str(exc)
-        return Observation(
-            success=False,
-            message=error_text,
-            state={},
-            summary=f"Tool invocation failure for {action.tool}: {error_text}",
-            env_state={},
-            artifacts={},
-            execution={
-                "attempts": [],
-                "diagnostics": {
-                    "tool": action.tool,
-                    "error": error_text,
-                    "error_kind": "tool_invocation_error",
-                    "exception_type": type(exc).__name__,
-                },
-                "suspected_origin": "execution",
-            },
-        )
+        if not addition: return existing
+        return f"{existing}\n{addition}".strip()

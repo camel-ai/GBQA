@@ -17,6 +17,19 @@ software:
 runtime:
   default_provider: "daytona"
   local_docker_supported: false
+  internal_log_sources:
+    - name: "stdout_stderr"
+      kind: "file"
+      path: "/logs/runtime/dark-castle-server.log"
+      description: "Dark Castle backend stdout/stderr captured by the GBQA environment launcher."
+      tail_bytes: 200000
+    - name: "software_session_logs"
+      kind: "file_directory"
+      path: "/sandbox/software/dark-castle/.cache/log"
+      glob: "game_*.json"
+      description: "Dark Castle software-owned per-session JSON logs written by the game backend."
+      tail_bytes: 200000
+      max_files: 5
 interaction:
   default_mode: "api"
   supported_modes:

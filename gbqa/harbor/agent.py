@@ -46,7 +46,7 @@ class GBQAHarborAgent(BaseAgent):
     _REMOTE_RUNTIME_DIR = "/sandbox/runtime"
     _REMOTE_PYTHON = "/opt/venv/bin/python"
     _TASK_METADATA_RELATIVE = Path("gbqa/tasks/dark-castle/gbqa.yaml")
-    _AGENT_UPLOAD_ITEMS = ("run_agent.py", "src", "prompts")
+    _AGENT_UPLOAD_ITEMS = ("run_agent.py", "src", "prompts", "skills")
     _UPLOAD_IGNORE = shutil.ignore_patterns(
         ".env",
         ".venv",
@@ -58,7 +58,6 @@ class GBQAHarborAgent(BaseAgent):
         "reports",
         "memory",
         "tmp",
-        "logs",
         "artifacts",
         "node_modules",
         "*.log",
@@ -254,11 +253,11 @@ class GBQAHarborAgent(BaseAgent):
 
     async def _start_dark_castle(self, environment: BaseEnvironment) -> None:
         command = (
-            f"mkdir -p {self.metadata.agent_artifact_dir} && "
+            f"mkdir -p {self.metadata.agent_artifact_dir} /logs/runtime && "
             f"cd {shlex.quote(self.metadata.software_install_dir)}/backend && "
             f"env PORT={self.metadata.service_port} "
             f"setsid -f {shlex.quote(self._REMOTE_PYTHON)} app.py "
-            f"> {self.metadata.agent_artifact_dir}/dark-castle-server.log "
+            "> /logs/runtime/dark-castle-server.log "
             "2>&1 < /dev/null && "
             f"echo started > {self.metadata.agent_artifact_dir}/dark-castle-server.pid"
         )
@@ -273,7 +272,7 @@ class GBQAHarborAgent(BaseAgent):
             f"curl -fsS {shlex.quote(url)} >/dev/null && exit 0; "
             "sleep 1; "
             "done; "
-            f"cat {self.metadata.agent_artifact_dir}/dark-castle-server.log || true; "
+            "cat /logs/runtime/dark-castle-server.log || true; "
             "exit 1"
         )
         result = await environment.exec(command=command, timeout_sec=90)
@@ -404,6 +403,13 @@ class GBQAHarborAgent(BaseAgent):
     async def _export_artifacts(self, environment: BaseEnvironment) -> None:
         command = (
             f"cd {self._REMOTE_ROOT} && "
+            "mkdir -p /logs/runtime/software_session_logs && "
+            "cp -a /sandbox/software/dark-castle/.cache/log/. "
+            "/logs/runtime/software_session_logs/ 2>/dev/null || true; "
+            f"mkdir -p {self.metadata.agent_artifact_dir}/artifacts/runtime_logs && "
+            "cp -a /logs/runtime/. "
+            f"{self.metadata.agent_artifact_dir}/artifacts/runtime_logs/ "
+            "2>/dev/null || true; "
             f"{shlex.quote(self._REMOTE_PYTHON)} -m gbqa.reporting.export "
             f"--reports-root {self.metadata.agent_artifact_dir}/raw_reports "
             f"--task-id {shlex.quote(self.metadata.task_id)} "

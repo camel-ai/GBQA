@@ -32,13 +32,12 @@ def _build_sample_context() -> Dict[str, str]:
         "turn": "2",
         "available_tools_prompt_section": """## Available Tools:
 - environment_action: Execute one semantic environment action through the operator and active execution backend. Format: `semantic action string`.
-- code_list_files: List available source code files for the current environment. Format: `any non-empty text (ignored)`.
-- code_read_file: Read a source file, optionally with a line range. Format: `path or path:start-end`.
-- code_search: Search source code using a regex pattern. Format: `pattern`.
-- code_write_file: Modify a source file using JSON payload or path:old_text->new_text patch shorthand. Format: `JSON string or path:old_text->new_text`.
-- code_restore_file: Restore a file previously modified by code_write_file. Format: `path`.
-- code_read_debug_logs: Read or clear runtime debug logs for the current active environment session. Format: `read or clear`.
-- log_analyze: Analyze the current environment session log for anomalies and optionally show filtered commands. Format: `analyze, failures, or JSON object with start_turn/end_turn/failures_only/limit/include_debug_output`.""",
+- use_skill: Load an available skill's SKILL.md instructions and reveal its tools. Format: `skill name`.
+
+## Available Skills:
+Use `use_skill` with the skill name to load that skill's full SKILL.md instructions when relevant.
+- code: Inspect, search, and optionally modify target software source code for white-box debugging. (SKILL.md: agent/skills/code/SKILL.md)
+- logs: Inspect and analyze agent trajectory plus target runtime log sources. (SKILL.md: agent/skills/logs/SKILL.md)""",
     }
 
 
