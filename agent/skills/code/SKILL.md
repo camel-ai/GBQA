@@ -8,7 +8,7 @@ description: Codebase reading and white-box debugging capabilities.
 This skill grants the agent the ability to inspect the target software's source code and perform white-box debugging via temporary code injection.
 
 ## 🛠 Tools
-- `code_list_files`: Discover the structure of the hub codebase.
+- `code_list_files`: Discover the structure of the environment codebase.
 - `code_read_file`: Read source code to understand logic or identify bugs.
 - `code_search`: Search for keywords or patterns across the entire codebase.
 - `code_write_file`: Inject `print()` statements or temporary fixes to diagnose complex issues.
