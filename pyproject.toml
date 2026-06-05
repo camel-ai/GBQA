@@ -23,7 +23,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "harbor-rewardkit>=0.1.4"]
+rewardkit = ["harbor-rewardkit>=0.1.4"]
 
 [project.scripts]
 gbqa-harbor = "gbqa.cli.harbor_run:main"
