@@ -641,20 +641,21 @@ class CuaSandboxClient:
     def wait(self, duration_ms: int) -> None:
         time.sleep(max(duration_ms, 0) / 1000.0)
 
-    def read_browser_logs(self) -> str:
-        """Read the last few lines of browser logs from the sandbox."""
-        log_file = "/tmp/gbqa-browser.log"
+    def execute_shell(self, command: str) -> str:
+        """Public interface to run a shell command in the sandbox."""
         try:
-            # We use tail to avoid pulling massive log files over the wire
             sandbox = self._require_sandbox()
             shell = getattr(sandbox, "shell", None)
             if shell is not None and hasattr(shell, "run"):
-                result = self._run_async(shell.run(f"tail -n 50 {log_file}"))
-                # cua shell.run usually returns an object with stdout/stderr
+                result = self._run_async(shell.run(command))
                 return str(getattr(result, "stdout", result))
             return ""
         except Exception:  # noqa: BLE001
             return ""
+
+    def read_browser_logs(self) -> str:
+        """Read the last few lines of browser logs from the sandbox."""
+        return self.execute_shell("tail -n 50 /tmp/gbqa-browser.log")
 
     def _run_command(self, command: str, *, timeout_sec: int = 30) -> None:
         sandbox = self._require_sandbox()

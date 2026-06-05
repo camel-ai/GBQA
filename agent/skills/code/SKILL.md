@@ -1,21 +1,25 @@
 ---
 name: code
-description: Inspect, search, and optionally modify target software source code for white-box debugging. Use when source inspection or controlled code edits may help explain or reproduce behavior.
+description: Codebase reading and white-box debugging capabilities.
 ---
 
-# Code
+# Codebase Debugging Skill
 
-Use this skill when white-box source-code inspection is useful for QA debugging.
+This skill grants the agent the ability to inspect the target software's source code and perform white-box debugging via temporary code injection.
 
-Prefer read-only actions first:
+## 🛠 Tools
+- `code_list_files`: Discover the structure of the environment codebase.
+- `code_read_file`: Read source code to understand logic or identify bugs.
+- `code_search`: Search for keywords or patterns across the entire codebase.
+- `code_write_file`: Inject `print()` statements or temporary fixes to diagnose complex issues.
+- `code_restore_file`: Revert any modifications made during debugging.
 
-- Use `code_list_files` to discover available source files.
-- Use `code_search` to locate relevant symbols, routes, handlers, or state logic.
-- Use `code_read_file` to inspect focused file ranges.
+## 📖 Best Practices
+1. **Explore First**: Always start with `code_list_files` or `code_search` to find relevant handlers.
+2. **Safe Debugging**: Before using `code_write_file`, ensure you have a plan to use `code_restore_file`.
+3. **White-box Inspection**: When an environment error is ambiguous, search for the error message in the codebase to find where it's raised.
+4. **Injection**: Use `print()` to trace variable states in the sandbox. Logs can be read via `log_analyze`.
 
-Only use mutation tools when explicitly needed for a controlled debugging experiment:
-
-- Use `code_write_file` for temporary source edits.
-- Use `code_restore_file` to undo files changed by `code_write_file`.
-
-Do not treat source-code access as a substitute for runtime evidence. When reporting a bug, connect code observations to reproduced behavior or a concrete runtime contradiction.
+## ⚠️ Safety
+- Never modify files permanently. Always restore files before concluding the session.
+- Only use these tools within the `/sandbox/software` directory (handled automatically).

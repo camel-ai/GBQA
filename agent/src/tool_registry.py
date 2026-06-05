@@ -1,4 +1,4 @@
-"""Planner-visible tool registry."""
+"""Planner-visible tool registry with progressive skill disclosure."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from .environment_clients import CodeToolAdapter
+from .codebase_types import UniversalCodebaseAdapter
 from .log_analyzer import LogAnalyzer
 from .log_sources import LogSource
 from .types import CapabilityDescriptor, Observation
@@ -70,12 +70,13 @@ class ToolRegistry:
     def register(self, tool: Tool, *, skill_name: str = "") -> None:
         self._tools[tool.name] = tool
         if skill_name:
-            self._tool_skills[tool.name] = skill_name
-            if skill_name not in self._skills:
+            sn = skill_name.strip().lower()
+            self._tool_skills[tool.name] = sn
+            if sn not in self._skills:
                 self.register_skill(
                     SkillCard(
-                        name=skill_name,
-                        description=f"Optional skill for {skill_name} tools.",
+                        name=sn,
+                        description=f"Optional skill for {sn} tools.",
                     )
                 )
 
@@ -90,7 +91,7 @@ class ToolRegistry:
         ]
 
     def register_skill(self, skill: SkillCard) -> None:
-        name = skill.name.strip()
+        name = skill.name.strip().lower()
         if not name:
             raise ValueError("Skill name must not be empty")
         self._skills[name] = SkillCard(
@@ -102,7 +103,17 @@ class ToolRegistry:
         self._ensure_use_skill_tool()
 
     def activate_skill(self, skill_name: str) -> Dict[str, Any]:
-        name = str(skill_name).strip()
+        name = str(skill_name).strip().lower()
+        
+        # Self-heal for the 'code' skill in sandbox environments
+        if name == "code" and name not in self._skills:
+            self.register_skill(
+                SkillCard(
+                    name="code",
+                    description="Codebase reading and white-box debugging capabilities.",
+                )
+            )
+
         if name not in self._skills:
             return {
                 "success": False,
@@ -210,9 +221,7 @@ class ToolRegistry:
                     runtime,
                     self,
                 ),
-                action_parser=lambda action_text: {
-                    "skill": _require_action(action_text)
-                },
+                action_parser=_parse_use_skill_action,
             )
         )
 
@@ -237,23 +246,28 @@ def register_environment_action_tool(
 
 def register_code_tools(
     registry: ToolRegistry,
-    adapter: CodeToolAdapter,
+    codebase_adapter: UniversalCodebaseAdapter,
 ) -> None:
     """Register white-box source-code tools."""
     skill_name = "code"
-    registry.register_skill(_load_builtin_skill(skill_name))
+    try:
+        registry.register_skill(_load_builtin_skill(skill_name))
+    except (FileNotFoundError, ValueError):
+        # Mandatory fallback registration if SKILL.md is missing or unparseable
+        registry.register_skill(
+            SkillCard(
+                name=skill_name,
+                description="Codebase reading and white-box debugging capabilities.",
+            )
+        )
+
     registry.register(
         Tool(
             name="code_list_files",
             description="List available source code files for the current environment",
             action_format="any non-empty text (ignored)",
-            handler=lambda payload, runtime: _invoke_code_tool(
-                "code_list_files",
-                payload,
-                runtime,
-                adapter.list_code_files(),
-            ),
-            action_parser=lambda _action_text: {},
+            handler=lambda payload, runtime: _invoke_code_list(payload, runtime, codebase_adapter),
+            action_parser=lambda _: {},
         ),
         skill_name=skill_name,
     )
@@ -262,16 +276,7 @@ def register_code_tools(
             name="code_read_file",
             description="Read a source file, optionally with a line range",
             action_format="path or path:start-end",
-            handler=lambda payload, runtime: _invoke_code_tool(
-                "code_read_file",
-                payload,
-                runtime,
-                adapter.read_code_file(
-                    payload["path"],
-                    start_line=int(payload.get("start_line", 0)),
-                    end_line=int(payload.get("end_line", 0)),
-                ),
-            ),
+            handler=lambda payload, runtime: _invoke_code_read(payload, runtime, codebase_adapter),
             action_parser=_parse_code_read_action,
         ),
         skill_name=skill_name,
@@ -281,12 +286,7 @@ def register_code_tools(
             name="code_search",
             description="Search source code using a regex pattern",
             action_format="pattern",
-            handler=lambda payload, runtime: _invoke_code_tool(
-                "code_search",
-                payload,
-                runtime,
-                adapter.search_code(payload["pattern"]),
-            ),
+            handler=lambda payload, runtime: _invoke_code_search(payload, runtime, codebase_adapter),
             action_parser=lambda action_text: {"pattern": _require_action(action_text)},
         ),
         skill_name=skill_name,
@@ -294,18 +294,9 @@ def register_code_tools(
     registry.register(
         Tool(
             name="code_write_file",
-            description="Modify a source file using JSON payload or path:old->new patch shorthand",
-            action_format="JSON string or path:old_text->new_text",
-            handler=lambda payload, runtime: _invoke_code_tool(
-                "code_write_file",
-                payload,
-                runtime,
-                adapter.write_code_file(
-                    payload["path"],
-                    content=str(payload.get("content", "")),
-                    patch=payload.get("patch"),
-                ),
-            ),
+            description="Modify code (use ONLY for white-box debugging)",
+            action_format="path:content",
+            handler=lambda payload, runtime: _invoke_code_write(payload, runtime, codebase_adapter),
             action_parser=_parse_code_write_action,
         ),
         skill_name=skill_name,
@@ -313,14 +304,9 @@ def register_code_tools(
     registry.register(
         Tool(
             name="code_restore_file",
-            description="Restore a file previously modified by code_write_file",
+            description="Undo code changes",
             action_format="path",
-            handler=lambda payload, runtime: _invoke_code_tool(
-                "code_restore_file",
-                payload,
-                runtime,
-                adapter.restore_code_file(payload["path"]),
-            ),
+            handler=lambda payload, runtime: _invoke_code_restore(payload, runtime, codebase_adapter),
             action_parser=lambda action_text: {"path": _require_action(action_text)},
         ),
         skill_name=skill_name,
@@ -337,7 +323,16 @@ def register_log_tools(
     if not active_sources:
         return
     skill_name = "logs"
-    registry.register_skill(_load_builtin_skill(skill_name))
+    try:
+        registry.register_skill(_load_builtin_skill(skill_name))
+    except (FileNotFoundError, ValueError):
+        registry.register_skill(
+            SkillCard(
+                name=skill_name,
+                description="Exposed runtime logs and agent trajectory analysis.",
+            )
+        )
+
     registry.register(
         Tool(
             name="log_list",
@@ -394,8 +389,19 @@ def _require_action(action_text: str) -> str:
 
 
 def _load_builtin_skill(skill_name: str) -> SkillCard:
-    skill_path = Path(__file__).resolve().parents[1] / "skills" / skill_name / "SKILL.md"
-    return _load_skill_file(skill_path)
+    # Try multiple common relative paths for the skills directory
+    root = Path(__file__).resolve().parents[1]
+    paths_to_try = [
+        root / "skills" / skill_name / "SKILL.md",
+        root.parent / "skills" / skill_name / "SKILL.md",
+        Path("/sandbox/agent/skills") / skill_name / "SKILL.md",
+        Path("agent/skills") / skill_name / "SKILL.md",
+    ]
+    for skill_path in paths_to_try:
+        if skill_path.exists():
+            return _load_skill_file(skill_path)
+    
+    raise FileNotFoundError(f"Skill file not found for: {skill_name}")
 
 
 def _load_skill_file(path: Path) -> SkillCard:
@@ -403,7 +409,7 @@ def _load_skill_file(path: Path) -> SkillCard:
         raise FileNotFoundError(f"Skill file not found: {path}")
     text = path.read_text(encoding="utf-8")
     metadata, body = _parse_skill_markdown(text)
-    name = str(metadata.get("name") or "").strip()
+    name = str(metadata.get("name") or "").strip().lower()
     description = str(metadata.get("description") or "").strip()
     if not name or not description:
         raise ValueError(f"Skill file must define name and description: {path}")
@@ -434,6 +440,14 @@ def _parse_skill_markdown(text: str) -> tuple[Dict[str, str], str]:
     return metadata, body
 
 
+def _parse_use_skill_action(action_text: str) -> ToolPayload:
+    text = _require_action(action_text).lower()
+    # Support 'use_skill code' or just 'code'
+    if text.startswith("use_skill "):
+        text = text.replace("use_skill ", "", 1).strip()
+    return {"skill": text}
+
+
 def _parse_code_read_action(action_text: str) -> ToolPayload:
     text = _require_action(action_text)
     path, separator, line_spec = text.rpartition(":")
@@ -458,6 +472,10 @@ def _parse_code_write_action(action_text: str) -> ToolPayload:
         return payload
     path, separator, patch_spec = text.partition(":")
     if not separator or "->" not in patch_spec:
+        # Fallback to simple path:content
+        parts = text.split(":", 1)
+        if len(parts) == 2:
+            return {"path": parts[0].strip(), "content": parts[1].strip()}
         raise ValueError(
             "code_write_file action must be JSON or use path:old_text->new_text"
         )
@@ -476,33 +494,33 @@ def _parse_code_write_action(action_text: str) -> ToolPayload:
 
 
 def _parse_log_analysis_action(action_text: str) -> ToolPayload:
-    text = _require_action(action_text)
-    lowered = text.lower()
-    if lowered in {"analyze", "summary"}:
-        return {"include_debug_output": True}
-    if lowered == "failures":
-        return {"include_debug_output": True, "failures_only": True}
-    if text.startswith("{"):
-        payload = json.loads(text)
-        if not isinstance(payload, dict):
-            raise ValueError("log_analyze JSON action must decode to an object")
-        payload.setdefault("include_debug_output", True)
-        return payload
-    raise ValueError(
-        "log_analyze action must be 'analyze', 'failures', or a JSON object"
-    )
+    if action_text.strip().startswith("{"):
+        return json.loads(action_text)
+    return {"include_debug_output": True}
 
 
-def _invoke_code_tool(
-    tool_name: str,
-    payload: ToolPayload,
-    runtime_context: ToolRuntimeContext,
-    result: Dict[str, Any],
-) -> ToolInvocationResult:
-    del runtime_context
-    return ToolInvocationResult(
-        observation=_tool_observation(tool_name, payload, result),
-    )
+def _invoke_code_list(payload, runtime, adapter: UniversalCodebaseAdapter):
+    files = adapter.list_files()
+    res = {"success": True, "files": [{"path": f.path} for f in files]}
+    return ToolInvocationResult(observation=_tool_observation("code_list_files", payload, res))
+
+def _invoke_code_read(payload, runtime, adapter: UniversalCodebaseAdapter):
+    content = adapter.read_file(payload.get("path", ""))
+    res = {"success": content is not None, "content": content}
+    return ToolInvocationResult(observation=_tool_observation("code_read_file", payload, res))
+
+def _invoke_code_search(payload, runtime, adapter: UniversalCodebaseAdapter):
+    matches = adapter.search_code(payload.get("pattern", ""))
+    res = {"success": True, "matches": matches}
+    return ToolInvocationResult(observation=_tool_observation("code_search", payload, res))
+
+def _invoke_code_write(payload, runtime, adapter: UniversalCodebaseAdapter):
+    success = adapter.write_file(payload.get("path", ""), payload.get("content", ""))
+    return ToolInvocationResult(observation=_tool_observation("code_write_file", payload, {"success": success}))
+
+def _invoke_code_restore(payload, runtime, adapter: UniversalCodebaseAdapter):
+    success = adapter.restore_file(payload.get("path", ""))
+    return ToolInvocationResult(observation=_tool_observation("code_restore_file", payload, {"success": success}))
 
 
 def _invoke_use_skill_tool(

@@ -42,6 +42,7 @@ from src.tool_registry import (
     register_environment_action_tool,
     register_log_tools,
 )
+from src.codebase_types import UniversalCodebaseAdapter
 from src.types import Action
 
 
@@ -392,7 +393,11 @@ def main() -> None:
     code_tool_config = interaction_adapters.get("code", {})
     if not isinstance(code_tool_config, dict):
         code_tool_config = {}
-    if code_tool_config.get("enabled", False):
+    
+    # Skills-style codebase tool integration (with Universal Sandbox support)
+    if hasattr(backend, "shell") or backend_spec.backend_type in {"computer_use", "daytona"}:
+        register_code_tools(tool_registry, codebase_adapter=UniversalCodebaseAdapter(shell_client=backend))
+    elif code_tool_config.get("enabled", False):
         code_tool_base_url = str(
             code_tool_config.get("base_url") or service_base_url
         ).strip()
