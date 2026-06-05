@@ -298,21 +298,67 @@ Every GBQA run should export normalized artifacts under `/logs/agent/gbqa`:
 - `report.md` when available
 - `artifacts/` for screenshots, traces, DOM dumps, or other interaction files
 
-The verifier reads GBQA artifacts and ground truth, then writes Harbor-compatible outputs:
+GBQA verifiers must use Harbor Rewardkit. `harbor-rewardkit` is a required
+platform dependency; if it is missing, `gbqa.rewards.runner` fails fast with
+an install hint. Rewardkit discovers criteria from `tests/`, writes numeric
+scores to `/logs/verifier/reward.json`, and writes per-criterion detail to
+`/logs/verifier/reward-details.json`. See
+[Harbor Rewardkit](https://www.harborframework.com/docs/rewardkit) and
+[LLM-as-a-Judge](https://www.harborframework.com/docs/tutorials/llm-as-a-judge).
 
-- `/logs/verifier/reward.txt`
-- `/logs/verifier/reward.json`
-- `/logs/verifier/gbqa_result.json`
+Canonical task template:
 
-Core platform verifier entrypoints:
+```text
+gbqa/tasks/_template/tests/
+  test.sh
+  criteria.py
+  recall/check.py
+  precision/check.py
+  reward/check.py
+  trajectory/check.py
+  quality/quality.toml
+  quality/semantic_matching.md
+  judge/evidence_quality.toml.example
+```
 
-- `gbqa.verifier.evaluate_bug_report(...)`
-- `gbqa.verifier.write_harbor_reward(...)`
+Install the template into a task with
+`gbqa.rewards.template.install_task_verifier_tests(...)`. Each subdirectory
+maps to one Rewardkit reward name in `reward.json`.
 
-Task packages may still carry task-local verifier copies for Harbor execution.
-The current Dark Castle package runs `/tests/gbqa_verifier.py` from
-`tests/test.sh`; keep task-local copies behaviorally aligned with
-`gbqa.verifier` when updating scoring logic.
+Extension points:
+
+- Programmatic bug matching: shared criteria in `gbqa.rewards.criteria`
+- Trajectory checks: `trajectory_exported` for GBQA `trace.jsonl` /
+  `steps.jsonl`, plus optional `atif_trajectory_tool_used` for ATIF JSON
+- Semantic bug matching (LLM-as-a-Judge): `quality/quality.toml` loads
+  ground truth and `/logs/agent/gbqa/bugs.json` into the same judge context.
+  Configure the judge model and API keys through `task.toml` `[verifier.env]`
+  (`REWARDKIT_JUDGE`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `OPENAI_API_BASE`).
+- Optional rubric extensions: copy `judge/evidence_quality.toml.example` to
+  `judge/evidence_quality.toml` for evidence-quality scoring.
+
+`tests/test.sh` should call `python -m gbqa.rewards.runner` with
+`PYTHONPATH=/sandbox`. The runner always executes Rewardkit, then writes
+GBQA post-processing artifacts without rewriting Rewardkit scores.
+
+Verifier outputs:
+
+- `/logs/verifier/reward.json` — Rewardkit-owned numeric rewards
+- `/logs/verifier/reward-details.json` — Rewardkit criterion details plus a
+  `gbqa` evidence section
+- `/logs/verifier/reward.txt` — primary scalar reward derived from
+  `reward.json`
+- `/logs/verifier/gbqa_result.json` — full bug-matching payload for debugging
+
+Core platform entrypoints:
+
+- `gbqa.rewards.run_task_verifier(...)`
+- `gbqa.rewards.matching.evaluate_bug_report(...)`
+- `gbqa.rewards.criteria.*` shared Rewardkit criteria
+- `gbqa.rewards.template.install_task_verifier_tests(...)`
+
+Do not add standalone legacy verifier CLIs or fallback paths that bypass
+Rewardkit.
 
 Shell verifier scripts must use LF line endings. Windows CRLF checkouts can break Linux Daytona execution with `/usr/bin/env: 'bash\r': No such file or directory`. Keep `.gitattributes` enforcing:
 
@@ -328,7 +374,7 @@ Use these directories for new platform code:
 - `gbqa/harbor/`: Harbor wrappers and integration glue.
 - `gbqa/reporting/`: conversion from harness-specific reports to GBQA normalized artifacts.
 - `gbqa/protocol/`: lightweight stable run/report/bug schemas and normalizers.
-- `gbqa/verifier.py`: verifier scoring and reward output.
+- `gbqa/rewards/`: Harbor Rewardkit bridge, bug matching, and verifier outputs.
 - `gbqa/tasks/`: first-party Harbor-compatible task packages.
 - `agent/`: current QA agent harness implementation.
 - `agent/skills/`: runtime skill instructions used for progressive tool
@@ -379,7 +425,7 @@ the root-level `environment/` preparation system.
 
 ## Verification Commands
 
-`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> task-local verifier entrypoint; keep task-local logic aligned with `gbqa.verifier`.
+`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> `python -m gbqa.rewards.runner`; keep task-local criteria aligned with `gbqa/tasks/_template/tests`.
 
 Before claiming architecture or path changes are complete, run the commands for your operating system.
 

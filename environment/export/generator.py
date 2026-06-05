@@ -6,6 +6,7 @@ import shutil
 from typing import Any
 
 from environment.sourcing.utils import slugify
+from gbqa.rewards.template import install_task_verifier_tests
 
 
 def generate_task_packages(*, input_path: Path, output_dir: Path) -> list[Path]:
@@ -30,16 +31,22 @@ def _load_seeds(input_path: Path) -> list[dict[str, Any]]:
 def _write_task_package(task_root: Path, seed: dict[str, Any]) -> None:
     seed["slug"] = task_root.name
     (task_root / "environment").mkdir(parents=True, exist_ok=True)
-    (task_root / "tests").mkdir(parents=True, exist_ok=True)
     (task_root / "bugs").mkdir(parents=True, exist_ok=True)
     (task_root / "solution").mkdir(parents=True, exist_ok=True)
     (task_root / "task.toml").write_text(_render_task_toml(seed), encoding="utf-8")
     (task_root / "gbqa.yaml").write_text(_render_gbqa_yaml(seed), encoding="utf-8")
     (task_root / "instruction.md").write_text(_render_instruction(seed), encoding="utf-8")
     (task_root / "environment" / "Dockerfile").write_text(_render_dockerfile(seed), encoding="utf-8")
-    (task_root / "tests" / "test.sh").write_text(_render_test_sh(), encoding="utf-8", newline="\n")
-    (task_root / "tests" / "gbqa_verifier.py").write_text(_render_verifier(), encoding="utf-8")
     (task_root / "bugs" / "ground_truth.json").write_text('{"bugs": []}\n', encoding="utf-8")
+    (task_root / "tests" / "bugs").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(
+        task_root / "bugs" / "ground_truth.json",
+        task_root / "tests" / "bugs" / "ground_truth.json",
+    )
+    install_task_verifier_tests(
+        task_root / "tests",
+        ground_truth_path="/tests/bugs/ground_truth.json",
+    )
 
 
 def _render_task_toml(seed: dict[str, Any]) -> str:
@@ -48,6 +55,12 @@ name = "{seed['slug']}"
 description = "Draft GBQA task generated from environment sourcing."
 agent_timeout_sec = 600
 verifier_timeout_sec = 120
+
+[verifier.env]
+REWARDKIT_JUDGE = "${{REWARDKIT_JUDGE}}"
+ANTHROPIC_API_KEY = "${{ANTHROPIC_API_KEY}}"
+OPENAI_API_KEY = "${{OPENAI_API_KEY}}"
+OPENAI_API_BASE = "${{OPENAI_API_BASE}}"
 
 [metadata]
 benchmark_status = "{seed.get('benchmark_status', 'draft')}"
@@ -124,17 +137,10 @@ RUN apt-get update \\
 RUN mkdir -p "$SOFTWARE_INSTALL_DIR" /sandbox/agent /sandbox/gbqa /sandbox/runtime /logs/agent /logs/verifier /logs/artifacts \\
     && curl -L "$SOFTWARE_ARCHIVE_URL" -o /tmp/software.tar.gz \\
     && tar -xzf /tmp/software.tar.gz -C "$SOFTWARE_INSTALL_DIR" --strip-components=1 \\
-    && rm /tmp/software.tar.gz
+    && rm /tmp/software.tar.gz \\
+    && pip install harbor-rewardkit
 
 WORKDIR /sandbox/software/{slug}
-"""
-
-
-def _render_test_sh() -> str:
-    return """#!/usr/bin/env bash
-set -euo pipefail
-
-python /tests/gbqa_verifier.py
 """
 
 
@@ -148,29 +154,3 @@ def _safe_task_root(output_dir: Path, seed: dict[str, Any]) -> Path:
     return output_dir / safe_slug
 
 
-def _render_verifier() -> str:
-    return '''from pathlib import Path
-import json
-
-
-def main() -> None:
-    output_dir = Path("/logs/verifier")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "reward.txt").write_text("0.0\\n", encoding="utf-8")
-    (output_dir / "reward.json").write_text(
-        json.dumps(
-            {
-                "reward": 0.0,
-                "status": "draft_verifier",
-                "message": "Generated task requires a reviewed verifier.",
-            },
-            indent=2,
-        )
-        + "\\n",
-        encoding="utf-8",
-    )
-
-
-if __name__ == "__main__":
-    main()
-'''

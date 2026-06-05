@@ -22,7 +22,8 @@ from gbqa.env import load_root_dotenv
 from gbqa.protocol.schemas import load_bug_candidates
 from gbqa.reporting.export import export_harbor_artifacts
 from gbqa.spec import load_gbqa_metadata
-from gbqa.verifier import evaluate_bug_report, write_harbor_reward
+from gbqa.rewards.matching import evaluate_bug_report
+from gbqa.rewards.output import write_post_rewardkit_artifacts
 
 
 TASK_METADATA_PATH = ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "gbqa.yaml"
@@ -206,16 +207,39 @@ def test_artifact_export_and_verifier() -> None:
     assert result["total_ground_truth"] == 3
     assert result["reward"] > 0
 
-    write_harbor_reward(result, temp_root / "verifier")
-    assert (temp_root / "verifier" / "reward.txt").exists()
-    assert (temp_root / "verifier" / "reward.json").exists()
-    assert (temp_root / "verifier" / "gbqa_result.json").exists()
-    reward_payload = json.loads((temp_root / "verifier" / "reward.json").read_text())
-    assert reward_payload == {"reward": result["reward"]}
+    verifier_dir = temp_root / "verifier"
+    verifier_dir.mkdir(parents=True, exist_ok=True)
+    (verifier_dir / "reward.json").write_text(
+        json.dumps(
+            {
+                "recall": result["recall"],
+                "precision": result["precision"],
+                "reward": result["reward"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_post_rewardkit_artifacts(
+        {
+            "recall": result["recall"],
+            "precision": result["precision"],
+            "reward": result["reward"],
+        },
+        result,
+        verifier_dir,
+    )
+    assert (verifier_dir / "reward.txt").exists()
+    assert (verifier_dir / "reward.json").exists()
+    assert (verifier_dir / "gbqa_result.json").exists()
+    reward_payload = json.loads((verifier_dir / "reward.json").read_text())
+    assert reward_payload["reward"] == result["reward"]
+    assert reward_payload["recall"] == result["recall"]
+    assert reward_payload["precision"] == result["precision"]
     assert all(
         isinstance(value, (int, float))
         for value in reward_payload.values()
     )
+    assert (temp_root / "verifier" / "reward-details.json").exists()
     gbqa_result = json.loads((temp_root / "verifier" / "gbqa_result.json").read_text())
     assert gbqa_result["details"] == result["details"]
     assert gbqa_result["precision"] == result["precision"]

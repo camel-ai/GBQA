@@ -22,6 +22,12 @@ software_release_page = "https://github.com/Tsumugii24/dark-castle/releases/tag/
 timeout_sec = 600.0
 user = "root"
 
+[verifier.env]
+REWARDKIT_JUDGE = "${REWARDKIT_JUDGE}"
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+OPENAI_API_KEY = "${OPENAI_API_KEY}"
+OPENAI_API_BASE = "${OPENAI_API_BASE}"
+
 [agent]
 timeout_sec = 7200.0
 user = "root"
