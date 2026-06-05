@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Protocol
 
-from .types import StepRecord
+from .types import LifecycleEvent, StepRecord
 
 
 @dataclass(frozen=True)
@@ -166,7 +166,8 @@ class AgentTrajectoryLogSource:
 
     def read(self, runtime_context: Dict[str, Any] | None = None) -> LogReadResult:
         runtime_context = runtime_context or {}
-        steps = runtime_context.get("steps", [])
+        steps = runtime_context.get("steps") or runtime_context.get("history") or []
+        lifecycle_events = runtime_context.get("lifecycle_events", [])
         commands: List[Dict[str, Any]] = []
         groups: Dict[str, List[Dict[str, Any]]] = {
             "environment_interactions": [],
@@ -179,7 +180,7 @@ class AgentTrajectoryLogSource:
                 continue
             category = _agent_trajectory_category(record.action.tool)
             command = {
-                "turn": record.step,
+                "step": record.step,
                 "tool": record.action.tool,
                 "category": category,
                 "command": record.action.command,
@@ -199,18 +200,25 @@ class AgentTrajectoryLogSource:
             category: len(items)
             for category, items in groups.items()
         }
+        lifecycle_payload = [
+            _lifecycle_event_payload(event)
+            for event in lifecycle_events
+            if isinstance(event, LifecycleEvent) or isinstance(event, dict)
+        ]
         return LogReadResult(
             name=self.spec.name,
             kind=self.spec.kind,
             success=True,
             session={
                 "commands": commands,
+                "lifecycle_events": lifecycle_payload,
                 "groups": groups,
                 "category_counts": category_counts,
-                "total_turns": len(commands),
+                "total_steps": len(commands),
             },
             metadata={
                 "step_count": len(commands),
+                "lifecycle_event_count": len(lifecycle_payload),
                 "category_counts": category_counts,
             },
         )
@@ -250,6 +258,12 @@ def _agent_trajectory_category(tool_name: str) -> str:
     if tool_name.startswith("log_"):
         return "log_tool_interactions"
     return "other_tool_interactions"
+
+
+def _lifecycle_event_payload(event: LifecycleEvent | Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(event, LifecycleEvent):
+        return asdict(event)
+    return dict(event)
 
 
 def _read_tail(path: Path, tail_bytes: int) -> str:

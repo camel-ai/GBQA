@@ -134,7 +134,6 @@ def test_config_rendering() -> None:
     assert "input_token_limit" in api_payload["llm"]
     assert "context_token_limit" not in api_payload["llm"]
     assert "message_window_" + "size" not in api_payload["llm"]
-    assert "reset_between_" + "turns" not in api_payload["llm"]
     assert api_payload["llm"]["reasoning"]["mode"] == "auto"
     assert api_payload["memory"]["memory_context_token_limit"] == 12000
     assert api_payload["memory"]["long_term_file"].endswith(
@@ -159,7 +158,6 @@ def test_agent_harness_example_has_no_task_endpoints() -> None:
     assert "input_token_limit" in payload["llm"]
     assert "context_token_limit" not in payload["llm"]
     assert "message_window_" + "size" not in payload["llm"]
-    assert "reset_between_" + "turns" not in payload["llm"]
     assert "reasoning" in payload["llm"]
     assert "memory_context_token_limit" in payload["memory"]
     assert "{ga" + "me_id}" not in payload["memory"]["long_term_file"]

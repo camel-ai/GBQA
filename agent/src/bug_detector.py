@@ -60,7 +60,7 @@ class BugDetector:
         self._enable_llm_analysis = enable_llm_analysis
         self._auto_confirm_threshold = auto_confirm_threshold
         self._rules = set(rules)
-        self._last_turn: Optional[int] = None
+        self._last_step: Optional[int] = None
         self._review_agent = (
             llm_client.create_task_agent(
                 system_prompt="You are a QA analyst summarizing potential bugs.",
@@ -99,9 +99,9 @@ class BugDetector:
                 findings.append(failure_finding)
 
         if "state_consistency" in self._rules:
-            turn_issue = self._check_turn_consistency(observation)
-            if turn_issue:
-                findings.append(turn_issue)
+            step_issue = self._check_step_consistency(observation)
+            if step_issue:
+                findings.append(step_issue)
 
         if "duplicate_item" in self._rules:
             duplicate_issue = self._check_duplicate_items(observation)
@@ -134,23 +134,23 @@ class BugDetector:
             missing.append("state")
         return missing
 
-    def _check_turn_consistency(self, observation: Observation) -> Optional[BugFinding]:
-        if observation.turn is None:
+    def _check_step_consistency(self, observation: Observation) -> Optional[BugFinding]:
+        if observation.step is None:
             return None
-        if self._last_turn is not None and observation.turn < self._last_turn:
+        if self._last_step is not None and observation.step < self._last_step:
             return BugFinding(
-                title="Turn counter moved backwards",
+                title="Step counter moved backwards",
                 description=(
-                    f"Turn decreased from {self._last_turn} to {observation.turn}."
+                    f"Step decreased from {self._last_step} to {observation.step}."
                 ),
                 confidence=0.8,
                 evidence={
-                    "previous_turn": self._last_turn,
-                    "current_turn": observation.turn,
+                    "previous_step": self._last_step,
+                    "current_step": observation.step,
                 },
                 tags=["state_consistency"],
             )
-        self._last_turn = observation.turn
+        self._last_step = observation.step
         return None
 
     @staticmethod

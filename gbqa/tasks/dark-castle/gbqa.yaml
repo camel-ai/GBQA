@@ -3,7 +3,7 @@ task:
   id: "gbqa/dark-castle"
   family: "game"
   title: "Dark Castle: Night of Awakening"
-  profile: "Text adventure in a mysterious castle. Focus on exploration, items, puzzles, and narrative consistency. You can also use 'new game' to reset and 'close game' to end a session."
+  profile: "Text adventure in a mysterious castle. Focus on exploration, items, puzzles, and narrative consistency. The target software accepts 'new game' to reset; use lifecycle tools such as 'new_session' to open a fresh exploration path, 'end_session' to close one, or 'switch_session' to move between open sessions."
 software:
   type: "github_release"
   repository: "https://github.com/Tsumugii24/dark-castle"

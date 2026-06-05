@@ -15,8 +15,8 @@ You are planning the next single action for the QA exploration agent.
 ## Current Artifacts:
 {current_artifacts}
 
-## Current Turn:
-{turn}
+## Current Step:
+{step}
 
 Now, by considering the above context, decide the next step. Follow these rules:
 - Choose exactly one tool from the available-tools section below.

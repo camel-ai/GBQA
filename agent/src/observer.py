@@ -14,7 +14,7 @@ class ObservationParser:
         success = bool(payload.get("success", False))
         message = str(payload.get("message", ""))
         state = payload.get("state") or {}
-        turn = payload.get("turn")
+        step = payload.get("step")
         terminal = bool(payload.get("terminal", False))
         summary = str(payload.get("summary", "")).strip()
         env_state = payload.get("env_state") or {}
@@ -26,7 +26,7 @@ class ObservationParser:
             state=state,
             raw=payload,
             terminal=terminal,
-            turn=turn if isinstance(turn, int) else None,
+            step=step if isinstance(step, int) else None,
             summary=summary or message,
             env_state=env_state if isinstance(env_state, dict) else {},
             artifacts=artifacts if isinstance(artifacts, dict) else {},
@@ -55,8 +55,8 @@ class ObservationParser:
             hud_parts.append(f"current room={room_name}")
         if has_inventory:
             hud_parts.append(f"inventory load={inventory_count}/6")
-        if isinstance(payload.get("turn"), int):
-            hud_parts.append(f"current turn={payload['turn']}")
+        if isinstance(payload.get("step"), int):
+            hud_parts.append(f"current step={payload['step']}")
         if light_source_text:
             hud_parts.append(f"light_source={light_source_text}")
         if visibility_text:

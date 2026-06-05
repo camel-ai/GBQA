@@ -32,7 +32,7 @@ class CommandState:
 class NormalizedCommand:
     """Represents a normalized record of a single command execution."""
 
-    turn: int
+    step: int
     command: str
     success: bool
     message: str
@@ -48,7 +48,7 @@ class NormalizedSession:
 
     commands: List[NormalizedCommand]
     result: str = "in_progress"
-    total_turns: int = 0
+    total_steps: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -108,7 +108,7 @@ class UniversalLogAdapter:
 
             normalized_commands.append(
                 NormalizedCommand(
-                    turn=step.get("step") or step.get("turn") or i,
+                    step=step.get("step") or i,
                     command=str(cmd_text),
                     success=resp.get("success", True) if isinstance(resp, dict) else True,
                     message=str(resp.get("message", "")) if isinstance(resp, dict) else str(resp),
@@ -122,7 +122,7 @@ class UniversalLogAdapter:
         return NormalizedSession(
             commands=normalized_commands,
             result=raw_data.get("result", "in_progress"),
-            total_turns=raw_data.get("total_turns", len(normalized_commands)),
+            total_steps=raw_data.get("total_steps", len(normalized_commands)),
             metadata=raw_data,
         )
 

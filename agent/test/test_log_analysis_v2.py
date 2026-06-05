@@ -21,7 +21,7 @@ def test_universal_adapter_api_format():
     raw = {
         "commands": [
             {
-                "turn": 1,
+                "step": 1,
                 "command": "look",
                 "response": {"success": True, "message": "Ok"},
                 "state_snapshot": {"room": "Hall", "inventory": ["key"]}
@@ -63,7 +63,7 @@ def test_streak_detection():
     commands = [
         NormalizedCommand(i, "cmd", False, "Error") for i in range(1, 5)
     ]
-    session = NormalizedSession(commands=commands, total_turns=4)
+    session = NormalizedSession(commands=commands, total_steps=4)
     results = analyzer.analyze_session(session)
     anomalies = [a for a in results["anomalies"] if a["type"] == "failed_command_streak"]
     assert len(anomalies) == 1
@@ -74,7 +74,7 @@ def test_repeated_command_detection():
     commands = [
         NormalizedCommand(i, "jump", True, "Ok") for i in range(1, 5)
     ]
-    session = NormalizedSession(commands=commands, total_turns=4)
+    session = NormalizedSession(commands=commands, total_steps=4)
     results = analyzer.analyze_session(session)
     anomalies = [a for a in results["anomalies"] if a["type"] == "repeated_command"]
     assert len(anomalies) == 1
@@ -88,7 +88,7 @@ def test_state_inconsistency_location():
         NormalizedCommand(1, "look", True, "Ok", state=CommandState(location="Hall"), timestamp=t1),
         NormalizedCommand(2, "sing", True, "Ok", state=CommandState(location="Kitchen"), timestamp=t1 + timedelta(seconds=1)),
     ]
-    session = NormalizedSession(commands=commands, total_turns=2)
+    session = NormalizedSession(commands=commands, total_steps=2)
     results = analyzer.analyze_session(session)
     anomalies = [a for a in results["anomalies"] if a["type"] == "state_inconsistency"]
     assert len(anomalies) == 1
@@ -100,7 +100,7 @@ def test_error_pattern_detection():
     commands = [
         NormalizedCommand(1, "test", False, "Fatal KeyError happened"),
     ]
-    session = NormalizedSession(commands=commands, total_turns=1)
+    session = NormalizedSession(commands=commands, total_steps=1)
     results = analyzer.analyze_session(session)
     anomalies = [a for a in results["anomalies"] if a["type"] == "error_in_response"]
     assert len(anomalies) == 1
@@ -110,21 +110,21 @@ def test_inventory_shrink_anomaly_does_not_crash():
     session = NormalizedSession(
         commands=[
             NormalizedCommand(
-                turn=1,
+                step=1,
                 command="look",
                 success=True,
                 message="ok",
                 state=CommandState(location="hall", inventory=["key"]),
             ),
             NormalizedCommand(
-                turn=2,
+                step=2,
                 command="look",
                 success=True,
                 message="ok",
                 state=CommandState(location="hall", inventory=[]),
             ),
         ],
-        total_turns=2,
+        total_steps=2,
     )
 
     result = LogAnalyzer().analyze_session(session)

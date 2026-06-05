@@ -244,6 +244,81 @@ def register_environment_action_tool(
     )
 
 
+def register_lifecycle_tools(registry: ToolRegistry) -> None:
+    """Register lifecycle skill tools and activate the skill by default."""
+    skill_name = "lifecycle"
+    try:
+        registry.register_skill(_load_builtin_skill(skill_name))
+    except (FileNotFoundError, ValueError):
+        registry.register_skill(
+            SkillCard(
+                name=skill_name,
+                description="Task and session lifecycle control for QA exploration.",
+            )
+        )
+
+    lifecycle_tools = [
+        (
+            "start_session",
+            "Open a new session and make it the active session",
+            "short reason for opening a session",
+            lambda action_text: {"reason": _require_action(action_text)},
+        ),
+        (
+            "end_session",
+            "Close one open session without starting another",
+            "session_id or session_id reason, or a reason alone for the active session",
+            _parse_end_session_action,
+        ),
+        (
+            "new_session",
+            "Open a fresh session and make it active regardless of other open sessions",
+            "short reason for opening a fresh session",
+            lambda action_text: {"reason": _require_action(action_text)},
+        ),
+        (
+            "refresh_session",
+            "Refresh capability metadata for a specific open session",
+            "session_id",
+            lambda action_text: {"session_id": _require_action(action_text)},
+        ),
+        (
+            "switch_session",
+            "Switch the active session to an already-open session_id",
+            "session_id",
+            lambda action_text: {"session_id": _require_action(action_text)},
+        ),
+        (
+            "list_sessions",
+            "List open session_ids and the current active session_id",
+            "any non-empty text (ignored)",
+            lambda _action_text: {},
+        ),
+        (
+            "end_task",
+            "Finish the current QA task and stop the interaction loop",
+            "short reason for finishing the task",
+            lambda action_text: {"reason": _require_action(action_text)},
+        ),
+    ]
+    for name, description, action_format, action_parser in lifecycle_tools:
+        registry.register(
+            Tool(
+                name=name,
+                description=description,
+                action_format=action_format,
+                handler=lambda payload, runtime, tool_name=name: _invoke_lifecycle_tool(
+                    tool_name,
+                    payload,
+                    runtime,
+                ),
+                action_parser=action_parser,
+            ),
+            skill_name=skill_name,
+        )
+    registry.activate_skill(skill_name)
+
+
 def register_code_tools(
     registry: ToolRegistry,
     codebase_adapter: UniversalCodebaseAdapter,
@@ -366,7 +441,7 @@ def register_log_tools(
             name="log_analyze",
             description="Analyze exposed runtime logs and agent trajectory for anomalies",
             action_format=(
-                "analyze, failures, or JSON object with source/start_turn/end_turn/"
+                "analyze, failures, or JSON object with source/start_step/end_step/"
                 "failures_only/limit/include_debug_output"
             ),
             handler=lambda payload, runtime: _invoke_source_log_analysis_tool(
@@ -535,6 +610,42 @@ def _invoke_use_skill_tool(
     )
 
 
+def _parse_end_session_action(action_text: str) -> ToolPayload:
+    text = action_text.strip()
+    if not text:
+        raise ValueError("end_session requires a session_id or reason")
+    first, _, remainder = text.partition(" ")
+    if remainder:
+        return {
+            "session_id": first,
+            "reason": remainder.strip() or "agent requested session end",
+        }
+    return {"reason": first}
+
+
+def _invoke_lifecycle_tool(
+    tool_name: str,
+    payload: ToolPayload,
+    runtime_context: ToolRuntimeContext,
+) -> ToolInvocationResult:
+    del runtime_context
+    reason = str(payload.get("reason") or "").strip()
+    session_id = str(payload.get("session_id") or "").strip()
+    message = reason or session_id or tool_name
+    return ToolInvocationResult(
+        observation=_tool_observation(
+            tool_name,
+            payload,
+            {
+                "success": True,
+                "message": message,
+                "reason": reason,
+                "session_id": session_id,
+            },
+        )
+    )
+
+
 def _invoke_log_list_tool(
     payload: ToolPayload,
     runtime_context: ToolRuntimeContext,
@@ -624,8 +735,8 @@ def _invoke_source_log_analysis_tool(
     if _has_log_analysis_filters(payload):
         result["filtered_commands"] = analyzer.filter_commands(
             merged_session,
-            start_turn=int(payload.get("start_turn", 0)),
-            end_turn=int(payload.get("end_turn", 0)),
+            start_step=int(payload.get("start_step", 0)),
+            end_step=int(payload.get("end_step", 0)),
             failures_only=bool(payload.get("failures_only", False)),
             limit=int(payload.get("limit", 50)),
         )
@@ -642,15 +753,15 @@ def _merge_log_sessions(sessions: List[Dict[str, Any]]) -> Dict[str, Any]:
             commands.extend(item for item in raw_commands if isinstance(item, dict))
     return {
         "commands": commands,
-        "total_turns": len(commands),
+        "total_steps": len(commands),
         "result": "in_progress",
     }
 
 
 def _has_log_analysis_filters(payload: ToolPayload) -> bool:
-    if int(payload.get("start_turn", 0)) > 0:
+    if int(payload.get("start_step", 0)) > 0:
         return True
-    if int(payload.get("end_turn", 0)) > 0:
+    if int(payload.get("end_step", 0)) > 0:
         return True
     if bool(payload.get("failures_only", False)):
         return True
@@ -689,6 +800,35 @@ def _tool_observation(
 
 
 def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
+    if tool_name in {
+        "start_session",
+        "end_session",
+        "new_session",
+        "refresh_session",
+        "switch_session",
+        "list_sessions",
+        "end_task",
+    }:
+        reason = str(result.get("reason") or result.get("message") or "").strip()
+        session_id = str(result.get("session_id") or "").strip()
+        if tool_name == "start_session":
+            return f"Lifecycle request: open a new session. Reason: {reason}".rstrip()
+        if tool_name == "end_session":
+            target = session_id or "active session"
+            return (
+                f"Lifecycle request: close session {target}. Reason: {reason}"
+            ).rstrip()
+        if tool_name == "new_session":
+            return (
+                f"Lifecycle request: open a fresh active session. Reason: {reason}"
+            ).rstrip()
+        if tool_name == "refresh_session":
+            return f"Lifecycle request: refresh session {session_id}".rstrip()
+        if tool_name == "switch_session":
+            return f"Lifecycle request: switch active session to {session_id}".rstrip()
+        if tool_name == "list_sessions":
+            return "Lifecycle request: list open sessions and active session_id"
+        return f"Lifecycle request: end task. Reason: {reason}".rstrip()
     if tool_name == "use_skill":
         skill_name = str(result.get("skill", "")).strip()
         if not bool(result.get("success", False)):
@@ -796,7 +936,7 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
                     success = bool(response.get("success", False))
                     status = "OK" if success else "FAIL"
                     parts.append(
-                        f"  T{command.get('turn', '?')}: [{status}] "
+                        f"  S{command.get('step', '?')}: [{status}] "
                         f"{str(command.get('command', '')).strip()}"
                     )
         read_errors = result.get("read_errors", [])

@@ -42,7 +42,7 @@ class ActionPlanner:
             "recent_trace": context.get("recent_trace", ""),
             "current_observation": context.get("current_observation", ""),
             "current_artifacts": context.get("current_artifacts", ""),
-            "turn": str(context.get("turn", "")),
+            "step": str(context.get("step", "")),
             "available_tools_prompt_section": context.get(
                 "available_tools_prompt_section",
                 context.get("code_tools_prompt_section", ""),

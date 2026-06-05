@@ -68,21 +68,21 @@ class SessionLogSourceStub:
         del runtime_context
         commands = [
             {
-                "turn": 1,
+                "step": 1,
                 "command": "look",
                 "response": {"success": False, "message": "fail one"},
                 "timestamp": "2026-04-13T12:00:00",
                 "state_snapshot": {"inventory": ["torch"], "room": "Hall"},
             },
             {
-                "turn": 2,
+                "step": 2,
                 "command": "look",
                 "response": {"success": False, "message": "fail two"},
                 "timestamp": "2026-04-13T12:00:01",
                 "state_snapshot": {"inventory": ["torch"], "room": "Hall"},
             },
             {
-                "turn": 3,
+                "step": 3,
                 "command": "look",
                 "response": {"success": False, "message": "fail three"},
                 "timestamp": "2026-04-13T12:00:02",
@@ -94,7 +94,7 @@ class SessionLogSourceStub:
             kind=self.spec.kind,
             success=True,
             text="[12:00:00.000] ERROR simulated server failure",
-            session={"commands": commands, "total_turns": 3, "result": "in_progress"},
+            session={"commands": commands, "total_steps": 3, "result": "in_progress"},
         )
 
 
@@ -398,7 +398,7 @@ def test_auto_log_analysis_receives_agent_steps_for_non_api_backend() -> None:
     report = orchestrator.run("Desktop QA")
 
     assert "[Auto log analysis]" in report.steps[0].notes
-    assert "1-turn session" in report.steps[0].notes
+    assert "1-step session" in report.steps[0].notes
 
 
 def _run(planner, *, log_analysis_interval=0, max_steps=1):

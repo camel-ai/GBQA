@@ -29,7 +29,7 @@ def _build_sample_context() -> Dict[str, str]:
         "current_observation": "A dark corridor lies ahead.",
         "current_artifacts": "",
         "execution_diagnostics": "{}",
-        "turn": "2",
+        "step": "2",
         "available_tools_prompt_section": """## Available Tools:
 - environment_action: Execute one semantic environment action through the operator and active execution backend. Format: `semantic action string`.
 - use_skill: Load an available skill's SKILL.md instructions and reveal its tools. Format: `skill name`.

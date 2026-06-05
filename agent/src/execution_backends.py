@@ -29,7 +29,7 @@ class ExecutionBackend(Protocol):
     backend_type: str
 
     def start_session(self, run_context: Dict[str, Any]) -> SessionHandle:
-        """Create a run-bound backend session."""
+        """Create a run-bound session."""
 
     def describe_capabilities(
         self,
@@ -46,7 +46,7 @@ class ExecutionBackend(Protocol):
         """Execute a normalized operator request."""
 
     def close_session(self, session: SessionHandle) -> None:
-        """Close backend resources for the given session."""
+        """Close resources for the given session."""
 
 
 @dataclass(frozen=True)
