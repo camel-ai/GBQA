@@ -134,7 +134,8 @@ def _render_test_sh() -> str:
     return """#!/usr/bin/env bash
 set -euo pipefail
 
-python /tests/gbqa_verifier.py
+export PYTHONPATH="/sandbox:${PYTHONPATH:-}"
+python -m gbqa.rewards.runner --tests-dir /tests --workspace /sandbox --out-dir /logs/verifier
 """
 
 
@@ -158,11 +159,16 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "reward.txt").write_text("0.0\\n", encoding="utf-8")
     (output_dir / "reward.json").write_text(
+        json.dumps({"reward": 0.0}, indent=2) + "\\n",
+        encoding="utf-8",
+    )
+    (output_dir / "reward-details.json").write_text(
         json.dumps(
             {
-                "reward": 0.0,
-                "status": "draft_verifier",
-                "message": "Generated task requires a reviewed verifier.",
+                "gbqa": {
+                    "status": "draft_verifier",
+                    "message": "Generated task requires a reviewed verifier.",
+                }
             },
             indent=2,
         )

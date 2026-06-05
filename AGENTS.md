@@ -298,21 +298,49 @@ Every GBQA run should export normalized artifacts under `/logs/agent/gbqa`:
 - `report.md` when available
 - `artifacts/` for screenshots, traces, DOM dumps, or other interaction files
 
-The verifier reads GBQA artifacts and ground truth, then writes Harbor-compatible outputs:
+GBQA verifiers should follow Harbor Rewardkit conventions where possible.
+Rewardkit discovers criteria from `tests/`, writes numeric scores to
+`/logs/verifier/reward.json`, and writes per-criterion detail to
+`/logs/verifier/reward-details.json`. See
+[Harbor Rewardkit](https://www.harborframework.com/docs/rewardkit) and
+[LLM-as-a-Judge](https://www.harborframework.com/docs/tutorials/llm-as-a-judge).
 
-- `/logs/verifier/reward.txt`
-- `/logs/verifier/reward.json`
-- `/logs/verifier/gbqa_result.json`
+Recommended task layout:
+
+```text
+tests/
+  test.sh
+  criteria.py          # optional shared Rewardkit criteria imports
+  recall/check.py      # programmatic criterion subdirectory
+  precision/check.py
+  gbqa_verifier.py     # backward-compatible entrypoint
+```
+
+`tests/test.sh` should call `python -m gbqa.rewards.runner` with
+`PYTHONPATH=/sandbox`. The runner executes Rewardkit when
+`harbor-rewardkit` is available, then enriches Harbor outputs with GBQA
+bug-matching metrics.
+
+Verifier outputs:
+
+- `/logs/verifier/reward.txt` — primary scalar reward (recall by default)
+- `/logs/verifier/reward.json` — numeric Harbor metrics such as
+  `recall`, `precision`, and `reward`
+- `/logs/verifier/reward-details.json` — Rewardkit criterion details plus a
+  `gbqa` section with match evidence
+- `/logs/verifier/gbqa_result.json` — full GBQA evaluation payload for
+  debugging and leaderboard export
 
 Core platform verifier entrypoints:
 
 - `gbqa.verifier.evaluate_bug_report(...)`
-- `gbqa.verifier.write_harbor_reward(...)`
+- `gbqa.rewards.run_task_verifier(...)`
+- `gbqa.rewards.criteria.bug_recall` / `bug_precision` shared Rewardkit
+  criteria
 
-Task packages may still carry task-local verifier copies for Harbor execution.
-The current Dark Castle package runs `/tests/gbqa_verifier.py` from
-`tests/test.sh`; keep task-local copies behaviorally aligned with
-`gbqa.verifier` when updating scoring logic.
+Task packages may still carry task-local `tests/` entrypoints for Harbor
+execution. Keep task-local criteria aligned with `gbqa.rewards` when
+updating scoring logic.
 
 Shell verifier scripts must use LF line endings. Windows CRLF checkouts can break Linux Daytona execution with `/usr/bin/env: 'bash\r': No such file or directory`. Keep `.gitattributes` enforcing:
 
