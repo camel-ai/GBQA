@@ -211,11 +211,14 @@ def test_artifact_export_and_verifier() -> None:
     assert (temp_root / "verifier" / "reward.json").exists()
     assert (temp_root / "verifier" / "gbqa_result.json").exists()
     reward_payload = json.loads((temp_root / "verifier" / "reward.json").read_text())
-    assert reward_payload == {"reward": result["reward"]}
+    assert reward_payload["reward"] == result["reward"]
+    assert reward_payload["recall"] == result["recall"]
+    assert reward_payload["precision"] == result["precision"]
     assert all(
         isinstance(value, (int, float))
         for value in reward_payload.values()
     )
+    assert (temp_root / "verifier" / "reward-details.json").exists()
     gbqa_result = json.loads((temp_root / "verifier" / "gbqa_result.json").read_text())
     assert gbqa_result["details"] == result["details"]
     assert gbqa_result["precision"] == result["precision"]
