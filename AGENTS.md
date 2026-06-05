@@ -19,6 +19,7 @@ Milestone 1 is complete and remains the validated Daytona-first baseline:
 - `GBQAHarborAgent` is the default custom Harbor agent wrapper.
 - Dark Castle is the first external GitHub software task and is ready in the remote Daytona sandbox.
 - API mode and browser mode are the completed interaction paths.
+- Computer-use is present in task metadata and Harbor config as an experimental post-M1 path, but it is not part of the validated M1 smoke baseline.
 - Harbor-compatible verifier execution and GBQA artifact export are implemented.
 - Parallel evaluation is available through Harbor's concurrent trial runner; in the Daytona path, this means multiple independent Daytona sandboxes can run at the same time.
 
@@ -48,7 +49,7 @@ Validated result:
 
 - M2: add additional QA harnesses such as `CodexHarborAgent` and `ClaudeCodeHarborAgent`.
 - M2: add more verified benchmark environments and task manifests.
-- M2: extend interaction beyond completed API/browser paths toward computer-use, and further free interaction mode (mixed interaction mode).
+- M2: harden the experimental computer-use path and extend further toward free interaction mode (mixed interaction mode).
 - M2: keep Linux as the validated sandbox baseline while expanding toward Windows and macOS support.
 
 ### M3
@@ -68,10 +69,16 @@ Harbor task packages use this structure:
 - `task.toml`: Harbor-compatible task metadata, runtime resource requirements, agent/verifier timeout, environment config.
 - `instruction.md`: agent-facing instruction.
 - `environment/`: environment definition, normally `Dockerfile`.
+- `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer-use overlay path.
 - `tests/`: verifier entrypoint and verifier assets.
 - `solution/`: oracle solution assets.
 - `bugs/`: GBQA ground-truth bug definitions.
 - `gbqa.yaml`: GBQA-specific metadata that Harbor does not own.
+
+Harbor itself consumes `environment/`. When `interaction_mode=computer_use`,
+`gbqa.cli.harbor_run` may create a temporary task overlay that replaces
+`environment/` with `environment-computer-use/` before delegating to Harbor.
+Direct `harbor run` should not be treated as a stable computer-use entrypoint.
 
 Harbor's standard in-sandbox paths must remain stable:
 
@@ -99,7 +106,7 @@ Current GBQA sandbox layout:
 ```text
 /sandbox/
   software/
-    dark-castle/
+    <task>/
   agent/
   gbqa/
   runtime/
@@ -156,41 +163,109 @@ The current default QA agent harness lives under `agent/` and is wrapped for Har
 
 - `gbqa.harbor.agent.GBQAHarborAgent`
 
-The harness should stay task-generic:
+The harness should stay task-generic, but the current Harbor baseline still
+contains Dark Castle startup and log-copy glue. Treat that as baseline-specific
+integration to extract before adding many unrelated tasks, not as a pattern for
+new generic harness code.
 
 - Use task/environment terminology in platform code.
 - Avoid introducing new generic code with `game` naming.
 - Game-specific naming is acceptable only inside external game software or task-specific metadata where the upstream API uses it, such as Dark Castle's `game_id` response field.
 
+Current planner-visible tool architecture:
+
+- `agent/src/tool_registry.py` owns progressive tool disclosure. The default
+  planner surface is `environment_action` plus `use_skill`; optional tools are
+  revealed only after the agent activates the corresponding skill.
+- `agent/skills/*/SKILL.md` files are runtime prompt/tool disclosure assets, not
+  passive documentation. Harbor uploads `run_agent.py`, `src/`, `prompts/`, and
+  `skills/` into `/sandbox/agent`.
+- `agent/src/codebase_types.py` owns `UniversalCodebaseAdapter`, which provides
+  white-box source inspection and temporary code injection through backend shell
+  access rooted at `/sandbox/software`.
+- `agent/src/log_sources.py`, `agent/src/log_types.py`, and
+  `agent/src/log_analyzer.py` own source-backed log diagnostics for agent
+  trajectory logs and task-declared runtime logs.
+- Task/session lifecycle is owned by `agent/skills/lifecycle/SKILL.md`.
+  A **session** is the harness-level unit of interactive context for one task.
+  It is mode-agnostic: API, browser, and computer-use runs all use the same
+  session naming and lifecycle tools regardless of which execution backend
+  creates the session. Do not label planner-facing lifecycle text as
+  "backend session", "browser session", or similar provider-specific variants.
+  At run entry the harness records only `start_task` and the initial
+  `start_session` as system events. Those are not planner tools.
+  The lifecycle skill is activated by default and provides planner-visible
+  session management:
+  - `start_session`: open a session and make it active
+  - `end_session`: close one session only
+  - `new_session`: open a fresh active session without closing other open
+    sessions
+  - `refresh_session`: refresh capability metadata for a specific `session_id`
+  - `switch_session`: change the active session among open sessions
+  - `list_sessions`: list `active_session_id` and `open_session_ids` on demand
+  - `end_task`: finish the task loop
+  `start_session` and `new_session` echo session IDs in their step
+  observations. Use `list_sessions` when the agent needs to re-check IDs; do not
+  inject session state into every planner step.
+  The orchestrator keeps an `open_sessions` pool plus one `active_session`.
+  Task end closes every still-open session before recording `end_task`.
+  Do not add task-family names such as `close_game` to generic orchestrator or
+  tool code.
+- Every run should record lifecycle events in reports/logs. `end_task` must
+  distinguish `trigger=agent` for an active planner request from
+  `trigger=max_steps` when the loop is force-ended by the step budget.
+
 The rendered Harbor run config is produced by:
 
 - `gbqa.harbor.config.render_agent_config(...)`
 
-This config should contain harness policy only: model, reasoning, loop budgets, memory, interaction adapter config, and reporting. Task endpoints and software source belong in task metadata.
+This config should contain harness policy only: model, reasoning, loop budgets,
+memory, interaction adapter config, log source wiring, and reporting. Task
+endpoints, supported interaction modes, internal log sources, and software
+source belong in task metadata.
 
 ## Interaction Modes
 
-Completed interaction modes:
+Current interaction modes:
 
 - `api`
 - `browser`
+- `computer_use`
 
-Both completed modes are tool-use paths, but they operate at different abstraction levels:
+These modes are tool-use paths, but they operate at different abstraction levels:
 
 - API mode calls the target backend contract directly.
 - Browser mode drives the frontend through Playwright MCP/runtime.
+- Computer-use mode drives a GUI/Cua environment and currently depends on
+  `gbqa.cli.harbor_run` selecting `environment-computer-use/` through a temporary
+  overlay when that directory exists.
+
+Validated baseline status:
+
+- API and browser are the completed M1 paths.
+- Computer-use is wired through task metadata, config rendering, and the Harbor
+  wrapper, but remains experimental until GUI/Cua environment selection becomes
+  a first-class task mechanism.
 
 Planned post-M1 modes:
 
-- `computer_use`
 - free interaction mode (mixed interaction mode)
 
-The agent planner/operator should target normalized capabilities, not provider-specific implementation details.
+The agent planner/operator should target normalized capabilities, not
+provider-specific implementation details. Session lifecycle vocabulary should
+stay generic (`session`, `session_id`, `active_session`, `open_session_ids`).
 
-Logs are optional environment diagnostics. They are not the same as memory:
+Logs are source-backed diagnostics exposed through the `logs` skill. They are
+not the same as memory:
 
 - Memory is agent-side context compression and retrieval.
-- Logs are environment/runtime-side diagnostics exposed as an optional tool capability.
+- Logs are environment/runtime-side diagnostics and harness-owned trajectory
+  diagnostics exposed as optional tool capabilities.
+- `agent_trajectory` is provided by the harness; task metadata can declare
+  runtime sources such as stdout/stderr files or software-owned session log
+  directories through `runtime.internal_log_sources`.
+- `log_analyze` can combine trajectory and runtime sources to summarize
+  failures, repeated actions, suspicious state transitions, and runtime errors.
 
 ## Environment And Model Configuration
 
@@ -229,10 +304,15 @@ The verifier reads GBQA artifacts and ground truth, then writes Harbor-compatibl
 - `/logs/verifier/reward.json`
 - `/logs/verifier/gbqa_result.json`
 
-Core verifier entrypoints:
+Core platform verifier entrypoints:
 
 - `gbqa.verifier.evaluate_bug_report(...)`
 - `gbqa.verifier.write_harbor_reward(...)`
+
+Task packages may still carry task-local verifier copies for Harbor execution.
+The current Dark Castle package runs `/tests/gbqa_verifier.py` from
+`tests/test.sh`; keep task-local copies behaviorally aligned with
+`gbqa.verifier` when updating scoring logic.
 
 Shell verifier scripts must use LF line endings. Windows CRLF checkouts can break Linux Daytona execution with `/usr/bin/env: 'bash\r': No such file or directory`. Keep `.gitattributes` enforcing:
 
@@ -247,13 +327,30 @@ Use these directories for new platform code:
 - `gbqa/spec/` or `gbqa/spec.py`: task metadata and schema loading.
 - `gbqa/harbor/`: Harbor wrappers and integration glue.
 - `gbqa/reporting/`: conversion from harness-specific reports to GBQA normalized artifacts.
-- `gbqa/protocol/`: stable run/report/bug schemas.
+- `gbqa/protocol/`: lightweight stable run/report/bug schemas and normalizers.
 - `gbqa/verifier.py`: verifier scoring and reward output.
 - `gbqa/tasks/`: first-party Harbor-compatible task packages.
 - `agent/`: current QA agent harness implementation.
+- `agent/skills/`: runtime skill instructions used for progressive tool
+  disclosure.
+- `agent/src/tool_registry.py`: planner-visible tool registry and skill-gated
+  disclosure.
+- `agent/src/codebase_types.py`: universal sandbox codebase adapter for
+  white-box debugging under `/sandbox/software`.
+- `agent/src/log_sources.py`, `agent/src/log_types.py`, and
+  `agent/src/log_analyzer.py`: log source declarations, trajectory/runtime log
+  reading, and log analysis.
 - `environment/`: offline environment discovery, filtering, Daytona verification,
   human review, and task package generation. This directory is not part of the
   GBQA runtime package and must not be uploaded into Daytona during Harbor runs.
+- `environment/export/`: draft task package generation. Generated packages are
+  not production-ready until ground truth, verifier behavior, and reward output
+  contracts are reviewed.
+
+Environment export currently generates package files from Python code in
+`environment/export/generator.py`; do not assume templates under
+`environment/export/templates/` are the active rendering source without checking
+the generator.
 
 Environment sourcing keeps a persistent local resume ledger under
 `environment/catalog/state/`. The default CLI behavior is resume-on:
@@ -282,7 +379,7 @@ the root-level `environment/` preparation system.
 
 ## Verification Commands
 
-`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> task verifier -> `gbqa.verifier`.
+`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> task-local verifier entrypoint; keep task-local logic aligned with `gbqa.verifier`.
 
 Before claiming architecture or path changes are complete, run the commands for your operating system.
 
@@ -300,6 +397,13 @@ python -m compileall -q environment gbqa agent/src agent/run_agent.py
 
 ```powershell
 $failed = @(); Get-ChildItem -Path agent/test -Filter 'test_*.py' | Sort-Object Name | ForEach-Object { python $_.FullName | Out-Null; if ($LASTEXITCODE -ne 0) { $failed += $_.Name } }; if ($failed.Count -gt 0) { Write-Host "FAILED:" ($failed -join ', '); exit 1 } else { Write-Host "all agent test scripts passed" }
+```
+
+For skill-gated tool, log-source, or white-box debugging changes, also run the
+targeted pytest coverage:
+
+```powershell
+python -m pytest agent/test/test_prompt_render.py agent/test/test_log_sources.py agent/test/test_log_analysis_tool.py agent/test/test_code_tool_loop.py agent/test/test_run_agent_endpoints.py agent/test/test_gbqa_harbor.py
 ```
 
 For sandbox path changes, also run:
@@ -357,6 +461,12 @@ if [ "${#failed[@]}" -gt 0 ]; then
 else
   echo "all agent test scripts passed"
 fi
+```
+
+For skill-gated tool, log-source, or white-box debugging changes, also run:
+
+```bash
+python -m pytest agent/test/test_prompt_render.py agent/test/test_log_sources.py agent/test/test_log_analysis_tool.py agent/test/test_code_tool_loop.py agent/test/test_run_agent_endpoints.py agent/test/test_gbqa_harbor.py
 ```
 
 For sandbox path changes, also run:

@@ -15,7 +15,7 @@ This skill grants the agent the ability to inspect the target software's source 
 - `code_restore_file`: Revert any modifications made during debugging.
 
 ## 📖 Best Practices
-1. **Explore First**: Always start with `code_list_files` or `code_search` to find relevant handlers.
+1. **Prefer read-only actions first**: Start with `code_list_files`, `code_read_file`, or `code_search` to find relevant handlers before modifying files.
 2. **Safe Debugging**: Before using `code_write_file`, ensure you have a plan to use `code_restore_file`.
 3. **White-box Inspection**: When an environment error is ambiguous, search for the error message in the codebase to find where it's raised.
 4. **Injection**: Use `print()` to trace variable states in the sandbox. Logs can be read via `log_analyze`.
