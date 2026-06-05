@@ -27,7 +27,10 @@ def install_task_verifier_tests(
         shutil.rmtree(destination)
     shutil.copytree(TEMPLATE_TESTS_ROOT, destination)
 
-    test_sh = destination / "test.sh"
-    text = test_sh.read_text(encoding="utf-8")
-    text = text.replace("__GBQA_GROUND_TRUTH__", ground_truth_path)
-    test_sh.write_text(text, encoding="utf-8", newline="\n")
+    for relative in ("test.sh", "quality/quality.toml"):
+        target = destination / relative
+        if not target.is_file():
+            continue
+        text = target.read_text(encoding="utf-8")
+        text = text.replace("__GBQA_GROUND_TRUTH__", ground_truth_path)
+        target.write_text(text, encoding="utf-8", newline="\n")

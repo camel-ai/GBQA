@@ -1,0 +1,36 @@
+# LLM-as-a-Judge semantic bug matching for Dark Castle.
+# Pass judge credentials through task.toml [verifier.env].
+
+[judge]
+judge = "anthropic/claude-sonnet-4-6"
+files = [
+  "/tests/bugs/dark-castle.json",
+  "/logs/agent/gbqa/bugs.json",
+]
+prompt_template = "semantic_matching.md"
+
+[[criterion]]
+name = "semantic_recall"
+description = "Fraction of ground-truth bugs that are semantically covered by at least one reported bug in the agent bugs JSON."
+type = "numeric"
+min = 0.0
+max = 1.0
+weight = 2.0
+
+[[criterion]]
+name = "semantic_precision"
+description = "Fraction of reported bugs that semantically match a real ground-truth bug rather than being hallucinated or unrelated."
+type = "numeric"
+min = 0.0
+max = 1.0
+weight = 1.0
+
+[[criterion]]
+name = "semantic_alignment"
+description = "Overall semantic alignment between the two bug lists, considering whether matched pairs capture the same observed fault and reproduction steps."
+type = "likert"
+points = 5
+weight = 1.0
+
+[scoring]
+aggregation = "weighted_mean"

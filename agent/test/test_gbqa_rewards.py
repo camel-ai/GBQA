@@ -26,6 +26,18 @@ GROUND_TRUTH = (
 )
 
 
+def _programmatic_tests_dir(temp_root: Path) -> Path:
+    """Copy verifier tests without the LLM judge dimension (no API key needed)."""
+
+    destination = temp_root / "tests"
+    shutil.copytree(
+        TASK_TESTS_DIR,
+        destination,
+        ignore=shutil.ignore_patterns("quality"),
+    )
+    return destination
+
+
 def test_require_rewardkit_imports() -> None:
     rk = require_rewardkit()
     assert hasattr(rk, "run")
@@ -100,7 +112,7 @@ def test_run_task_verifier_with_rewardkit_layout() -> None:
     )
 
     scores = run_task_verifier(
-        tests_dir=TASK_TESTS_DIR,
+        tests_dir=_programmatic_tests_dir(temp_root),
         workspace=temp_root,
         out_dir=out_dir,
         bugs_path=bugs,
@@ -127,6 +139,29 @@ def test_rewardkit_dependency_error_message() -> None:
     ).args[0]
 
 
+def test_quality_toml_is_discoverable() -> None:
+    rk = require_rewardkit()
+    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_quality_discover"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    temp_root.mkdir(parents=True)
+    rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
+    reward_names = {reward.name for reward in rewards}
+    assert "quality" in reward_names
+    quality_rewards = [reward for reward in rewards if reward.name == "quality"]
+    assert len(quality_rewards) == 1
+    assert quality_rewards[0].judge is not None
+    shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_quality_toml_references_ground_truth_and_agent_bugs() -> None:
+    quality_toml = TASK_TESTS_DIR / "quality" / "quality.toml"
+    text = quality_toml.read_text(encoding="utf-8")
+    assert "/tests/bugs/dark-castle.json" in text
+    assert "/logs/agent/gbqa/bugs.json" in text
+    prompt = TASK_TESTS_DIR / "quality" / "semantic_matching.md"
+    assert "{criteria}" in prompt.read_text(encoding="utf-8")
+
+
 def test_matching_evaluates_bug_reports() -> None:
     temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_matching"
     shutil.rmtree(temp_root, ignore_errors=True)
@@ -143,6 +178,8 @@ def main() -> None:
     test_primary_reward_score_prefers_reward_key()
     test_write_post_rewardkit_artifacts_preserves_reward_json()
     test_run_task_verifier_with_rewardkit_layout()
+    test_quality_toml_is_discoverable()
+    test_quality_toml_references_ground_truth_and_agent_bugs()
     test_rewardkit_dependency_error_message()
     test_matching_evaluates_bug_reports()
     print("gbqa rewards tests passed")

@@ -56,6 +56,12 @@ description = "Draft GBQA task generated from environment sourcing."
 agent_timeout_sec = 600
 verifier_timeout_sec = 120
 
+[verifier.env]
+REWARDKIT_JUDGE = "${{REWARDKIT_JUDGE}}"
+ANTHROPIC_API_KEY = "${{ANTHROPIC_API_KEY}}"
+OPENAI_API_KEY = "${{OPENAI_API_KEY}}"
+OPENAI_API_BASE = "${{OPENAI_API_BASE}}"
+
 [metadata]
 benchmark_status = "{seed.get('benchmark_status', 'draft')}"
 software_repository = "{seed['repository']}"

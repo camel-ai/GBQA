@@ -316,6 +316,8 @@ gbqa/tasks/_template/tests/
   precision/check.py
   reward/check.py
   trajectory/check.py
+  quality/quality.toml
+  quality/semantic_matching.md
   judge/evidence_quality.toml.example
 ```
 
@@ -328,9 +330,12 @@ Extension points:
 - Programmatic bug matching: shared criteria in `gbqa.rewards.criteria`
 - Trajectory checks: `trajectory_exported` for GBQA `trace.jsonl` /
   `steps.jsonl`, plus optional `atif_trajectory_tool_used` for ATIF JSON
-- LLM-as-a-Judge: copy `judge/evidence_quality.toml.example` to
-  `judge/evidence_quality.toml` and pass API keys through `task.toml`
-  `[verifier.env]`
+- Semantic bug matching (LLM-as-a-Judge): `quality/quality.toml` loads
+  ground truth and `/logs/agent/gbqa/bugs.json` into the same judge context.
+  Configure the judge model and API keys through `task.toml` `[verifier.env]`
+  (`REWARDKIT_JUDGE`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `OPENAI_API_BASE`).
+- Optional rubric extensions: copy `judge/evidence_quality.toml.example` to
+  `judge/evidence_quality.toml` for evidence-quality scoring.
 
 `tests/test.sh` should call `python -m gbqa.rewards.runner` with
 `PYTHONPATH=/sandbox`. The runner always executes Rewardkit, then writes
