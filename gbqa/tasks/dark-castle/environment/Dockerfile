@@ -24,6 +24,7 @@ RUN python3 -m venv /opt/venv \
       camel-ai \
       flask \
       flask-cors \
+      harbor-rewardkit \
       openai \
       pillow \
       pydantic \
