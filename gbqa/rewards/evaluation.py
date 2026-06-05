@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from gbqa.rewards.paths import resolve_bugs_path, resolve_ground_truth_path
-from gbqa.verifier import evaluate_bug_report
+from gbqa.rewards.matching import evaluate_bug_report
 
 _RESULT_CACHE: dict[tuple[str, str, float], dict[str, Any]] = {}
 

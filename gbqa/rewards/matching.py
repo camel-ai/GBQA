@@ -1,8 +1,7 @@
-"""GBQA bug-report verifier for Harbor tasks."""
+"""GBQA bug-report matching used by Rewardkit criteria."""
 
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
@@ -26,7 +25,7 @@ def evaluate_bug_report(
     ground_truth_path: str | Path,
     match_threshold: float = 0.65,
 ) -> dict[str, Any]:
-    """Evaluate a GBQA bug report and return Harbor-compatible reward metrics."""
+    """Evaluate a GBQA bug report and return structured match metrics."""
 
     try:
         predicted = _load_predicted_bugs(Path(bugs_path))
@@ -65,9 +64,8 @@ def evaluate_bug_report(
 
     precision = matched / len(predicted) if predicted else 0.0
     recall = matched / len(ground_truth) if ground_truth else 0.0
-    reward = recall
     return {
-        "reward": reward,
+        "reward": recall,
         "precision": precision,
         "recall": recall,
         "matched": matched,
@@ -75,14 +73,6 @@ def evaluate_bug_report(
         "total_ground_truth": len(ground_truth),
         "details": [asdict(detail) for detail in details],
     }
-
-
-def write_harbor_reward(result: dict[str, Any], out_dir: str | Path) -> None:
-    """Write Harbor reward files under the verifier log directory."""
-
-    from gbqa.rewards.output import write_verifier_outputs
-
-    write_verifier_outputs(result, out_dir)
 
 
 def _load_predicted_bugs(path: Path) -> list[dict[str, Any]]:
@@ -144,8 +134,6 @@ def _match_score(
     truth: dict[str, Any],
     bug_text: str,
 ) -> float:
-    """Score both whole-report similarity and structured evidence overlap."""
-
     scores = [SequenceMatcher(None, bug_text, _truth_text(truth)).ratio()]
     for left in _bug_match_parts(bug):
         for right in _truth_match_parts(truth):
@@ -183,7 +171,9 @@ def _truth_match_parts(truth: dict[str, Any]) -> list[str]:
 
 
 def _normalize_truth(payload: dict[str, Any]) -> dict[str, Any]:
-    minimal_reproduction = payload.get("minimal_reproduction") or payload.get("test_steps", [])
+    minimal_reproduction = payload.get("minimal_reproduction") or payload.get(
+        "test_steps", []
+    )
     if isinstance(minimal_reproduction, str):
         minimal_reproduction = [minimal_reproduction]
     if not isinstance(minimal_reproduction, list):
@@ -228,22 +218,3 @@ def _error_result(error: str) -> dict[str, Any]:
         "details": [],
         "error": error,
     }
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate a GBQA bug report")
-    parser.add_argument("--bugs", required=True)
-    parser.add_argument("--ground-truth", required=True)
-    parser.add_argument("--out-dir", default="/logs/verifier")
-    parser.add_argument("--match-threshold", type=float, default=0.65)
-    args = parser.parse_args()
-    result = evaluate_bug_report(
-        bugs_path=args.bugs,
-        ground_truth_path=args.ground_truth,
-        match_threshold=args.match_threshold,
-    )
-    write_harbor_reward(result, args.out_dir)
-
-
-if __name__ == "__main__":
-    main()

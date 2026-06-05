@@ -3,7 +3,7 @@ set -euo pipefail
 
 AGENT_DIR="/logs/agent/gbqa"
 VERIFIER_DIR="/logs/verifier"
-GROUND_TRUTH="/tests/bugs/dark-castle.json"
+GROUND_TRUTH="__GBQA_GROUND_TRUTH__"
 
 mkdir -p "${VERIFIER_DIR}"
 export PYTHONPATH="/sandbox:${PYTHONPATH:-}"

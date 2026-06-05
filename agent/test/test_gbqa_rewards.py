@@ -13,9 +13,9 @@ REPO_ROOT = os.path.dirname(ROOT_DIR)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from gbqa.rewards.output import build_reward_scores, write_verifier_outputs
-from gbqa.rewards.runner import run_task_verifier
-from gbqa.verifier import evaluate_bug_report
+from gbqa.rewards.matching import evaluate_bug_report
+from gbqa.rewards.output import primary_reward_score, write_post_rewardkit_artifacts
+from gbqa.rewards.runner import RewardkitDependencyError, require_rewardkit, run_task_verifier
 
 
 TASK_TESTS_DIR = (
@@ -26,22 +26,25 @@ GROUND_TRUTH = (
 )
 
 
-def test_build_reward_scores_exposes_recall_precision_and_primary() -> None:
-    scores = build_reward_scores(
-        {
-            "reward": 0.25,
-            "recall": 0.25,
-            "precision": 0.5,
-        }
-    )
-    assert scores == {"recall": 0.25, "precision": 0.5, "reward": 0.25}
+def test_require_rewardkit_imports() -> None:
+    rk = require_rewardkit()
+    assert hasattr(rk, "run")
 
 
-def test_write_verifier_outputs_writes_rewardkit_files() -> None:
+def test_primary_reward_score_prefers_reward_key() -> None:
+    assert primary_reward_score({"reward": 0.4, "recall": 0.2}) == 0.4
+    assert primary_reward_score({"recall": 0.2}) == 0.2
+
+
+def test_write_post_rewardkit_artifacts_preserves_reward_json() -> None:
     temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_rewards"
     shutil.rmtree(temp_root, ignore_errors=True)
     temp_root.mkdir(parents=True)
-    result = {
+    (temp_root / "reward.json").write_text(
+        json.dumps({"recall": 0.5, "precision": 1.0, "reward": 0.5}),
+        encoding="utf-8",
+    )
+    evaluation = {
         "reward": 0.5,
         "recall": 0.5,
         "precision": 1.0,
@@ -50,10 +53,10 @@ def test_write_verifier_outputs_writes_rewardkit_files() -> None:
         "total_ground_truth": 2,
         "details": [],
     }
-    scores = write_verifier_outputs(
-        result,
+    scores = write_post_rewardkit_artifacts(
+        {"recall": 0.5, "precision": 1.0, "reward": 0.5},
+        evaluation,
         temp_root,
-        rewardkit_scores={"recall": 0.5, "precision": 1.0},
     )
     assert scores["reward"] == 0.5
     reward_payload = json.loads((temp_root / "reward.json").read_text())
@@ -62,6 +65,7 @@ def test_write_verifier_outputs_writes_rewardkit_files() -> None:
         "precision": 1.0,
         "reward": 0.5,
     }
+    assert (temp_root / "reward.txt").read_text().strip() == "0.5"
     details = json.loads((temp_root / "reward-details.json").read_text())
     assert details["gbqa"]["matched"] == 1
     assert (temp_root / "gbqa_result.json").exists()
@@ -69,14 +73,12 @@ def test_write_verifier_outputs_writes_rewardkit_files() -> None:
 
 
 def test_run_task_verifier_with_rewardkit_layout() -> None:
-    try:
-        import rewardkit  # noqa: F401
-    except ImportError:
-        return
-
     temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_rewardkit"
     shutil.rmtree(temp_root, ignore_errors=True)
     temp_root.mkdir(parents=True)
+    trace_path = temp_root / "trace.jsonl"
+    trace_path.write_text('{"type":"trace","step":1}\n', encoding="utf-8")
+    os.environ["GBQA_TRAJECTORY_PATH"] = str(trace_path)
     bugs = temp_root / "bugs.json"
     out_dir = temp_root / "verifier"
     bugs.write_text(
@@ -103,11 +105,11 @@ def test_run_task_verifier_with_rewardkit_layout() -> None:
         out_dir=out_dir,
         bugs_path=bugs,
         ground_truth_path=GROUND_TRUTH,
-        use_rewardkit=True,
     )
     assert "recall" in scores
     assert "precision" in scores
     assert "reward" in scores
+    assert "trajectory" in scores
     reward_payload = json.loads((out_dir / "reward.json").read_text())
     assert isinstance(reward_payload["recall"], (int, float))
     assert isinstance(reward_payload["precision"], (int, float))
@@ -118,34 +120,31 @@ def test_run_task_verifier_with_rewardkit_layout() -> None:
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_legacy_only_runner_matches_evaluate_bug_report() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_rewardkit_legacy"
+def test_rewardkit_dependency_error_message() -> None:
+    assert "harbor-rewardkit is required" in RewardkitDependencyError(
+        "harbor-rewardkit is required for GBQA verification. "
+        "Install it with: pip install harbor-rewardkit"
+    ).args[0]
+
+
+def test_matching_evaluates_bug_reports() -> None:
+    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_matching"
     shutil.rmtree(temp_root, ignore_errors=True)
     temp_root.mkdir(parents=True)
     bugs = temp_root / "bugs.json"
-    out_dir = temp_root / "verifier"
     bugs.write_text('{"bugs": []}', encoding="utf-8")
-
-    scores = run_task_verifier(
-        tests_dir=TASK_TESTS_DIR,
-        workspace=temp_root,
-        out_dir=out_dir,
-        bugs_path=bugs,
-        ground_truth_path=GROUND_TRUTH,
-        use_rewardkit=False,
-    )
-    expected = evaluate_bug_report(bugs_path=bugs, ground_truth_path=GROUND_TRUTH)
-    assert scores["recall"] == expected["recall"]
-    assert scores["precision"] == expected["precision"]
-    assert scores["reward"] == expected["reward"]
+    result = evaluate_bug_report(bugs_path=bugs, ground_truth_path=GROUND_TRUTH)
+    assert result["reward"] == 0.0
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def main() -> None:
-    test_build_reward_scores_exposes_recall_precision_and_primary()
-    test_write_verifier_outputs_writes_rewardkit_files()
+    test_require_rewardkit_imports()
+    test_primary_reward_score_prefers_reward_key()
+    test_write_post_rewardkit_artifacts_preserves_reward_json()
     test_run_task_verifier_with_rewardkit_layout()
-    test_legacy_only_runner_matches_evaluate_bug_report()
+    test_rewardkit_dependency_error_message()
+    test_matching_evaluates_bug_reports()
     print("gbqa rewards tests passed")
 
 

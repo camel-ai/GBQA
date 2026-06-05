@@ -1,4 +1,4 @@
-"""Harbor-compatible reward output writers."""
+"""Post-processing for Harbor Rewardkit verifier outputs."""
 
 from __future__ import annotations
 
@@ -7,49 +7,42 @@ from pathlib import Path
 from typing import Any
 
 
-def build_reward_scores(result: dict[str, Any]) -> dict[str, float]:
-    """Build numeric Harbor reward.json metrics from a GBQA evaluation."""
+def primary_reward_score(scores: dict[str, float]) -> float:
+    """Pick the scalar reward Harbor should treat as the headline score."""
 
-    recall = float(result.get("recall", 0.0) or 0.0)
-    precision = float(result.get("precision", 0.0) or 0.0)
-    primary = float(result.get("reward", recall) or recall)
-    return {
-        "recall": recall,
-        "precision": precision,
-        "reward": primary,
-    }
+    if "reward" in scores:
+        return float(scores["reward"])
+    if "recall" in scores:
+        return float(scores["recall"])
+    if not scores:
+        return 0.0
+    return float(next(iter(scores.values())))
 
 
-def write_verifier_outputs(
-    result: dict[str, Any],
+def write_post_rewardkit_artifacts(
+    rewardkit_scores: dict[str, float],
+    evaluation: dict[str, Any],
     out_dir: str | Path,
-    *,
-    rewardkit_scores: dict[str, float] | None = None,
 ) -> dict[str, float]:
-    """Write reward.txt, reward.json, reward-details.json, and gbqa_result.json."""
+    """Augment Rewardkit outputs with GBQA-specific artifacts."""
 
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    scores = dict(rewardkit_scores or {})
-    scores.update(build_reward_scores(result))
-    primary = float(scores.get("reward", scores.get("recall", 0.0)) or 0.0)
+    scores = dict(rewardkit_scores)
+    primary = primary_reward_score(scores)
 
     (out_path / "reward.txt").write_text(f"{primary}\n", encoding="utf-8")
-    (out_path / "reward.json").write_text(
-        json.dumps(scores, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
     details_path = out_path / "reward-details.json"
     details = _load_reward_details(details_path)
-    details["gbqa"] = _gbqa_detail_payload(result, scores)
+    details["gbqa"] = _gbqa_detail_payload(evaluation, scores)
     details_path.write_text(
         json.dumps(details, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
     (out_path / "gbqa_result.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2),
+        json.dumps(evaluation, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return scores
@@ -66,14 +59,14 @@ def _load_reward_details(path: Path) -> dict[str, Any]:
 
 
 def _gbqa_detail_payload(
-    result: dict[str, Any],
+    evaluation: dict[str, Any],
     scores: dict[str, float],
 ) -> dict[str, Any]:
     return {
         "scores": scores,
-        "matched": int(result.get("matched", 0) or 0),
-        "total_predicted": int(result.get("total_predicted", 0) or 0),
-        "total_ground_truth": int(result.get("total_ground_truth", 0) or 0),
-        "details": result.get("details", []),
-        "error": result.get("error", ""),
+        "matched": int(evaluation.get("matched", 0) or 0),
+        "total_predicted": int(evaluation.get("total_predicted", 0) or 0),
+        "total_ground_truth": int(evaluation.get("total_ground_truth", 0) or 0),
+        "details": evaluation.get("details", []),
+        "error": evaluation.get("error", ""),
     }
