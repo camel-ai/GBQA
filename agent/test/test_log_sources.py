@@ -16,7 +16,7 @@ from src.log_sources import (
     LogSourceSpec,
     build_log_sources,
 )
-from src.types import Action, Observation, StepRecord
+from src.types import Action, LifecycleEvent, Observation, StepRecord
 
 
 def test_file_runtime_log_source_tails_file() -> None:
@@ -62,8 +62,8 @@ def test_file_directory_runtime_log_source_reads_recent_matching_files() -> None
     older = tmp_path / "game_older.json"
     newer = tmp_path / "game_newer.json"
     ignored = tmp_path / "server.log"
-    older.write_text('{"turn": 1, "command": "look"}', encoding="utf-8")
-    newer.write_text('{"turn": 2, "command": "north"}', encoding="utf-8")
+    older.write_text('{"step": 1, "command": "look"}', encoding="utf-8")
+    newer.write_text('{"step": 2, "command": "north"}', encoding="utf-8")
     ignored.write_text("server stdout", encoding="utf-8")
     os.utime(older, (1, 1))
     os.utime(newer, (2, 2))
@@ -153,10 +153,29 @@ def test_agent_trajectory_source_converts_steps_to_commands() -> None:
         ),
     ]
 
-    result = AgentTrajectoryLogSource().read({"steps": steps})
+    lifecycle_events = [
+        LifecycleEvent(
+            event="start_task",
+            step=0,
+            timestamp="2026-01-01T00:00:00+00:00",
+            reason="task loop started",
+            trigger="system",
+        ),
+        LifecycleEvent(
+            event="end_task",
+            step=4,
+            timestamp="2026-01-01T00:01:00+00:00",
+            reason="max_steps_reached",
+            trigger="max_steps",
+        ),
+    ]
+
+    result = AgentTrajectoryLogSource().read(
+        {"steps": steps, "lifecycle_events": lifecycle_events}
+    )
 
     assert result.success is True
-    assert result.session["total_turns"] == 4
+    assert result.session["total_steps"] == 4
     assert result.session["commands"][0]["command"] == "look"
     assert result.session["commands"][0]["category"] == "environment_interactions"
     assert result.session["commands"][1]["tool"] == "code_search"
@@ -180,6 +199,9 @@ def test_agent_trajectory_source_converts_steps_to_commands() -> None:
         "log_tool_interactions": 1,
         "other_tool_interactions": 1,
     }
+    assert result.session["lifecycle_events"][0]["event"] == "start_task"
+    assert result.session["lifecycle_events"][1]["trigger"] == "max_steps"
+    assert result.metadata["lifecycle_event_count"] == 2
 
 
 def main() -> None:

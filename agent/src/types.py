@@ -21,7 +21,7 @@ class Action:
 
 @dataclass
 class SessionHandle:
-    """Represents one backend session bound to the current run."""
+    """Represents one session bound to the current run."""
 
     session_id: str
     backend_type: str
@@ -85,7 +85,7 @@ class Observation:
     state: Dict[str, Any]
     raw: Dict[str, Any] = field(default_factory=dict)
     terminal: bool = False
-    turn: Optional[int] = None
+    step: Optional[int] = None
     summary: str = ""
     env_state: Dict[str, Any] = field(default_factory=dict)
     artifacts: Dict[str, Any] = field(default_factory=dict)
@@ -119,6 +119,20 @@ class StepRecord:
 
 
 @dataclass
+class LifecycleEvent:
+    """Represents task/session lifecycle transitions for one run."""
+
+    event: str
+    step: int
+    timestamp: str
+    reason: str = ""
+    trigger: str = ""
+    session_id: str = ""
+    backend_type: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class SummaryRecord:
     """Represents a summary prompt/output."""
 
@@ -134,6 +148,7 @@ class RunReport:
 
     task_id: str
     steps: List[StepRecord] = field(default_factory=list)
+    lifecycle_events: List[LifecycleEvent] = field(default_factory=list)
     bugs: List[BugFinding] = field(default_factory=list)
     summaries: List[SummaryRecord] = field(default_factory=list)
     summary: str = ""

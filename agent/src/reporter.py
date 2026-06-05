@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 import json
 
-from .types import BugFinding, RunReport, StepRecord
+from .types import BugFinding, LifecycleEvent, RunReport, StepRecord
 
 
 class Reporter:
@@ -33,6 +33,7 @@ class Reporter:
         payload = {
             "type": "trace",
             "step": record.step,
+            "tool": record.action.tool,
             "planner_action": record.action.command,
             "capability_summary": record.capability_summary,
             "observation_summary": summary,
@@ -42,6 +43,18 @@ class Reporter:
         self._events.append(payload)
         self._append_jsonl(payload)
         self._print_step(record)
+
+    def log_lifecycle_event(self, event: LifecycleEvent) -> None:
+        payload = {
+            "type": "lifecycle",
+            **asdict(event),
+        }
+        self._events.append(payload)
+        self._append_jsonl(payload)
+        print(
+            f"[lifecycle] {event.event}"
+            f" step={event.step} trigger={event.trigger} reason={event.reason}"
+        )
 
     def log_bug(self, bug: BugFinding, step: int) -> None:
         payload = {
@@ -101,6 +114,14 @@ class Reporter:
                     "",
                 ]
             )
+        if report.lifecycle_events:
+            lines.extend(["## Lifecycle", ""])
+            for event in report.lifecycle_events:
+                lines.append(
+                    f"- Step {event.step}: `{event.event}`"
+                    f" trigger=`{event.trigger}` reason=`{event.reason}`"
+                )
+            lines.append("")
         lines.extend(["## Step Trace", ""])
         if not report.steps:
             lines.append("No steps recorded.")
@@ -175,6 +196,7 @@ class Reporter:
             "agent": report.metadata.get("agent", {}),
             "task": report.metadata.get("task", {}),
             "summary": report.summary,
+            "lifecycle_events": [asdict(event) for event in report.lifecycle_events],
             "bugs": [asdict(bug) for bug in report.bugs],
             "summaries": [asdict(summary) for summary in report.summaries],
             "steps": [
