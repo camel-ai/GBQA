@@ -389,7 +389,6 @@ class PlaywrightMcpExecutionBackend:
             cleaned_lines,
             "Inventory:",
         )
-        turn = PlaywrightMcpExecutionBackend._value_after_label(cleaned_lines, "Turn:")
         light = PlaywrightMcpExecutionBackend._capture(r"(No light|Light on)", visible_text)
         output_lines = [
             line
@@ -409,14 +408,13 @@ class PlaywrightMcpExecutionBackend:
             for item in actionable_elements
             if item.get("role") == "button" and item.get("enabled", False)
         ]
-        status_bits = [item for item in [location, inventory, turn, light] if item]
+        status_bits = [item for item in [location, inventory, light] if item]
         return {
             "visible_text": visible_text,
             "output_text": "\n".join(output_lines).strip(),
             "status_bar": {
                 "location": location,
                 "inventory": inventory,
-                "turn": turn,
                 "light": light,
             },
             "status_summary": "; ".join(status_bits),

@@ -44,7 +44,7 @@ class LogAnalyzer:
             debug_output = self.adapter.normalize_debug_output(debug_output)
 
         commands = session.commands
-        total_turns = session.total_turns
+        total_steps = session.total_steps
 
         anomalies: List[Dict[str, Any]] = []
         anomalies.extend(self._check_failed_streaks(commands))
@@ -54,19 +54,19 @@ class LogAnalyzer:
         anomalies.extend(self._check_time_gaps(commands))
         anomalies.extend(self._check_terminal_mismatch(session))
         
-        # Sort by turn number
-        anomalies.sort(key=lambda anomaly: anomaly["turns"][0] if anomaly["turns"] else 0)
+        # Sort by step number.
+        anomalies.sort(key=lambda anomaly: anomaly["steps"][0] if anomaly["steps"] else 0)
 
         debug_findings = self._analyze_debug_output(debug_output) if debug_output else {}
         anomaly_count = len(anomalies)
         
-        summary = f"Found {anomaly_count} anomalies in {total_turns}-turn session"
+        summary = f"Found {anomaly_count} anomalies in {total_steps}-step session"
         if debug_findings.get("error_count", 0) > 0:
             summary += f", {debug_findings['error_count']} server errors"
 
         return {
             "summary": summary,
-            "total_turns": total_turns,
+            "total_steps": total_steps,
             "anomaly_count": anomaly_count,
             "anomalies": anomalies,
             "debug_findings": debug_findings,
@@ -76,8 +76,8 @@ class LogAnalyzer:
         self,
         session_data: Dict[str, Any] | NormalizedSession,
         *,
-        start_turn: int = 0,
-        end_turn: int = 0,
+        start_step: int = 0,
+        end_step: int = 0,
         failures_only: bool = False,
         limit: int = 50,
     ) -> Dict[str, Any]:
@@ -88,10 +88,10 @@ class LogAnalyzer:
             session = session_data
 
         filtered = session.commands
-        if start_turn > 0:
-            filtered = [cmd for cmd in filtered if cmd.turn >= start_turn]
-        if end_turn > 0:
-            filtered = [cmd for cmd in filtered if cmd.turn <= end_turn]
+        if start_step > 0:
+            filtered = [cmd for cmd in filtered if cmd.step >= start_step]
+        if end_step > 0:
+            filtered = [cmd for cmd in filtered if cmd.step <= end_step]
         if failures_only:
             filtered = [cmd for cmd in filtered if not cmd.success]
 
@@ -102,7 +102,7 @@ class LogAnalyzer:
         return {
             "commands": [
                 {
-                    "turn": cmd.turn,
+                    "step": cmd.step,
                     "command": cmd.command,
                     "response": {"success": cmd.success, "message": cmd.message},
                 }
@@ -144,12 +144,12 @@ class LogAnalyzer:
         return {
             "type": "failed_command_streak",
             "severity": "high" if length >= 5 else "medium",
-            "turns": [cmd.turn for cmd in segment],
+            "steps": [cmd.step for cmd in segment],
             "description": f"{length} consecutive failures: " + 
                            ", ".join(f"'{cmd.command}'" for cmd in segment[:5]),
             "evidence": [
                 {
-                    "turn": cmd.turn,
+                    "step": cmd.step,
                     "command": cmd.command,
                     "message": cmd.message[:120],
                 }
@@ -193,9 +193,9 @@ class LogAnalyzer:
         return {
             "type": "repeated_command",
             "severity": "medium",
-            "turns": [cmd.turn for cmd in segment],
+            "steps": [cmd.step for cmd in segment],
             "description": f"Command '{segment[0].command}' repeated {count} times consecutively",
-            "evidence": [{"turn": cmd.turn, "command": cmd.command} for cmd in segment],
+            "evidence": [{"step": cmd.step, "command": cmd.command} for cmd in segment],
         }
 
     def _check_state_inconsistencies(self, commands: List[NormalizedCommand]) -> List[Dict[str, Any]]:
@@ -231,11 +231,11 @@ class LogAnalyzer:
                 anomalies.append({
                     "type": "state_inconsistency",
                     "severity": "high",
-                    "turns": [prev.turn, curr.turn],
+                    "steps": [prev.step, curr.step],
                     "description": f"Items {vanished} vanished from inventory after '{curr.command}' (not a remove verb)",
                     "evidence": [
-                        {"turn": prev.turn, "inventory": sorted(prev_inv_ids)},
-                        {"turn": curr.turn, "inventory": sorted(curr_inv_ids), "command": curr.command},
+                        {"step": prev.step, "inventory": sorted(prev_inv_ids)},
+                        {"step": curr.step, "inventory": sorted(curr_inv_ids), "command": curr.command},
                     ]
                 })
 
@@ -245,12 +245,12 @@ class LogAnalyzer:
                     anomalies.append({
                         "type": "state_inconsistency",
                         "severity": "high",
-                        "turns": [prev.turn, curr.turn],
+                        "steps": [prev.step, curr.step],
                         "description": f"Location changed from '{prev.state.location}' to '{curr.state.location}' "
                                        f"after '{curr.command}' (not a movement verb)",
                         "evidence": [
-                            {"turn": prev.turn, "location": prev.state.location},
-                            {"turn": curr.turn, "location": curr.state.location, "command": curr.command},
+                            {"step": prev.step, "location": prev.state.location},
+                            {"step": curr.step, "location": curr.state.location, "command": curr.command},
                         ]
                     })
         return anomalies
@@ -262,10 +262,10 @@ class LogAnalyzer:
                 anomalies.append({
                     "type": "error_in_response",
                     "severity": "high",
-                    "turns": [cmd.turn],
+                    "steps": [cmd.step],
                     "description": f"Error pattern in response to '{cmd.command}'",
                     "evidence": [{
-                        "turn": cmd.turn,
+                        "step": cmd.step,
                         "command": cmd.command,
                         "message": cmd.message[:200],
                     }]
@@ -287,11 +287,11 @@ class LogAnalyzer:
                 anomalies.append({
                     "type": "time_gap",
                     "severity": "low",
-                    "turns": [prev.turn, curr.turn],
-                    "description": f"{gap:.1f}s gap between turns",
+                    "steps": [prev.step, curr.step],
+                    "description": f"{gap:.1f}s gap between steps",
                     "evidence": [
-                        {"turn": prev.turn, "timestamp": prev.timestamp.isoformat()},
-                        {"turn": curr.turn, "timestamp": curr.timestamp.isoformat()},
+                        {"step": prev.step, "timestamp": prev.timestamp.isoformat()},
+                        {"step": curr.step, "timestamp": curr.timestamp.isoformat()},
                     ]
                 })
         return anomalies
@@ -305,18 +305,18 @@ class LogAnalyzer:
             return [{
                 "type": "terminal_state_mismatch",
                 "severity": "medium",
-                "turns": [last_cmd.turn],
+                "steps": [last_cmd.step],
                 "description": "terminal=true in last command but session result is 'in_progress'",
-                "evidence": [{"turn": last_cmd.turn, "terminal": True, "result": session.result}]
+                "evidence": [{"step": last_cmd.step, "terminal": True, "result": session.result}]
             }]
         
         if not last_cmd.terminal and session.result == "victory":
             return [{
                 "type": "terminal_state_mismatch",
                 "severity": "medium",
-                "turns": [last_cmd.turn],
+                "steps": [last_cmd.step],
                 "description": "Session result is 'victory' but last command has terminal=false",
-                "evidence": [{"turn": last_cmd.turn, "terminal": False, "result": session.result}]
+                "evidence": [{"step": last_cmd.step, "terminal": False, "result": session.result}]
             }]
         return []
 

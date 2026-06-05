@@ -26,7 +26,7 @@ class FakeEnvironmentClient:
             "success": True,
             "message": "You are standing in the hall.",
             "state": {"room": {"name": "Hall", "exits": ["north"]}, "inventory": []},
-            "turn": 0,
+            "step": 0,
         }
 
     def send_command(self, session_id, command):  # noqa: ANN001
@@ -35,7 +35,7 @@ class FakeEnvironmentClient:
             "success": True,
             "message": "You take a careful look around the hall.",
             "state": {"room": {"name": "Hall", "exits": ["north"]}, "inventory": []},
-            "turn": 1,
+            "step": 1,
             "terminal": False,
         }
 
