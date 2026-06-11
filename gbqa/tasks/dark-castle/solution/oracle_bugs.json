@@ -32,19 +32,20 @@
     },
     {
       "id": 2,
-      "title": "After dropping an item, the refreshed room text fails to mention it.",
-      "description": "Reproduction: pick up any portable object, move to another room, drop it, and then use `look`. Actual behavior: the backend state changes correctly, but the updated location description omits the dropped object.",
+      "title": "Lit candlestick on floor ceases to illuminate dark room.",
+      "description": "Reproduction: pick up the candlestick and matches, light the candlestick, enter the dark basement, drop the candlestick, and then use `look`. Actual behavior: the candlestick continues burning on the floor but the room remains pitch-black because has_light_source() only checks the player's inventory.",
       "confidence": 0.97,
       "evidence": {
         "minimal_reproduction": [
-          "Pick up any portable item.",
-          "Move to a room.",
-          "Execute `drop`.",
+          "Pick up the candlestick and matches.",
+          "Light the candlestick.",
+          "Enter the dark basement.",
+          "Drop the candlestick.",
           "Execute `look`."
         ],
-        "observed_fault": "The dropped object does not appear in the updated room description, so the textual state fails to reflect the backend change."
+        "observed_fault": "The lit candlestick continues burning on the floor but the room remains pitch-black because has_light_source() only checks the player's inventory, not items in the current room."
       },
-      "tags": ["oracle", "data inconsistency"]
+      "tags": ["oracle", "logic error"]
     }
   ]
 }
