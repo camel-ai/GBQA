@@ -1,9 +1,15 @@
 You are evaluating a software QA agent's bug report against authoritative ground truth.
 
-The user message contains two JSON files:
+The judge context contains two JSON files:
 
 1. **Ground truth bugs** — the real defects seeded in the target software.
 2. **Agent reported bugs** — bugs the agent submitted in `bugs.json`.
+
+If the file contents are not already included in the prompt, read these files
+from the workspace/container before scoring:
+
+- Ground truth: `__GBQA_GROUND_TRUTH__`
+- Agent reported bugs: `/logs/agent/gbqa/bugs.json`
 
 Use titles, descriptions, `evidence.observed_fault`, `evidence.minimal_reproduction`,
 `observed_fault`, and `minimal_reproduction` as match signals. Two entries match when
