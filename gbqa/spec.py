@@ -70,6 +70,10 @@ class GBQAMetadata:
         return str(self.raw["software"].get("install_dir") or f"/sandbox/software/{self.task_slug}")
 
     @property
+    def software_ready_path(self) -> str:
+        return str(self.raw["software"].get("ready_path") or ".")
+
+    @property
     def default_provider(self) -> str:
         return str(self.raw["runtime"]["default_provider"])
 
@@ -79,6 +83,56 @@ class GBQAMetadata:
         if not isinstance(sources, list):
             return []
         return [dict(item) for item in sources if isinstance(item, dict)]
+
+    @property
+    def runtime_startup(self) -> dict[str, Any]:
+        startup = self.raw.get("runtime", {}).get("startup", {})
+        return dict(startup) if isinstance(startup, dict) else {}
+
+    @property
+    def runtime_start_command(self) -> str:
+        return str(self.runtime_startup.get("command") or "")
+
+    @property
+    def runtime_start_workdir(self) -> str:
+        return str(
+            self.runtime_startup.get("workdir")
+            or self.software_install_dir
+        )
+
+    @property
+    def runtime_stdout_path(self) -> str:
+        return str(
+            self.runtime_startup.get("stdout_path")
+            or "/logs/runtime/software.log"
+        )
+
+    @property
+    def runtime_pid_file(self) -> str:
+        return str(
+            self.runtime_startup.get("pid_file")
+            or f"{self.agent_artifact_dir}/software-service.pid"
+        )
+
+    @property
+    def runtime_artifact_exports(self) -> list[dict[str, str]]:
+        exports = self.raw.get("runtime", {}).get("artifact_exports", [])
+        if not isinstance(exports, list):
+            return []
+        normalized: list[dict[str, str]] = []
+        for item in exports:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source") or "").strip()
+            destination = str(item.get("destination") or "").strip()
+            if source and destination:
+                normalized.append(
+                    {
+                        "source": source,
+                        "destination": destination,
+                    }
+                )
+        return normalized
 
     @property
     def default_interaction_mode(self) -> str:

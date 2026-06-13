@@ -14,9 +14,18 @@ software:
   latest_version: "v0.2.0"
   fixed_reference_version: "v0.2.0"
   install_dir: "/sandbox/software/dark-castle"
+  ready_path: "backend/app.py"
 runtime:
   default_provider: "daytona"
   local_docker_supported: false
+  startup:
+    workdir: "{software_install_dir}/backend"
+    command: "env PORT={service_port} setsid -f {python} app.py"
+    stdout_path: "/logs/runtime/dark-castle-server.log"
+    pid_file: "{agent_artifact_dir}/software-service.pid"
+  artifact_exports:
+    - source: "/sandbox/software/dark-castle/.cache/log/."
+      destination: "/logs/runtime/software_session_logs/"
   internal_log_sources:
     - name: "stdout_stderr"
       kind: "file"

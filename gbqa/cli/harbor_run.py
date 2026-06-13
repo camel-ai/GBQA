@@ -19,8 +19,11 @@ def build_harbor_command(argv: Sequence[str]) -> list[str]:
 
 
 def _rewrite_backend_environment(argv: list[str]) -> list[str]:
-    interaction_mode = _agent_kwarg(argv, "interaction_mode")
-    if interaction_mode != "computer_use":
+    interaction_mode = (
+        _agent_kwarg(argv, "interaction_profile")
+        or _agent_kwarg(argv, "interaction_mode")
+    )
+    if interaction_mode.replace("-", "_") not in {"computer_use", "default"}:
         return argv
     path_index = _task_path_index(argv)
     if path_index is None:

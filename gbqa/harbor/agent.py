@@ -16,10 +16,10 @@ from gbqa.spec import GBQAMetadata, load_gbqa_metadata
 
 DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
 COMPUTER_USE_ENVIRONMENT_HINT = (
-    "computer_use requires the GBQA GUI/Cua environment. If this run was "
-    "started with direct `harbor run`, Harbor may have selected the default "
-    "non-GUI environment. Use `python -m gbqa.cli.harbor_run run ... --ak "
-    "interaction_mode=computer_use` so GBQA can select the "
+    "computer_use/default interaction profiles require the GBQA GUI/Cua environment. "
+    "If this run was started with direct `harbor run`, Harbor may have selected "
+    "the default non-GUI environment. Use `python -m gbqa.cli.harbor_run run ... "
+    "--ak interaction_mode=computer_use` or `--ak interaction_mode=default` so GBQA can select the "
     "`environment-computer-use` overlay."
 )
 
@@ -44,9 +44,16 @@ class GBQAHarborAgent(BaseAgent):
     _REMOTE_AGENT_DIR = "/sandbox/agent"
     _REMOTE_GBQA_DIR = "/sandbox/gbqa"
     _REMOTE_RUNTIME_DIR = "/sandbox/runtime"
+    _REMOTE_CONFIG_PATH = "/sandbox/runtime/config.toml"
     _REMOTE_PYTHON = "/opt/venv/bin/python"
-    _TASK_METADATA_RELATIVE = Path("gbqa/tasks/dark-castle/gbqa.yaml")
-    _AGENT_UPLOAD_ITEMS = ("run_agent.py", "src", "prompts", "skills")
+    _DEFAULT_TASK_METADATA_RELATIVE = Path("gbqa/tasks/dark-castle/gbqa.yaml")
+    _AGENT_UPLOAD_ITEMS = (
+        "run_agent.py",
+        "config.toml.example",
+        "src",
+        "prompts",
+        "skills",
+    )
     _UPLOAD_IGNORE = shutil.ignore_patterns(
         ".env",
         ".venv",
@@ -68,18 +75,28 @@ class GBQAHarborAgent(BaseAgent):
         logs_dir: Path,
         model_name: str | None = None,
         interaction_mode: str = "api",
+        interaction_profile: str | None = None,
+        harness_mode: str = "minimal",
         max_steps: int = 30,
         extra_env: dict[str, str] | None = None,
+        task_metadata_path: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
-        self.metadata = self._load_task_metadata()
-        if interaction_mode not in self.metadata.supported_interaction_modes:
+        self._task_metadata_path = task_metadata_path
+        self.metadata = self._load_task_metadata(task_metadata_path)
+        requested_interaction = interaction_profile or interaction_mode
+        normalized_interaction_mode = self._normalize_interaction_profile(requested_interaction)
+        if (
+            normalized_interaction_mode != "default"
+            and normalized_interaction_mode not in self.metadata.supported_interaction_modes
+        ):
             raise ValueError(
-                "interaction_mode must be one of: "
+                "interaction_mode must be one of: default, "
                 + ", ".join(self.metadata.supported_interaction_modes)
-            )
-        self.interaction_mode = interaction_mode
+        )
+        self.interaction_mode = normalized_interaction_mode
+        self.harness_mode = self._normalize_harness_mode(harness_mode)
         self.max_steps = int(max_steps)
         self._extra_env = dict(extra_env or {})
 
@@ -116,6 +133,7 @@ class GBQAHarborAgent(BaseAgent):
         config_text = render_agent_config(
             metadata=self.metadata,
             interaction_mode=self.interaction_mode,
+            harness_mode=self.harness_mode,
             max_steps=self.max_steps,
             report_output_dir=f"{self.metadata.agent_artifact_dir}/raw_reports",
             prompt_dir=f"{self._REMOTE_AGENT_DIR}/prompts",
@@ -123,7 +141,7 @@ class GBQAHarborAgent(BaseAgent):
         )
         await self._write_remote_file(
             environment,
-            f"{self._REMOTE_RUNTIME_DIR}/config.yaml",
+            self._REMOTE_CONFIG_PATH,
             config_text,
         )
 
@@ -137,9 +155,9 @@ class GBQAHarborAgent(BaseAgent):
         runtime_env = self._runtime_env()
         self._validate_runtime_env(runtime_env)
 
-        await self._start_dark_castle(environment)
+        await self._start_software_service(environment)
         await self._wait_for_service(environment)
-        if self.interaction_mode == "computer_use":
+        if "computer_use" in self._enabled_interaction_modes():
             await self._start_computer_use_services(environment)
             await self._wait_for_computer_server(environment)
             await self._open_computer_use_frontend(environment)
@@ -148,7 +166,7 @@ class GBQAHarborAgent(BaseAgent):
             f"cd {shlex.quote(self._REMOTE_AGENT_DIR)} && "
             f"{shlex.quote(self._REMOTE_PYTHON)} run_agent.py "
             f"--task {shlex.quote(self.metadata.task_slug)} "
-            f"--config {shlex.quote(self._REMOTE_RUNTIME_DIR + '/config.yaml')} "
+            f"--config {shlex.quote(self._REMOTE_CONFIG_PATH)} "
             f"--max-steps {self.max_steps} "
             f"> {self.metadata.agent_artifact_dir}/gbqa-agent.stdout "
             f"2> {self.metadata.agent_artifact_dir}/gbqa-agent.stderr"
@@ -162,7 +180,14 @@ class GBQAHarborAgent(BaseAgent):
         await self._export_artifacts(environment)
         if hasattr(context, "metadata"):
             context.metadata = {
-                "interaction_mode": self.interaction_mode,
+                "interaction_profile": self.interaction_mode,
+                "interaction_mode": (
+                    self.metadata.default_interaction_mode
+                    if self.interaction_mode == "default"
+                    else self.interaction_mode
+                ),
+                "harness_mode": self.harness_mode,
+                "enabled_interaction_modes": self._enabled_interaction_modes(),
                 "artifact_dir": self.metadata.agent_artifact_dir,
                 "agent_return_code": getattr(result, "return_code", None),
             }
@@ -209,7 +234,8 @@ class GBQAHarborAgent(BaseAgent):
         cls,
         *,
         max_steps: int,
-        config_path: str = "/sandbox/runtime/config.yaml",
+        task_slug: str = "dark-castle",
+        config_path: str = "/sandbox/runtime/config.toml",
         remote_agent_dir: str = "/sandbox/agent",
         python_path: str = "/opt/venv/bin/python",
         artifact_dir: str = "/logs/agent/gbqa",
@@ -219,7 +245,7 @@ class GBQAHarborAgent(BaseAgent):
         return (
             f"cd {shlex.quote(remote_agent_dir)} && "
             f"{shlex.quote(python_path)} run_agent.py "
-            "--task dark-castle "
+            f"--task {shlex.quote(task_slug)} "
             f"--config {shlex.quote(config_path)} "
             f"--max-steps {int(max_steps)} "
             f"> {artifact_dir}/gbqa-agent.stdout "
@@ -231,53 +257,112 @@ class GBQAHarborAgent(BaseAgent):
         return Path(__file__).resolve().parents[2]
 
     @classmethod
-    def _load_task_metadata(cls) -> GBQAMetadata:
-        return load_gbqa_metadata(cls._repo_root() / cls._TASK_METADATA_RELATIVE)
+    def _load_task_metadata(cls, metadata_path: str | None = None) -> GBQAMetadata:
+        configured = metadata_path or os.environ.get("GBQA_TASK_METADATA_PATH")
+        if configured:
+            path = Path(configured)
+            if not path.is_absolute():
+                path = cls._repo_root() / path
+            return load_gbqa_metadata(path)
+        return load_gbqa_metadata(
+            cls._repo_root() / cls._DEFAULT_TASK_METADATA_RELATIVE
+        )
+
+    @staticmethod
+    def _normalize_interaction_profile(value: str) -> str:
+        text = str(value or "").strip().lower().replace("-", "_")
+        return text or "default"
+
+    @staticmethod
+    def _normalize_harness_mode(value: str) -> str:
+        mode = str(value or "minimal").strip().lower().replace("-", "_")
+        if mode == "bare":
+            mode = "minimal"
+        if mode not in {"minimal", "full"}:
+            raise ValueError("harness_mode must be one of: minimal, full")
+        return mode
+
+    def _enabled_interaction_modes(self) -> list[str]:
+        if self.interaction_mode == "default":
+            return list(self.metadata.supported_interaction_modes)
+        return [self.interaction_mode]
 
     async def _ensure_software_release(self, environment: BaseEnvironment) -> None:
         software_dir = shlex.quote(self.metadata.software_install_dir)
+        ready_path = shlex.quote(
+            f"{self.metadata.software_install_dir.rstrip('/')}/"
+            f"{self.metadata.software_ready_path.lstrip('/')}"
+        )
         archive_url = shlex.quote(self.metadata.software_archive_url)
         command = (
-            f"if [ ! -f {software_dir}/backend/app.py ]; then "
+            f"if [ ! -e {ready_path} ]; then "
             f"rm -rf {software_dir} && mkdir -p {software_dir} && "
             f"curl -fsSL {archive_url} | tar -xz --strip-components=1 -C {software_dir}; "
             "fi; "
-            f"test -f {software_dir}/backend/app.py"
+            f"test -e {ready_path}"
         )
         result = await environment.exec(command=command, timeout_sec=300)
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError(
                 "Failed to prepare software release "
-                f"{self.metadata.software_selected_version} from {self.metadata.software_repository}."
+                f"{self.metadata.software_selected_version} from "
+                f"{self.metadata.software_repository}."
             )
 
-    async def _start_dark_castle(self, environment: BaseEnvironment) -> None:
+    async def _start_software_service(self, environment: BaseEnvironment) -> None:
+        start_command = self._format_runtime_template(
+            self.metadata.runtime_start_command,
+            quote_values=True,
+        ).strip()
+        if not start_command:
+            raise RuntimeError(
+                "Task metadata must define runtime.startup.command for Harbor execution."
+            )
+        workdir = shlex.quote(
+            self._format_runtime_template(
+                self.metadata.runtime_start_workdir,
+                quote_values=False,
+            )
+        )
+        stdout_path = self._format_runtime_template(
+            self.metadata.runtime_stdout_path,
+            quote_values=False,
+        )
+        pid_file = self._format_runtime_template(
+            self.metadata.runtime_pid_file,
+            quote_values=False,
+        )
+        stdout_dir = shlex.quote(str(Path(stdout_path).parent))
         command = (
-            f"mkdir -p {self.metadata.agent_artifact_dir} /logs/runtime && "
-            f"cd {shlex.quote(self.metadata.software_install_dir)}/backend && "
-            f"env PORT={self.metadata.service_port} "
-            f"setsid -f {shlex.quote(self._REMOTE_PYTHON)} app.py "
-            "> /logs/runtime/dark-castle-server.log "
+            f"mkdir -p {self.metadata.agent_artifact_dir} /logs/runtime {stdout_dir} && "
+            f"cd {workdir} && "
+            f"{start_command} "
+            f"> {shlex.quote(stdout_path)} "
             "2>&1 < /dev/null && "
-            f"echo started > {self.metadata.agent_artifact_dir}/dark-castle-server.pid"
+            f"echo started > {shlex.quote(pid_file)}"
         )
         result = await environment.exec(command=command, timeout_sec=30)
         if getattr(result, "return_code", 1) != 0:
-            raise RuntimeError("Failed to start Dark Castle service.")
+            raise RuntimeError(f"Failed to start task service for {self.metadata.task_id}.")
 
     async def _wait_for_service(self, environment: BaseEnvironment) -> None:
         url = f"{self.metadata.service_origin}{self.metadata.service_health_path}"
+        stdout_path = self._format_runtime_template(
+            self.metadata.runtime_stdout_path,
+            quote_values=False,
+        )
         command = (
             "for i in $(seq 1 60); do "
             f"curl -fsS {shlex.quote(url)} >/dev/null && exit 0; "
             "sleep 1; "
             "done; "
-            "cat /logs/runtime/dark-castle-server.log || true; "
+            f"cat {shlex.quote(stdout_path)} "
+            "|| true; "
             "exit 1"
         )
         result = await environment.exec(command=command, timeout_sec=90)
         if getattr(result, "return_code", 1) != 0:
-            raise RuntimeError(f"Dark Castle service did not become healthy: {url}")
+            raise RuntimeError(f"Task service did not become healthy: {url}")
 
     async def _start_computer_use_services(self, environment: BaseEnvironment) -> None:
         adapter = self.metadata.interaction_adapter("computer_use")
@@ -401,11 +486,29 @@ class GBQAHarborAgent(BaseAgent):
         return default
 
     async def _export_artifacts(self, environment: BaseEnvironment) -> None:
+        export_commands = []
+        for item in self.metadata.runtime_artifact_exports:
+            source = shlex.quote(
+                self._format_runtime_template(
+                    item["source"],
+                    quote_values=False,
+                )
+            )
+            destination = shlex.quote(
+                self._format_runtime_template(
+                    item["destination"],
+                    quote_values=False,
+                )
+            )
+            export_commands.append(
+                f"mkdir -p {destination} && cp -a {source} {destination} 2>/dev/null || true"
+            )
+        runtime_exports = "; ".join(export_commands)
+        if runtime_exports:
+            runtime_exports += "; "
         command = (
             f"cd {self._REMOTE_ROOT} && "
-            "mkdir -p /logs/runtime/software_session_logs && "
-            "cp -a /sandbox/software/dark-castle/.cache/log/. "
-            "/logs/runtime/software_session_logs/ 2>/dev/null || true; "
+            f"{runtime_exports}"
             f"mkdir -p {self.metadata.agent_artifact_dir}/artifacts/runtime_logs && "
             "cp -a /logs/runtime/. "
             f"{self.metadata.agent_artifact_dir}/artifacts/runtime_logs/ "
@@ -422,6 +525,30 @@ class GBQAHarborAgent(BaseAgent):
         )
         if getattr(result, "return_code", 1) != 0:
             raise RuntimeError("Failed to export GBQA Harbor artifacts.")
+
+    def _format_runtime_template(
+        self,
+        template: str,
+        *,
+        quote_values: bool,
+    ) -> str:
+        values: dict[str, Any] = {
+            "task_id": self.metadata.task_id,
+            "task_slug": self.metadata.task_slug,
+            "software_install_dir": self.metadata.software_install_dir,
+            "service_host": self.metadata.service_host,
+            "service_port": self.metadata.service_port,
+            "service_origin": self.metadata.service_origin,
+            "agent_artifact_dir": self.metadata.agent_artifact_dir,
+            "verifier_artifact_dir": self.metadata.verifier_artifact_dir,
+            "python": self._REMOTE_PYTHON,
+        }
+        if quote_values:
+            values = {
+                key: shlex.quote(str(value))
+                for key, value in values.items()
+            }
+        return str(template).format(**values)
 
     async def _write_remote_file(
         self,
