@@ -37,6 +37,9 @@ DAYTONA_API_KEY=
 API_KEY=
 BASE_URL=https://zenmux.ai/api/v1
 MODEL_NAME=
+REWARDKIT_JUDGE=openai/gpt-4o
+OPENAI_API_KEY=
+OPENAI_API_BASE=https://zenmux.ai/api/v1
 GITHUB_TOKEN=
 ```
 
@@ -66,6 +69,59 @@ python -m gbqa.cli.harbor_run run \
 
 > [!WARNING]
 > Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
+
+### 3a. Optional Claude Code / Codex Subscription Auth
+
+GBQA's default `GBQAHarborAgent` uses the provider-neutral `API_KEY`,
+`BASE_URL`, and `MODEL_NAME` settings. Harbor's built-in CLI agents can also run
+the task with their official subscription credentials:
+
+```bash
+# Claude Code Pro/Max subscription
+claude setup-token
+export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  -a claude-code \
+  -m anthropic/claude-sonnet-4-6 \
+  --ae CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN
+```
+
+```bash
+# Codex / ChatGPT subscription
+codex login
+export CODEX_FORCE_AUTH_JSON=1
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  -a codex \
+  -m gpt-5 \
+  --ae CODEX_FORCE_AUTH_JSON=1
+```
+
+The task instruction tells generic CLI agents to start Dark Castle and write
+`/logs/agent/gbqa/bugs.json`, which is the verifier input.
+
+Rewardkit's `quality` judge can also use subscription-backed CLI judges:
+
+```bash
+# Claude Code judge for semantic bug matching
+export REWARDKIT_JUDGE=claude-code
+export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
+```
+
+```bash
+# Codex judge for semantic bug matching inside the verifier container
+export REWARDKIT_JUDGE=codex
+export CODEX_AUTH_JSON_B64="$(base64 -w0 ~/.codex/auth.json)"
+```
+
+API-key scoring still works by setting `REWARDKIT_JUDGE=openai/<model>` plus
+`OPENAI_API_KEY` and `OPENAI_API_BASE`.
+
+See `docs/subscription-auth.md` for the full Harbor/Rewardkit subscription
+authentication reference.
 
 ### 4. Run Batch Evaluations In Parallel
 

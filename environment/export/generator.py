@@ -57,10 +57,16 @@ agent_timeout_sec = 600
 verifier_timeout_sec = 120
 
 [verifier.env]
-REWARDKIT_JUDGE = "${{REWARDKIT_JUDGE}}"
-ANTHROPIC_API_KEY = "${{ANTHROPIC_API_KEY}}"
-OPENAI_API_KEY = "${{OPENAI_API_KEY}}"
-OPENAI_API_BASE = "${{OPENAI_API_BASE}}"
+REWARDKIT_JUDGE = "${{REWARDKIT_JUDGE:-openai/gpt-4o}}"
+ANTHROPIC_API_KEY = "${{ANTHROPIC_API_KEY:-}}"
+ANTHROPIC_BASE_URL = "${{ANTHROPIC_BASE_URL:-}}"
+OPENAI_API_KEY = "${{OPENAI_API_KEY:-}}"
+OPENAI_API_BASE = "${{OPENAI_API_BASE:-https://zenmux.ai/api/v1}}"
+OPENAI_BASE_URL = "${{OPENAI_BASE_URL:-https://zenmux.ai/api/v1}}"
+CLAUDE_CODE_OAUTH_TOKEN = "${{CLAUDE_CODE_OAUTH_TOKEN:-}}"
+CODEX_AUTH_JSON_PATH = "${{CODEX_AUTH_JSON_PATH:-}}"
+CODEX_AUTH_JSON_B64 = "${{CODEX_AUTH_JSON_B64:-}}"
+CODEX_FORCE_AUTH_JSON = "${{CODEX_FORCE_AUTH_JSON:-}}"
 
 [metadata]
 benchmark_status = "{seed.get('benchmark_status', 'draft')}"
@@ -152,5 +158,4 @@ def _safe_task_root(output_dir: Path, seed: dict[str, Any]) -> Path:
     if target != root and root not in target.parents:
         raise ValueError(f"refusing to generate task outside output directory: {target}")
     return output_dir / safe_slug
-
 
