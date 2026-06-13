@@ -110,7 +110,7 @@ Current GBQA sandbox layout:
   agent/
   gbqa/
   runtime/
-    config.yaml
+    config.toml
 
 /logs/
   agent/
@@ -124,7 +124,7 @@ Meaning:
 - `/sandbox/software/<task>` contains the downloaded target GitHub software release.
 - `/sandbox/agent` contains the agent harness for QA tasks.
 - `/sandbox/gbqa` contains the uploaded GBQA platform package.
-- `/sandbox/runtime/config.yaml` contains the rendered run config for the current Harbor trial.
+- `/sandbox/runtime/config.toml` contains the rendered run config for the current Harbor trial.
 - `/logs/agent/gbqa` contains normalized GBQA run artifacts.
 - `/logs/verifier` contains Harbor-compatible reward outputs.
 
@@ -250,6 +250,73 @@ Validated baseline status:
 Planned post-M1 modes:
 
 - free interaction mode (mixed interaction mode)
+
+The harness uses `interaction_profile` to select interaction exposure:
+
+- `api`, `browser`, and `computer_use` constrain the run to one interaction mode.
+- `default` enables every mode declared by task metadata and uses
+  `run.interaction_mode` as the primary mode when configured; otherwise it falls
+  back to the task's default interaction mode.
+- In multi-mode/default runs, planner-facing mode tools should stay explicit
+  (`api_action`, `browser_action`, `computer_action`) rather than relying on
+  natural-language mode selection inside a single action string.
+
+The harness uses `harness_mode` to select the capability surface:
+
+- `minimal` is the smallest closed-loop QA harness: interact with the sandbox
+  software environment, manage sessions, keep run instrumentation, and report
+  bugs. Do not expose diagnostic code/log skills or automatic code/log analysis
+  in this mode. Isolated worker subagents are disabled by default.
+- `full` enables the allowed diagnostic and augmentation skills/tools, including
+  code and log tools when available, and activates their skill instructions so
+  they are loaded into planner context. Full mode also enables isolated worker
+  subagents.
+
+Worker subagents are harness-owned isolated contexts, not planner-visible
+environment tools:
+
+- `ExplorerAgent` reviews coverage summaries and proposes state-frontier targets.
+- `ReproducerAgent` turns a new hypothesis into a reproduction plan.
+- `LogAnalystAgent` reads log-tool output and compresses log evidence.
+- `CodeLocalizerAgent` reads code-search output and suggests likely files or
+  symbols.
+
+Each worker must use a separate LLM agent id (`subagent.<name>.<call>`) and
+must not share main planner memory or full trace context. The orchestrator only
+feeds short worker summaries back into planner context through
+`subagent_summary`; full worker prompts/outputs are excluded from run metadata
+unless `subagents.record_prompts=true`.
+
+Harness hooks are lifecycle callbacks that emit explicit trajectory events.
+Hook events must be written as `type="hook"` rows in `trace.jsonl` and included
+in reports. Stable hook event labels include:
+
+- `RunStarted` / `RunEnded`
+- `Planning` / `Planned` / `PlanFailed`
+- `Explored` for environment/API/browser/computer-use actions
+- `Ran` for non-editing tool calls
+- `Edited` for code write/restore tools
+- `Lifecycle` for session/task lifecycle events
+- `Covered` for coverage-state updates
+- `Reported` for bug report events
+- `Summarized` for memory summary events
+- `Diagnosed` for automatic code/log diagnostics
+- `Ran` with `hook=on_subagent_result` for isolated worker subagent results
+
+Harness configuration is resolved through explicit layers. Precedence, from
+highest to lowest, is:
+
+- CLI overrides, including direct `run_agent.py` flags and Harbor `--ak` values
+  that have been materialized into the rendered trial config.
+- Trial/run config, normally `/sandbox/runtime/config.toml`.
+- Task package metadata from `gbqa.yaml`.
+- Repo harness default config, normally `agent/config.toml.example`.
+- Built-in defaults.
+
+The final resolved, redacted config plus layer provenance must be written into
+`run_spec.config`. Task metadata and harness-mode application are normalizers
+recorded alongside the layer stack; they should not be hidden as implicit
+side effects.
 
 The agent planner/operator should target normalized capabilities, not
 provider-specific implementation details. Session lifecycle vocabulary should

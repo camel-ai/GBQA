@@ -11,10 +11,46 @@ Milestone 1 runs GBQA as a Harbor-compatible benchmark on a remote Daytona sandb
 
 ## Configuration Boundaries
 
-- `agent/config.yaml` is harness policy only: model sampling, loop budgets, memory, operator retry, and current QA-agent backend defaults.
+- `agent/config.toml` is harness policy only: model sampling, loop budgets, memory, operator retry, and current QA-agent backend defaults.
 - `gbqa/tasks/dark-castle/gbqa.yaml` is the task source of truth: software source release, service endpoints, interaction modes, ground truth, artifact contract, and agent-facing task profile.
 - `gbqa.protocol` defines the stable QA output schema consumed by verifiers, independent of which agent harness produced the artifacts.
 - `gbqa.reporting` converts harness-specific outputs into `run.json`, `bugs.json`, `steps.jsonl`, and artifact files.
+
+Harness config is resolved with explicit precedence: CLI overrides, trial/run
+config, task package `gbqa.yaml`, repo harness defaults, then built-in
+defaults. The redacted final resolved config and layer provenance are exported
+under `run_spec.config` for reproducible runs.
+
+GBQA interaction profiles are harness-side execution presets:
+
+- `api`: use only the backend API interaction mode.
+- `browser`: use only the browser interaction mode.
+- `computer_use`: use only the GUI computer-use interaction mode.
+- `default`: enable every mode declared by the task metadata and use `run.interaction_mode` as the primary mode when configured, otherwise falling back to the task's default interaction mode.
+
+In `default`, the planner sees explicit mode tools such as `api_action`, `browser_action`, and `computer_action` so it can choose the interaction path per step.
+
+GBQA harness modes are a separate capability setting:
+
+- `minimal`: keep the smallest closed-loop QA harness that can explore a real sandbox software environment over many steps and report bugs. This keeps interaction actions, lifecycle tools, run reports, traces, and verifier artifacts, but does not expose diagnostic code/log skills or automatic code/log analysis to the agent.
+- `full`: enable available diagnostic and augmentation skills/tools such as code and log tools, activate their skill instructions, allow automatic code/log diagnostic policies, and run isolated worker subagents.
+
+Full mode worker subagents keep expensive or context-polluting QA side tasks
+outside the main planner context:
+
+- `ExplorerAgent`: state coverage and frontier suggestions.
+- `ReproducerAgent`: reproduction plans for new hypotheses.
+- `LogAnalystAgent`: compressed evidence from runtime/trajectory logs.
+- `CodeLocalizerAgent`: likely source files or symbols from code-search output.
+
+The main planner receives only the short `subagent_summary`; worker prompts and
+raw outputs stay out of run metadata unless explicitly enabled by policy.
+
+Hooks are lifecycle callbacks used for stable harness observability. They write
+`type="hook"` rows into `trace.jsonl` with labels such as `Explored`, `Ran`,
+`Edited`, `Lifecycle`, `Reported`, `Covered`, `Summarized`, and `Diagnosed`.
+Minimal mode keeps observability hooks enabled while leaving diagnostic/context
+enhancement hooks disabled; full mode enables diagnostic hook categories.
 
 ## Software Source
 
@@ -34,7 +70,7 @@ Inside the remote Daytona sandbox, GBQA uses `/sandbox` as its runtime workspace
 - `/sandbox/software/dark-castle`: downloaded target software environment
 - `/sandbox/agent`: uploaded GBQA QA agent harness
 - `/sandbox/gbqa`: uploaded GBQA platform package
-- `/sandbox/runtime/config.yaml`: rendered run config for the current trial
+- `/sandbox/runtime/config.toml`: rendered run config for the current trial
 
 Harbor's standard artifact paths stay unchanged:
 
