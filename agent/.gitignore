@@ -15,6 +15,7 @@ env/
 .env
 
 # config
+config.toml
 config.yaml
 
 # IDE
@@ -28,4 +29,3 @@ reports/
 
 # local memory
 memory/
-

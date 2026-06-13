@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-import os
 
-import yaml
+from .config_layers import load_toml_dict
 
 
 @dataclass
@@ -40,9 +40,8 @@ class Config:
 
 
 def load_config(path: str) -> Config:
-    """Load configuration from YAML file."""
+    """Load configuration from TOML file."""
     resolved_path = os.path.abspath(path)
-    with open(resolved_path, "r", encoding="utf-8") as file_handle:
-        raw = yaml.safe_load(file_handle) or {}
+    raw = load_toml_dict(resolved_path)
     root_dir = os.path.dirname(resolved_path)
     return Config(raw=raw, root_dir=root_dir)

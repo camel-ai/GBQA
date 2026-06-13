@@ -1,5 +1,12 @@
 import pytest
 from unittest.mock import MagicMock
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from agent.src.codebase_types import UniversalCodebaseAdapter
 
 @pytest.fixture
@@ -40,3 +47,22 @@ def test_universal_adapter_shell_write_with_backup(mock_sandbox_backend):
     args, _ = mock_sandbox_backend.shell.run.call_args
     assert "cat > /sandbox/software/buggy.py <<'GBQA_CODE_EOF'" in args[0]
     assert "fixed code" in args[0]
+
+
+def test_universal_adapter_local_filesystem_fallback(tmp_path):
+    source_root = tmp_path / "software"
+    source_root.mkdir()
+    app_file = source_root / "app.py"
+    app_file.write_text("def bug():\n    return 'old'\n", encoding="utf-8")
+
+    adapter = UniversalCodebaseAdapter(shell_client=None, root_dir=str(source_root))
+    files = adapter.list_files()
+    assert any(item.path == "app.py" for item in files)
+
+    assert "return 'old'" in adapter.read_file("app.py")
+    matches = adapter.search_code("return 'old'")
+    assert matches[0]["path"] == "app.py"
+    assert adapter.write_file("app.py", "def bug():\n    return 'new'\n")
+    assert "return 'new'" in app_file.read_text(encoding="utf-8")
+    assert adapter.restore_file("app.py")
+    assert "return 'old'" in app_file.read_text(encoding="utf-8")

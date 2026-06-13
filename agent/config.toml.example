@@ -1,0 +1,160 @@
+# Agent configuration
+# Task/environment metadata lives in `gbqa/tasks/<task>/gbqa.yaml`.
+# This file is the repo harness default layer. Trial config and CLI overrides
+# take precedence over it.
+
+# Run-level defaults for this harness. Harbor can override this per trial.
+[run]
+harness_mode = "minimal" # minimal | full
+interaction_profile = "default" # default | api | browser | computer_use
+interaction_mode = "api" # primary mode used when interaction_profile = default
+
+[harness]
+mode = "minimal" # minimal keeps only the closed-loop QA core; full enables diagnostic skills/tools.
+
+# LLM and CAMEL runtime settings
+[llm]
+platform = "auto" # auto | MODELSCOPE | OPENROUTER | OPENAI_COMPATIBLE_MODEL | ...
+# model = ""    # Falls back to MODEL_NAME
+# api_key = ""  # Falls back to API_KEY
+# base_url = "" # Falls back to BASE_URL, then https://zenmux.ai/api/v1.
+temperature = 0.5
+max_tokens = 32768
+input_token_limit = 128000 # Full text prompt budget for system + user prompts.
+timeout = 60
+
+[llm.reasoning]
+mode = "auto" # auto | enabled | disabled
+effort = ""   # optional: low | medium | high, provider/model dependent
+# max_tokens = 4096 # optional reasoning-token budget for providers that support it
+
+# Agent loop settings
+[agent]
+max_steps = 100
+max_consecutive_failures = 5
+reflection_threshold = 3
+reflection_interval = 10
+log_analysis_interval = 20 # Auto-trigger log analysis every N environment-action steps when runtime logs are enabled.
+auto_summarize = true
+summary_threshold = 15
+summary_interval = 40
+confidence_threshold = 0.7
+verbose = true
+prompt_dir = "prompts"
+
+# Interaction adapters
+# `primary` is the default exploration channel; other enabled adapters are
+# planner-visible auxiliary tools when the active session supports them.
+[interaction]
+profile = "default"
+primary_mode = "api"
+primary = "api" # api | playwright_mcp | computer_use
+enabled_modes = ["api", "browser", "computer_use"]
+enabled_backends = ["api", "playwright_mcp", "computer_use"]
+
+[interaction.adapters.api]
+
+[interaction.adapters.playwright_mcp]
+command = ["npx", "-y", "@playwright/mcp@latest", "--headless", "--browser", "chromium"]
+startup_timeout = 20
+snapshot_tool = "browser_snapshot"
+screenshot_tool = "browser_take_screenshot"
+navigate_tool = "browser_navigate"
+click_tool = "browser_click"
+type_tool = "browser_type"
+press_tool = "browser_press_key"
+wait_tool = "browser_wait_for"
+screenshot_dir = "tmp/playwright_artifacts"
+
+[interaction.adapters.computer_use]
+server_url = "http://127.0.0.1:8030"
+frontend_url = ""
+startup_timeout = 30
+sandbox_name = "gbqa-local-computer"
+screenshot_dir = "tmp/cua_artifacts"
+
+[interaction.adapters.computer_use.display]
+width = 1280
+height = 720
+
+[interaction.adapters.logs]
+enabled = false
+
+[interaction.adapters.code]
+enabled = false
+
+# Operator settings
+[operator]
+max_retries = 2
+retryable_error_kinds = ["tool_not_found", "element_not_found", "timeout", "not_visible"]
+
+# Tool and automatic diagnostic policies.
+[tool_policy.auto_log_analysis]
+enabled = false
+interval_steps = 20
+on_findings = true
+consecutive_failures_threshold = 3
+
+[tool_policy.auto_code_lookup]
+enabled = false
+min_confidence = 0.7
+
+[tool_policy.end_conditions]
+end_on_terminal = false
+
+# Hook event logging policy. Minimal keeps observability hooks but disables
+# diagnostic/context-enhancement hooks.
+[hooks]
+enabled = true
+run = true
+planner = true
+tool_calls = true
+steps = true
+lifecycle = true
+bugs = true
+summaries = true
+coverage_recording = true
+artifact_export = true
+diagnostics = false
+context_injection = false
+
+# Isolated worker subagents. Full mode enables them by default; minimal mode
+# disables them to keep the smallest closed-loop harness.
+[subagents]
+enabled = false
+context_isolation = "per_invocation"
+share_full_trace = false
+max_prompt_chars = 6000
+record_prompts = false
+
+[subagents.explorer]
+enabled = false
+interval_steps = 5
+
+[subagents.reproducer]
+enabled = false
+on_new_hypothesis = true
+
+[subagents.log_analyst]
+enabled = false
+read_logs = true
+
+[subagents.code_localizer]
+enabled = false
+read_code = true
+
+# Memory settings
+[memory]
+max_short_term = 100
+memory_context_token_limit = 128000 # Token budget for CAMEL memory retrieval only.
+long_term_file = "memory/{task_slug}/long_term.json"
+load_persistent_long_term = false
+cross_session_enabled = false
+cross_session_top_k = 3
+cross_session_similarity = 0.2
+
+# Report output
+[report]
+output_dir = "reports"
+format = "both"
+auto_save = true

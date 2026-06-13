@@ -61,7 +61,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluator for reports")
     parser.add_argument(
         "--config",
-        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"),
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.toml"),
     )
     parser.add_argument("--report", required=True)
     parser.add_argument("--task", default="dark-castle")
