@@ -18,6 +18,18 @@ else
   export GBQA_BUGS_PATH="/tests/empty_bugs.json"
 fi
 
+if [ -n "${CODEX_AUTH_JSON_B64:-}" ]; then
+  export CODEX_HOME="${CODEX_HOME:-/tmp/gbqa-codex-home}"
+  mkdir -p "${CODEX_HOME}"
+  printf '%s' "${CODEX_AUTH_JSON_B64}" | base64 -d > "${CODEX_HOME}/auth.json"
+  chmod 600 "${CODEX_HOME}/auth.json"
+elif [ -n "${CODEX_AUTH_JSON_PATH:-}" ] && [ -f "${CODEX_AUTH_JSON_PATH}" ]; then
+  export CODEX_HOME="${CODEX_HOME:-/tmp/gbqa-codex-home}"
+  mkdir -p "${CODEX_HOME}"
+  cp "${CODEX_AUTH_JSON_PATH}" "${CODEX_HOME}/auth.json"
+  chmod 600 "${CODEX_HOME}/auth.json"
+fi
+
 PYTHON_BIN="${PYTHON_BIN:-/opt/venv/bin/python}"
 "${PYTHON_BIN}" -m gbqa.rewards.runner \
   --tests-dir /tests \

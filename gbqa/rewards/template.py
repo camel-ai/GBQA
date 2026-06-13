@@ -27,7 +27,11 @@ def install_task_verifier_tests(
         shutil.rmtree(destination)
     shutil.copytree(TEMPLATE_TESTS_ROOT, destination)
 
-    for relative in ("test.sh", "quality/quality.toml"):
+    for relative in (
+        "test.sh",
+        "quality/quality.toml",
+        "quality/semantic_matching.md",
+    ):
         target = destination / relative
         if not target.is_file():
             continue
