@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 import json
 
-from .types import BugFinding, LifecycleEvent, RunReport, StepRecord
+from .types import BugFinding, HookEvent, LifecycleEvent, RunReport, StepRecord
 
 
 class Reporter:
@@ -54,6 +54,22 @@ class Reporter:
         print(
             f"[lifecycle] {event.event}"
             f" step={event.step} trigger={event.trigger} reason={event.reason}"
+        )
+
+    def log_hook_event(self, event: HookEvent) -> None:
+        payload = {
+            "type": "hook",
+            **asdict(event),
+            "text": (
+                f"{event.event_type}: hook={event.hook}"
+                f" step={event.step} tool={event.tool}"
+            ),
+        }
+        self._events.append(payload)
+        self._append_jsonl(payload)
+        print(
+            f"[hook:{event.event_type}] {event.hook}"
+            f" step={event.step} tool={event.tool}"
         )
 
     def log_bug(self, bug: BugFinding, step: int) -> None:
@@ -120,6 +136,14 @@ class Reporter:
                 lines.append(
                     f"- Step {event.step}: `{event.event}`"
                     f" trigger=`{event.trigger}` reason=`{event.reason}`"
+                )
+            lines.append("")
+        if report.hook_events:
+            lines.extend(["## Hooks", ""])
+            for event in report.hook_events:
+                lines.append(
+                    f"- Step {event.step}: `{event.event_type}`"
+                    f" hook=`{event.hook}` tool=`{event.tool}`"
                 )
             lines.append("")
         lines.extend(["## Step Trace", ""])
@@ -197,6 +221,7 @@ class Reporter:
             "task": report.metadata.get("task", {}),
             "summary": report.summary,
             "lifecycle_events": [asdict(event) for event in report.lifecycle_events],
+            "hook_events": [asdict(event) for event in report.hook_events],
             "bugs": [asdict(bug) for bug in report.bugs],
             "summaries": [asdict(summary) for summary in report.summaries],
             "steps": [

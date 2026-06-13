@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Type
@@ -10,11 +9,14 @@ from typing import Any, Dict, List, Optional, Type
 from .bug_detector import BugDetector
 from .evaluator import Evaluator
 from .execution_backends import ExecutionBackend
+from .hooks import HookManager, event_type_for_action
 from .memory import MemoryManager
 from .operator import Operator
 from .planner import ActionPlanner
+from .qa_state import CoverageState, HypothesisManager
 from .reflection import ReflectionAnalyzer
 from .reporter import Reporter
+from .subagents import SubagentManager, SubagentResult
 from .tool_registry import ToolRegistry
 from .types import (
     Action,
@@ -35,6 +37,15 @@ _LIFECYCLE_SESSION_TOOLS = frozenset(
         "refresh_session",
         "switch_session",
         "list_sessions",
+    }
+)
+
+_ENVIRONMENT_ACTION_TOOLS = frozenset(
+    {
+        "environment_action",
+        "api_action",
+        "browser_action",
+        "computer_action",
     }
 )
 
@@ -62,6 +73,12 @@ class Orchestrator:
         reflection_interval: int = 10,
         log_analysis_interval: int = 20,
         summary_interval: int = 50,
+        auto_log_analysis_policy: Optional[Dict[str, Any]] = None,
+        auto_code_lookup_policy: Optional[Dict[str, Any]] = None,
+        end_condition_policy: Optional[Dict[str, Any]] = None,
+        allow_auto_code_registration: bool = False,
+        hook_manager: Optional[HookManager] = None,
+        subagent_manager: Optional[SubagentManager] = None,
     ) -> None:
         self._task_id = task_id
         self._execution_backend = execution_backend
@@ -80,6 +97,22 @@ class Orchestrator:
         self._reflection_interval = reflection_interval
         self._log_analysis_interval = log_analysis_interval
         self._summary_interval = summary_interval
+        self._auto_log_analysis_policy = self._normalize_auto_log_policy(
+            auto_log_analysis_policy,
+            log_analysis_interval=log_analysis_interval,
+        )
+        self._auto_code_lookup_policy = self._normalize_auto_code_policy(
+            auto_code_lookup_policy,
+            confidence_threshold=confidence_threshold,
+        )
+        self._end_condition_policy = dict(end_condition_policy or {})
+        self._allow_auto_code_registration = allow_auto_code_registration
+        self._hook_manager = hook_manager or HookManager()
+        self._subagents = subagent_manager
+        self._hypotheses = HypothesisManager(
+            confidence_threshold=confidence_threshold,
+        )
+        self._coverage = CoverageState()
 
     def run(self, task_profile: str) -> RunReport:
         start = datetime.now(timezone.utc).isoformat()
@@ -94,6 +127,28 @@ class Orchestrator:
                 "backend": {"type": self._execution_backend.backend_type},
                 "session_ids": [],
                 "capability_summary": "",
+                "strategy": {
+                    "auto_log_analysis": self._auto_log_analysis_policy,
+                    "auto_code_lookup": self._auto_code_lookup_policy,
+                    "end_conditions": self._end_condition_policy,
+                    "max_consecutive_failures": self._max_consecutive_failures,
+                    "reflection_interval": self._reflection_interval,
+                    "summary_interval": self._summary_interval,
+                    "subagents": (
+                        self._subagents.policy
+                        if self._subagents is not None
+                        else {"enabled": False}
+                    ),
+                },
+            },
+        )
+        self._emit_hook(
+            report,
+            hook="on_run_start",
+            event_type="RunStarted",
+            metadata={
+                "backend_type": self._execution_backend.backend_type,
+                "max_steps": self._max_steps,
             },
         )
         self._record_lifecycle_event(
@@ -113,13 +168,17 @@ class Orchestrator:
             open_sessions=open_sessions,
         )
 
-        # FINAL GUARANTEE: Ensure code skill is registered if we are in a sandbox
-        if not self._has_tool("code_read_file"):
-            if hasattr(self._execution_backend, "shell") or self._execution_backend.backend_type in {"computer_use", "daytona"}:
+        if self._allow_auto_code_registration and not self._has_tool("code_read_file"):
+            if (
+                hasattr(self._execution_backend, "shell")
+                or self._execution_backend.backend_type in {"computer_use", "daytona"}
+            ):
                 from .codebase_types import UniversalCodebaseAdapter
                 from .tool_registry import register_code_tools
-                print("[orchestrator] auto-registering 'code' skill for sandbox environment")
-                register_code_tools(self._tool_registry, UniversalCodebaseAdapter(shell_client=self._execution_backend))
+                register_code_tools(
+                    self._tool_registry,
+                    UniversalCodebaseAdapter(shell_client=self._execution_backend),
+                )
 
         # Skill-aware capability rendering
         capability_prompt = self._tool_registry.render_prompt_section()
@@ -142,6 +201,13 @@ class Orchestrator:
             # Re-render prompt section if skills might have changed
             capability_prompt = self._tool_registry.render_prompt_section()
             
+            self._emit_hook(
+                report,
+                hook="before_plan",
+                event_type="Planning",
+                step=step,
+                session=active_session,
+            )
             # Use dictionary context aligned with ActionPlanner's internal processing
             # (Matches keys used in src/planner.py and prompts/planner.md)
             plan = self._planner.plan({
@@ -149,12 +215,24 @@ class Orchestrator:
                 "current_observation": current_observation.message,
                 "memory_summary": self._memory.get_long_term_summary(),
                 "recent_trace": self._memory.get_recent_trace(),
+                "coverage_summary": self._coverage.summary(),
+                "hypothesis_summary": self._hypotheses.summary(),
+                "subagent_summary": self._subagent_summary(report),
                 "available_tools_prompt_section": capability_prompt,
                 "step": step,
             })
 
             action = plan.action
             if getattr(plan, "error", ""):
+                self._emit_hook(
+                    report,
+                    hook="after_plan",
+                    event_type="PlanFailed",
+                    step=step,
+                    action=action,
+                    session=active_session,
+                    metadata={"error": plan.error},
+                )
                 report.metadata["early_stop_reason"] = "planner_error"
                 report.metadata["failed_stage"] = "planner"
                 report.metadata["failed_step"] = step
@@ -162,6 +240,14 @@ class Orchestrator:
                 task_end_reason = "planner_error"
                 task_end_trigger = "system"
                 break
+            self._emit_hook(
+                report,
+                hook="after_plan",
+                event_type="Planned",
+                step=step,
+                action=action,
+                session=active_session,
+            )
 
             if action.tool == "end_task":
                 current_observation = self._lifecycle_observation(
@@ -202,7 +288,7 @@ class Orchestrator:
                     consecutive_failures = 0
                     continue
 
-            if active_session is None and action.tool == "environment_action":
+            if active_session is None and self._is_environment_action_tool(action.tool):
                 current_observation = Observation(
                     success=False,
                     message="No active session. Use start_session or new_session first.",
@@ -227,6 +313,7 @@ class Orchestrator:
                 capability_prompt=capability_prompt,
                 session=active_session,
                 report=report,
+                step=step,
             )
 
             record = self._record_step(
@@ -239,46 +326,187 @@ class Orchestrator:
             )
 
             # Bug detection for environment actions
-            if action.tool == "environment_action":
+            findings: List[BugFinding] = []
+            if self._is_environment_action_tool(action.tool):
                 findings = (
                     self._detector.inspect(action, current_observation)
                     if self._detector
                     else []
                 )
                 for bug in findings:
-                    report.bugs.append(bug)
-                    self._memory.record_bug(bug, step)
-                    self._reporter.log_bug(bug, step)
+                    new_bug_added = self._add_bug_finding(
+                        report=report,
+                        bug=bug,
+                        step=step,
+                        action=action,
+                        observation=current_observation,
+                        source="detector",
+                    )
+                    if new_bug_added:
+                        reproducer_result = self._maybe_run_reproducer_subagent(
+                            report=report,
+                            record=record,
+                            step=step,
+                            session=active_session,
+                            bug=bug,
+                            observation=current_observation,
+                        )
+                        if reproducer_result is not None:
+                            record.notes = self._append_note(
+                                record.notes,
+                                self._format_subagent_note(reproducer_result),
+                            )
                     
                     # Auto codebase lookup for discovered bugs
-                    if bug.confidence >= self._confidence_threshold:
-                         record.notes = self._append_note(
-                             record.notes, 
-                             self._auto_code_lookup(active_session, bug)
-                         )
+                    if self._should_auto_code_lookup(bug):
+                        auto_code_note = self._auto_code_lookup(
+                            active_session,
+                            bug,
+                            report=report,
+                            step=step,
+                        )
+                        record.notes = self._append_note(record.notes, auto_code_note)
+                        if auto_code_note:
+                            self._emit_hook(
+                                report,
+                                hook="on_auto_code_lookup",
+                                event_type="Diagnosed",
+                                step=step,
+                                action=action,
+                                session=active_session,
+                                metadata={"bug_title": bug.title},
+                            )
 
                 if current_observation.success:
                     consecutive_failures = 0
                 else:
                     consecutive_failures += 1
 
+            self._record_strategy_state(
+                record=record,
+                report=report,
+                session=active_session,
+            )
+            explorer_result = self._maybe_run_explorer_subagent(
+                report=report,
+                record=record,
+                step=step,
+                session=active_session,
+                observation=current_observation,
+            )
+            if explorer_result is not None:
+                record.notes = self._append_note(
+                    record.notes,
+                    self._format_subagent_note(explorer_result),
+                )
+
+            if self._is_environment_action_tool(action.tool):
+                planner_hypothesis = self._hypotheses.add_from_planner_signal(
+                    action=action,
+                    step=step,
+                    observation=current_observation,
+                )
+                if (
+                    planner_hypothesis
+                    and action.confidence >= self._confidence_threshold
+                ):
+                    new_bug_added = self._add_bug_finding(
+                        report=report,
+                        bug=BugFinding(
+                            title=planner_hypothesis.title,
+                            description=planner_hypothesis.description,
+                            confidence=planner_hypothesis.confidence,
+                            evidence=planner_hypothesis.evidence,
+                            tags=planner_hypothesis.tags,
+                        ),
+                        step=step,
+                        action=action,
+                        observation=current_observation,
+                        source="planner",
+                    )
+                    if new_bug_added and report.bugs:
+                        reproducer_result = self._maybe_run_reproducer_subagent(
+                            report=report,
+                            record=record,
+                            step=step,
+                            session=active_session,
+                            bug=report.bugs[-1],
+                            observation=current_observation,
+                        )
+                        if reproducer_result is not None:
+                            record.notes = self._append_note(
+                                record.notes,
+                                self._format_subagent_note(reproducer_result),
+                            )
+
+                reflection = self._maybe_reflect(
+                    report=report,
+                    record=record,
+                    step=step,
+                    action=action,
+                    observation=current_observation,
+                    consecutive_failures=consecutive_failures,
+                    last_reflection_step=last_reflection_step,
+                )
+                if reflection is not None:
+                    last_reflection_step = step
+
             # Auto log analysis
             if self._should_auto_log_analysis(
                 action=action,
-                findings=report.bugs,
+                findings=findings,
                 step=step,
                 consecutive_failures=consecutive_failures,
             ):
-                record.notes = self._append_note(
-                    record.notes,
-                    self._auto_log_analysis(active_session, report),
+                auto_log_note = self._auto_log_analysis(
+                    active_session,
+                    report,
+                    step=step,
                 )
+                record.notes = self._append_note(record.notes, auto_log_note)
+                if auto_log_note:
+                    self._emit_hook(
+                        report,
+                        hook="on_auto_log_analysis",
+                        event_type="Diagnosed",
+                        step=step,
+                        action=action,
+                        session=active_session,
+                    )
+
+            self._maybe_summarize(report=report, step=step, force_interval=True)
+
+            if (
+                self._end_condition_policy.get("end_on_terminal", False)
+                and current_observation.terminal
+            ):
+                task_end_reason = "terminal_observation"
+                task_end_trigger = "system"
+                report.metadata["terminal_step"] = step
+                break
+
+            if (
+                self._max_consecutive_failures > 0
+                and consecutive_failures >= self._max_consecutive_failures
+            ):
+                task_end_reason = "max_consecutive_failures"
+                task_end_trigger = "system"
+                report.metadata["forced_end_reason"] = task_end_reason
+                report.metadata["failed_step"] = step
+                report.metadata["consecutive_failures"] = consecutive_failures
+                break
 
         if not task_end_reason:
             task_end_reason = "max_steps_reached"
             task_end_trigger = "max_steps"
             report.metadata["forced_end_reason"] = "max_steps_reached"
             report.metadata["max_steps"] = self._max_steps
+        self._maybe_summarize(
+            report=report,
+            step=min(len(report.steps), self._max_steps),
+            force_interval=False,
+            force=True,
+        )
         self._close_all_sessions(
             report=report,
             open_sessions=open_sessions,
@@ -297,6 +525,18 @@ class Orchestrator:
         )
         report.metadata["end_reason"] = task_end_reason
         report.metadata["end_trigger"] = task_end_trigger or "system"
+        report.metadata["coverage"] = self._coverage.to_dict()
+        report.metadata["hypotheses"] = self._hypotheses.to_dict()
+        self._emit_hook(
+            report,
+            hook="on_run_end",
+            event_type="RunEnded",
+            step=min(len(report.steps), self._max_steps),
+            metadata={
+                "end_reason": task_end_reason,
+                "end_trigger": task_end_trigger or "system",
+            },
+        )
         return report
 
     def _ensure_lifecycle_tools(self) -> None:
@@ -634,6 +874,19 @@ class Orchestrator:
         report.lifecycle_events.append(lifecycle_event)
         if hasattr(self._reporter, "log_lifecycle_event"):
             self._reporter.log_lifecycle_event(lifecycle_event)
+        self._emit_hook(
+            report,
+            hook="on_lifecycle_event",
+            event_type="Lifecycle",
+            step=step,
+            session=session,
+            metadata={
+                "event": event,
+                "reason": reason,
+                "trigger": trigger,
+                **dict(metadata or {}),
+            },
+        )
 
     @staticmethod
     def _format_session_state_message(
@@ -749,7 +1002,17 @@ class Orchestrator:
         capability_prompt: str,
         session: Optional[SessionHandle],
         report: RunReport,
+        step: int,
     ) -> Observation:
+        self._emit_hook(
+            report,
+            hook="before_tool_call",
+            event_type=event_type_for_action(action),
+            step=step,
+            action=action,
+            session=session,
+            metadata={"phase": "before"},
+        )
         try:
             if action.tool == "environment_action":
                 backend_capability = self._backend_capability(session, capability_prompt)
@@ -759,6 +1022,18 @@ class Orchestrator:
                     capability=backend_capability,
                     session=session,
                     backend=self._execution_backend,
+                )
+                self._emit_hook(
+                    report,
+                    hook="after_tool_call",
+                    event_type=event_type_for_action(action),
+                    step=step,
+                    action=action,
+                    session=session,
+                    metadata={
+                        "success": result.observation.success,
+                        "phase": "after",
+                    },
                 )
                 return result.observation
             registry_result = self._tool_registry.invoke(
@@ -770,11 +1045,37 @@ class Orchestrator:
                     "steps": report.steps,
                     "lifecycle_events": report.lifecycle_events,
                     "current_observation": current_observation,
+                    "planner_action": action,
                 }
+            )
+            self._emit_hook(
+                report,
+                hook="after_tool_call",
+                event_type=event_type_for_action(action),
+                step=step,
+                action=action,
+                session=session,
+                metadata={
+                    "success": registry_result.observation.success,
+                    "phase": "after",
+                },
             )
             return registry_result.observation
         except Exception as exc:
             print(f"[operator] execution error: {exc}")
+            self._emit_hook(
+                report,
+                hook="after_tool_call",
+                event_type=event_type_for_action(action),
+                step=step,
+                action=action,
+                session=session,
+                metadata={
+                    "success": False,
+                    "error": str(exc),
+                    "phase": "after",
+                },
+            )
             return Observation(
                 success=False,
                 message=str(exc),
@@ -828,7 +1129,257 @@ class Orchestrator:
             self._memory.record_step(record)
         if hasattr(self._reporter, "log_step"):
             self._reporter.log_step(record)
+        self._emit_hook(
+            report,
+            hook="after_step",
+            event_type=event_type_for_action(action),
+            step=step,
+            action=action,
+            metadata={"success": observation.success},
+        )
         return record
+
+    def _record_strategy_state(
+        self,
+        *,
+        record: StepRecord,
+        report: RunReport,
+        session: Optional[SessionHandle],
+    ) -> None:
+        self._coverage.record(
+            step=record.step,
+            action=record.action,
+            observation=record.observation,
+            session_id=session.session_id if session else "",
+        )
+        report.metadata["coverage_summary"] = self._coverage.summary()
+        report.metadata["hypothesis_summary"] = self._hypotheses.summary()
+        self._emit_hook(
+            report,
+            hook="on_coverage_recorded",
+            event_type="Covered",
+            step=record.step,
+            action=record.action,
+            session=session,
+            metadata={"coverage_summary": report.metadata["coverage_summary"]},
+        )
+
+    def _add_bug_finding(
+        self,
+        *,
+        report: RunReport,
+        bug: BugFinding,
+        step: int,
+        action: Action,
+        observation: Observation,
+        source: str,
+    ) -> bool:
+        if self._is_duplicate_bug(bug, report.bugs):
+            self._hypotheses.add_from_finding(
+                finding=bug,
+                step=step,
+                action=action,
+                observation=observation,
+                source=source,
+            )
+            return False
+        report.bugs.append(bug)
+        self._hypotheses.add_from_finding(
+            finding=bug,
+            step=step,
+            action=action,
+            observation=observation,
+            source=source,
+        )
+        if hasattr(self._memory, "record_bug"):
+            self._memory.record_bug(bug, step)
+        if hasattr(self._reporter, "log_bug"):
+            self._reporter.log_bug(bug, step)
+        self._emit_hook(
+            report,
+            hook="on_bug_reported",
+            event_type="Reported",
+            step=step,
+            action=action,
+            metadata={
+                "source": source,
+                "title": bug.title,
+                "confidence": bug.confidence,
+            },
+        )
+        return True
+
+    def _maybe_reflect(
+        self,
+        *,
+        report: RunReport,
+        record: StepRecord,
+        step: int,
+        action: Action,
+        observation: Observation,
+        consecutive_failures: int,
+        last_reflection_step: int,
+    ) -> Optional[Any]:
+        if not self._reflection_analyzer:
+            return None
+        if not self._should_reflect(
+            action=action,
+            step=step,
+            observation=observation,
+            consecutive_failures=consecutive_failures,
+            last_reflection_step=last_reflection_step,
+        ):
+            return None
+        execution_diagnostics = (
+            observation.execution.get("diagnostics", {})
+            if observation.execution
+            else {}
+        )
+        reflection = self._reflection_analyzer.reflect(
+            {
+                "memory_summary": self._memory.get_long_term_summary(),
+                "recent_trace": self._memory.get_recent_trace(),
+                "current_observation": observation.summary or observation.message,
+                "execution_diagnostics": str(execution_diagnostics),
+            }
+        )
+        record.reflection_prompt = reflection.prompt
+        record.reflection_output = reflection.output
+        formatted_note = self._reflection_analyzer.format_note(reflection)
+        record.notes = self._append_note(
+            record.notes,
+            f"[Reflection]\n{formatted_note}",
+        )
+        promoted = self._promote_reflection_bug(
+            reflection=reflection,
+            step=step,
+            action_command=action.command,
+            observation=observation,
+            existing_bugs=report.bugs,
+        )
+        if promoted is not None:
+            self._add_bug_finding(
+                report=report,
+                bug=promoted,
+                step=step,
+                action=action,
+                observation=observation,
+                source="reflection",
+            )
+        return reflection
+
+    def _should_reflect(
+        self,
+        *,
+        action: Action,
+        step: int,
+        observation: Observation,
+        consecutive_failures: int,
+        last_reflection_step: int,
+    ) -> bool:
+        if not self._is_environment_action_tool(action.tool):
+            return False
+        if action.bug_exist and action.confidence >= self._confidence_threshold:
+            return True
+        if (
+            self._reflection_threshold > 0
+            and consecutive_failures >= self._reflection_threshold
+        ):
+            return True
+        if self._reflection_interval <= 0:
+            return False
+        if step - last_reflection_step < self._reflection_interval:
+            return False
+        if observation.success and not action.bug_exist:
+            return True
+        return not BugDetector.is_benign_failure(observation)
+
+    def _promote_reflection_bug(
+        self,
+        *,
+        reflection: Any,
+        step: int,
+        action_command: str,
+        observation: Observation,
+        existing_bugs: List[BugFinding],
+    ) -> Optional[BugFinding]:
+        if not getattr(reflection, "bug_exist", False):
+            return None
+        confidence = float(getattr(reflection, "bug_confidence", 0.0) or 0.0)
+        evidence_text = str(getattr(reflection, "bug_evidence", "") or "").strip()
+        if confidence < self._confidence_threshold or not evidence_text:
+            return None
+        candidate = BugFinding(
+            title="Reflection-identified environment issue",
+            description=evidence_text,
+            confidence=confidence,
+            evidence={
+                "step": step,
+                "action": action_command,
+                "observation": observation.summary or observation.message,
+                "source": "reflection",
+            },
+            tags=["reflection"],
+        )
+        if self._is_duplicate_bug(candidate, existing_bugs):
+            return None
+        return candidate
+
+    def _maybe_summarize(
+        self,
+        *,
+        report: RunReport,
+        step: int,
+        force_interval: bool,
+        force: bool = False,
+    ) -> None:
+        summary = None
+        if force:
+            if hasattr(self._memory, "force_summarize"):
+                summary = self._memory.force_summarize(step)
+        elif (
+            force_interval
+            and self._summary_interval > 0
+            and step > 0
+            and step % self._summary_interval == 0
+            and hasattr(self._memory, "force_summarize")
+        ):
+            summary = self._memory.force_summarize(step)
+        elif hasattr(self._memory, "maybe_summarize"):
+            summary = self._memory.maybe_summarize(step)
+        if summary is None:
+            return
+        report.summaries.append(summary)
+        if hasattr(self._reporter, "log_summary"):
+            self._reporter.log_summary(
+                {"summary": getattr(summary, "output", "")},
+                step,
+            )
+        self._emit_hook(
+            report,
+            hook="on_summary_created",
+            event_type="Summarized",
+            step=step,
+            metadata={"summary_length": len(getattr(summary, "output", "") or "")},
+        )
+
+    @staticmethod
+    def _is_duplicate_bug(
+        candidate: BugFinding,
+        existing_bugs: List[BugFinding],
+    ) -> bool:
+        candidate_text = (
+            f"{candidate.title} {candidate.description}"
+        ).strip().lower()
+        for bug in existing_bugs:
+            existing_text = f"{bug.title} {bug.description}".strip().lower()
+            if candidate_text and (
+                candidate_text in existing_text
+                or existing_text in candidate_text
+                or SequenceMatcher(None, candidate_text, existing_text).ratio() >= 0.86
+            ):
+                return True
+        return False
 
     def _resolve_end_session_target(
         self,
@@ -879,15 +1430,159 @@ class Orchestrator:
     def _lifecycle_reason(action: Action) -> str:
         return action.command.strip() or action.rationale.strip()
 
-    def _should_auto_log_analysis(self, *, action, findings, step, consecutive_failures) -> bool:
-        if not self._has_tool("log_analyze"): return False
-        interval_due = (
-            self._log_analysis_interval > 0
-            and step % self._log_analysis_interval == 0
+    def _maybe_run_explorer_subagent(
+        self,
+        *,
+        report: RunReport,
+        record: StepRecord,
+        step: int,
+        session: Optional[SessionHandle],
+        observation: Observation,
+    ) -> Optional[SubagentResult]:
+        del record
+        if self._subagents is None or not self._subagents.should_run_explorer(step=step):
+            return None
+        result = self._subagents.explore(
+            coverage_summary=self._coverage.summary(),
+            observation_summary=observation.summary or observation.message,
         )
-        return interval_due or consecutive_failures >= 3 or bool(findings)
+        self._record_subagent_result(
+            report=report,
+            result=result,
+            step=step,
+            session=session,
+        )
+        return result
 
-    def _auto_log_analysis(self, session: Any, report: RunReport) -> str:
+    def _maybe_run_reproducer_subagent(
+        self,
+        *,
+        report: RunReport,
+        record: StepRecord,
+        step: int,
+        session: Optional[SessionHandle],
+        bug: BugFinding,
+        observation: Observation,
+    ) -> Optional[SubagentResult]:
+        del record
+        if self._subagents is None or not self._subagents.enabled("reproducer"):
+            return None
+        result = self._subagents.reproduce(
+            hypothesis_summary=self._hypotheses.summary(),
+            bug=bug,
+            observation_summary=observation.summary or observation.message,
+        )
+        self._record_subagent_result(
+            report=report,
+            result=result,
+            step=step,
+            session=session,
+        )
+        return result
+
+    def _record_subagent_result(
+        self,
+        *,
+        report: RunReport,
+        result: SubagentResult,
+        step: int,
+        session: Optional[SessionHandle],
+    ) -> None:
+        policy = self._subagents.policy if self._subagents is not None else {}
+        include_prompt = bool(policy.get("record_prompts", False))
+        payload = result.to_dict(include_prompt=include_prompt)
+        payload["step"] = step
+        results = report.metadata.setdefault("subagent_results", [])
+        if isinstance(results, list):
+            results.append(payload)
+        report.metadata["subagent_summary"] = self._subagent_summary(report)
+        self._emit_hook(
+            report,
+            hook="on_subagent_result",
+            event_type="Ran",
+            step=step,
+            session=session,
+            metadata={
+                "worker": result.worker,
+                "summary": result.summary,
+                "suggestion_count": len(result.suggestions),
+                "error": result.error,
+            },
+        )
+
+    @staticmethod
+    def _subagent_summary(report: RunReport, *, max_items: int = 4) -> str:
+        results = report.metadata.get("subagent_results", [])
+        if not isinstance(results, list) or not results:
+            return "No isolated worker subagent hints yet."
+        lines = []
+        for item in results[-max_items:]:
+            if not isinstance(item, dict):
+                continue
+            worker = str(item.get("worker") or "Subagent")
+            summary = str(item.get("summary") or "").strip()
+            suggestions = item.get("suggestions", [])
+            suggestion_text = ""
+            if isinstance(suggestions, list) and suggestions:
+                suggestion_text = "; next: " + "; ".join(
+                    str(value) for value in suggestions[:2]
+                )
+            if summary or suggestion_text:
+                lines.append(f"- {worker}: {summary}{suggestion_text}")
+        return "\n".join(lines) if lines else "No isolated worker subagent hints yet."
+
+    @staticmethod
+    def _format_subagent_note(result: SubagentResult) -> str:
+        if result.error:
+            return f"[{result.worker}] error: {result.error}"
+        parts = [f"[{result.worker}]", result.summary]
+        if result.suggestions:
+            parts.append("Suggestions: " + "; ".join(result.suggestions[:4]))
+        return "\n".join(part for part in parts if part).strip()
+
+    def _should_auto_log_analysis(self, *, action, findings, step, consecutive_failures) -> bool:
+        policy = self._auto_log_analysis_policy
+        if not policy.get("enabled", False):
+            return False
+        if not self._has_tool("log_analyze"):
+            return False
+        if not self._is_environment_action_tool(action.tool):
+            return False
+        interval_steps = int(policy.get("interval_steps") or 0)
+        interval_due = interval_steps > 0 and step % interval_steps == 0
+        failure_threshold = int(policy.get("consecutive_failures_threshold") or 0)
+        failure_due = failure_threshold > 0 and consecutive_failures >= failure_threshold
+        findings_due = bool(policy.get("on_findings", True)) and bool(findings)
+        return interval_due or failure_due or findings_due
+
+    @staticmethod
+    def _is_environment_action_tool(tool_name: str) -> bool:
+        return str(tool_name) in _ENVIRONMENT_ACTION_TOOLS
+
+    def _auto_log_analysis(
+        self,
+        session: Any,
+        report: RunReport,
+        *,
+        step: int,
+    ) -> str:
+        if self._subagents is not None and self._subagents.enabled("log_analyst"):
+            result = self._subagents.analyze_logs(
+                registry=self._tool_registry,
+                session=session,
+                runtime_context={
+                    "history": report.steps,
+                    "steps": report.steps,
+                    "lifecycle_events": report.lifecycle_events,
+                },
+            )
+            self._record_subagent_result(
+                report=report,
+                result=result,
+                step=step,
+                session=session,
+            )
+            return self._format_subagent_note(result)
         try:
             result = self._tool_registry.invoke_internal(
                 "log_analyze",
@@ -900,18 +1595,77 @@ class Orchestrator:
                 },
             )
             return f"[Auto log analysis]\n{result.observation.summary}"
-        except: return ""
+        except Exception:
+            return ""
 
-    def _auto_code_lookup(self, session: Any, bug: BugFinding) -> str:
-        if not self._has_tool("code_search"): return ""
+    def _auto_code_lookup(
+        self,
+        session: Any,
+        bug: BugFinding,
+        *,
+        report: RunReport,
+        step: int,
+    ) -> str:
+        if not self._has_tool("code_search"):
+            return ""
+        if self._subagents is not None and self._subagents.enabled("code_localizer"):
+            result = self._subagents.localize_code(
+                registry=self._tool_registry,
+                session=session,
+                bug=bug,
+            )
+            self._record_subagent_result(
+                report=report,
+                result=result,
+                step=step,
+                session=session,
+            )
+            return self._format_subagent_note(result)
         try:
             query = "|".join(bug.description.split()[:5])
-            res = self._tool_registry.invoke_internal("code_search", {"pattern": query}, {"session": session})
+            res = self._tool_registry.invoke_internal(
+                "code_search",
+                {"pattern": query},
+                {"session": session},
+            )
             return f"[Auto code lookup] Relevant files:\n{res.observation.message[:300]}"
-        except: return ""
+        except Exception:
+            return ""
+
+    def _should_auto_code_lookup(self, bug: BugFinding) -> bool:
+        policy = self._auto_code_lookup_policy
+        if not policy.get("enabled", False):
+            return False
+        minimum = float(policy.get("min_confidence", self._confidence_threshold))
+        return bug.confidence >= minimum
 
     def _has_tool(self, name: str) -> bool:
         return any(t.name == name for t in self._tool_registry.list_tools())
+
+    def _emit_hook(
+        self,
+        report: RunReport,
+        *,
+        hook: str,
+        event_type: str,
+        step: int = 0,
+        action: Optional[Action] = None,
+        session: Optional[SessionHandle] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        try:
+            self._hook_manager.emit(
+                report=report,
+                reporter=self._reporter,
+                hook=hook,
+                event_type=event_type,
+                step=step,
+                action=action,
+                session=session,
+                metadata=metadata,
+            )
+        except Exception:
+            return
 
     def _inject_capability_observation(
         self,
@@ -920,7 +1674,10 @@ class Orchestrator:
     ) -> Observation:
         return Observation(
             success=base.success,
-            message=f"Capability observation:\n{summary}\n\nInitial environment observation:\n{base.message}",
+            message=(
+                f"Capability observation:\n{summary}\n\n"
+                f"Initial environment observation:\n{base.message}"
+            ),
             state=base.state,
             summary=base.summary,
             env_state=base.env_state,
@@ -933,3 +1690,33 @@ class Orchestrator:
     def _append_note(existing: str, addition: str) -> str:
         if not addition: return existing
         return f"{existing}\n{addition}".strip()
+
+    @staticmethod
+    def _normalize_auto_log_policy(
+        policy: Optional[Dict[str, Any]],
+        *,
+        log_analysis_interval: int,
+    ) -> Dict[str, Any]:
+        normalized = {
+            "enabled": True,
+            "interval_steps": log_analysis_interval,
+            "on_findings": True,
+            "consecutive_failures_threshold": 3,
+        }
+        if policy is not None:
+            normalized.update(policy)
+        return normalized
+
+    @staticmethod
+    def _normalize_auto_code_policy(
+        policy: Optional[Dict[str, Any]],
+        *,
+        confidence_threshold: float,
+    ) -> Dict[str, Any]:
+        normalized = {
+            "enabled": True,
+            "min_confidence": confidence_threshold,
+        }
+        if policy is not None:
+            normalized.update(policy)
+        return normalized

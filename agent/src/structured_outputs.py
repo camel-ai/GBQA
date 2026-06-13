@@ -90,3 +90,42 @@ class GroundTruthMatch(BaseModel):
     match_id: str = ""
     score: float = Field(default=0.0, ge=0.0, le=1.0)
     rationale: str = ""
+
+
+class ExplorerWorkerDecision(BaseModel):
+    """Explorer subagent output schema."""
+
+    summary: str = ""
+    coverage_gaps: List[str] = Field(default_factory=list)
+    suggested_actions: List[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class ReproducerWorkerDecision(BaseModel):
+    """Reproducer subagent output schema."""
+
+    summary: str = ""
+    status: str = "needs_more_evidence"
+    reproduction_steps: List[str] = Field(default_factory=list)
+    next_action: str = ""
+    confidence_delta: float = Field(default=0.0, ge=-1.0, le=1.0)
+
+
+class LogAnalystWorkerDecision(BaseModel):
+    """Log analyst subagent output schema."""
+
+    summary: str = ""
+    findings: List[str] = Field(default_factory=list)
+    suspected_bug: bool = False
+    severity: str = "unknown"
+    recommended_next_check: str = ""
+
+
+class CodeLocalizerWorkerDecision(BaseModel):
+    """Code localizer subagent output schema."""
+
+    summary: str = ""
+    suspected_files: List[str] = Field(default_factory=list)
+    suspected_symbols: List[str] = Field(default_factory=list)
+    rationale: str = ""
+    recommended_probe: str = ""

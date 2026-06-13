@@ -36,6 +36,8 @@ class Tool:
     action_format: str
     handler: ToolHandler
     action_parser: ToolActionParser
+    input_schema: Dict[str, Any] | None = None
+    side_effect: str = "read"
 
     def invoke(
         self,
@@ -191,6 +193,35 @@ class ToolRegistry:
                 lines.append(f"- {skill.name}: {skill.description}{path}")
         return "\n".join(lines)
 
+    def describe_policy(self) -> Dict[str, Any]:
+        """Return structured tool/skill policy for run metadata."""
+
+        return {
+            "skills": [
+                {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "path": skill.path,
+                    "activated": skill.name in self._activated_skills,
+                }
+                for skill in self._skills.values()
+            ],
+            "tools": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "action_format": tool.action_format,
+                    "input_schema": tool.input_schema or _string_action_schema(
+                        tool.action_format
+                    ),
+                    "side_effect": tool.side_effect,
+                    "skill": self._tool_skills.get(tool.name, ""),
+                    "visible": self._is_tool_visible(tool.name),
+                }
+                for tool in self._tools.values()
+            ],
+        }
+
     def _get(self, name: str, *, include_hidden: bool = False) -> Tool:
         if name not in self._tools:
             raise KeyError(f"Unknown tool: {name}")
@@ -222,6 +253,12 @@ class ToolRegistry:
                     self,
                 ),
                 action_parser=_parse_use_skill_action,
+                input_schema={
+                    "type": "object",
+                    "properties": {"skill": {"type": "string"}},
+                    "required": ["skill"],
+                },
+                side_effect="control",
             )
         )
 
@@ -240,6 +277,12 @@ def register_environment_action_tool(
             action_format="semantic action string",
             handler=handler,
             action_parser=lambda action_text: {"action": _require_action(action_text)},
+            input_schema={
+                "type": "object",
+                "properties": {"action": {"type": "string"}},
+                "required": ["action"],
+            },
+            side_effect="environment",
         )
     )
 
@@ -313,6 +356,8 @@ def register_lifecycle_tools(registry: ToolRegistry) -> None:
                     runtime,
                 ),
                 action_parser=action_parser,
+                input_schema=_lifecycle_tool_schema(name),
+                side_effect="control",
             ),
             skill_name=skill_name,
         )
@@ -343,6 +388,8 @@ def register_code_tools(
             action_format="any non-empty text (ignored)",
             handler=lambda payload, runtime: _invoke_code_list(payload, runtime, codebase_adapter),
             action_parser=lambda _: {},
+            input_schema={"type": "object", "properties": {}},
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
@@ -353,6 +400,16 @@ def register_code_tools(
             action_format="path or path:start-end",
             handler=lambda payload, runtime: _invoke_code_read(payload, runtime, codebase_adapter),
             action_parser=_parse_code_read_action,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
@@ -363,6 +420,12 @@ def register_code_tools(
             action_format="pattern",
             handler=lambda payload, runtime: _invoke_code_search(payload, runtime, codebase_adapter),
             action_parser=lambda action_text: {"pattern": _require_action(action_text)},
+            input_schema={
+                "type": "object",
+                "properties": {"pattern": {"type": "string"}},
+                "required": ["pattern"],
+            },
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
@@ -373,6 +436,16 @@ def register_code_tools(
             action_format="path:content",
             handler=lambda payload, runtime: _invoke_code_write(payload, runtime, codebase_adapter),
             action_parser=_parse_code_write_action,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "patch": {"type": "object"},
+                },
+                "required": ["path"],
+            },
+            side_effect="write",
         ),
         skill_name=skill_name,
     )
@@ -383,6 +456,12 @@ def register_code_tools(
             action_format="path",
             handler=lambda payload, runtime: _invoke_code_restore(payload, runtime, codebase_adapter),
             action_parser=lambda action_text: {"path": _require_action(action_text)},
+            input_schema={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            side_effect="write",
         ),
         skill_name=skill_name,
     )
@@ -419,6 +498,8 @@ def register_log_tools(
                 active_sources,
             ),
             action_parser=lambda _action_text: {},
+            input_schema={"type": "object", "properties": {}},
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
@@ -433,6 +514,12 @@ def register_log_tools(
                 active_sources,
             ),
             action_parser=lambda action_text: {"source": _require_action(action_text)},
+            input_schema={
+                "type": "object",
+                "properties": {"source": {"type": "string"}},
+                "required": ["source"],
+            },
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
@@ -451,9 +538,58 @@ def register_log_tools(
                 analyzer,
             ),
             action_parser=_parse_log_analysis_action,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                    "start_step": {"type": "integer"},
+                    "end_step": {"type": "integer"},
+                    "failures_only": {"type": "boolean"},
+                    "limit": {"type": "integer"},
+                    "include_debug_output": {"type": "boolean"},
+                },
+            },
+            side_effect="read",
         ),
         skill_name=skill_name,
     )
+
+
+def _string_action_schema(action_format: str) -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": action_format,
+            }
+        },
+        "required": ["action"],
+    }
+
+
+def _lifecycle_tool_schema(name: str) -> Dict[str, Any]:
+    if name in {"refresh_session", "switch_session"}:
+        return {
+            "type": "object",
+            "properties": {"session_id": {"type": "string"}},
+            "required": ["session_id"],
+        }
+    if name == "end_session":
+        return {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+        }
+    if name == "list_sessions":
+        return {"type": "object", "properties": {}}
+    return {
+        "type": "object",
+        "properties": {"reason": {"type": "string"}},
+        "required": ["reason"],
+    }
 
 
 def _require_action(action_text: str) -> str:
@@ -574,28 +710,51 @@ def _parse_log_analysis_action(action_text: str) -> ToolPayload:
     return {"include_debug_output": True}
 
 
-def _invoke_code_list(payload, runtime, adapter: UniversalCodebaseAdapter):
-    files = adapter.list_files()
-    res = {"success": True, "files": [{"path": f.path} for f in files]}
+def _invoke_code_list(payload, runtime, adapter: Any):
+    if hasattr(adapter, "list_code_files"):
+        res = adapter.list_code_files()
+    else:
+        files = adapter.list_files()
+        res = {"success": True, "files": [{"path": f.path} for f in files]}
     return ToolInvocationResult(observation=_tool_observation("code_list_files", payload, res))
 
-def _invoke_code_read(payload, runtime, adapter: UniversalCodebaseAdapter):
-    content = adapter.read_file(payload.get("path", ""))
-    res = {"success": content is not None, "content": content}
+def _invoke_code_read(payload, runtime, adapter: Any):
+    path = payload.get("path", "")
+    if hasattr(adapter, "read_code_file"):
+        res = adapter.read_code_file(
+            path,
+            start_line=int(payload.get("start_line", 0) or 0),
+            end_line=int(payload.get("end_line", 0) or 0),
+        )
+    else:
+        content = adapter.read_file(path)
+        res = {"success": content is not None, "path": path, "content": content}
     return ToolInvocationResult(observation=_tool_observation("code_read_file", payload, res))
 
-def _invoke_code_search(payload, runtime, adapter: UniversalCodebaseAdapter):
+def _invoke_code_search(payload, runtime, adapter: Any):
     matches = adapter.search_code(payload.get("pattern", ""))
     res = {"success": True, "matches": matches}
     return ToolInvocationResult(observation=_tool_observation("code_search", payload, res))
 
-def _invoke_code_write(payload, runtime, adapter: UniversalCodebaseAdapter):
-    success = adapter.write_file(payload.get("path", ""), payload.get("content", ""))
-    return ToolInvocationResult(observation=_tool_observation("code_write_file", payload, {"success": success}))
+def _invoke_code_write(payload, runtime, adapter: Any):
+    path = payload.get("path", "")
+    content = payload.get("content", "")
+    patch = payload.get("patch")
+    if hasattr(adapter, "write_code_file"):
+        res = adapter.write_code_file(path, content=content, patch=patch)
+    else:
+        success = adapter.write_file(path, content)
+        res = {"success": success}
+    return ToolInvocationResult(observation=_tool_observation("code_write_file", payload, res))
 
-def _invoke_code_restore(payload, runtime, adapter: UniversalCodebaseAdapter):
-    success = adapter.restore_file(payload.get("path", ""))
-    return ToolInvocationResult(observation=_tool_observation("code_restore_file", payload, {"success": success}))
+def _invoke_code_restore(payload, runtime, adapter: Any):
+    path = payload.get("path", "")
+    if hasattr(adapter, "restore_code_file"):
+        res = adapter.restore_code_file(path)
+    else:
+        success = adapter.restore_file(path)
+        res = {"success": success}
+    return ToolInvocationResult(observation=_tool_observation("code_restore_file", payload, res))
 
 
 def _invoke_use_skill_tool(

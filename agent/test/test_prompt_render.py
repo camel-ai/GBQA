@@ -26,6 +26,9 @@ def _build_sample_context() -> Dict[str, str]:
             "Step 1: look -> You are in a hall.\n"
             "Step 2: take torch -> You picked up a torch."
         ),
+        "coverage_summary": "Observed states: 2\nRecorded actions: 2",
+        "hypothesis_summary": "No active bug hypotheses.",
+        "subagent_summary": "No isolated worker subagent hints yet.",
         "current_observation": "A dark corridor lies ahead.",
         "current_artifacts": "",
         "execution_diagnostics": "{}",

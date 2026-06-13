@@ -9,6 +9,15 @@ You are planning the next single action for the QA exploration agent.
 ## Recent Trace:
 {recent_trace}
 
+## Coverage State:
+{coverage_summary}
+
+## Active Bug Hypotheses:
+{hypothesis_summary}
+
+## Isolated Worker Subagent Hints:
+{subagent_summary}
+
 ## Current Observation (most recent response message):
 {current_observation}
 

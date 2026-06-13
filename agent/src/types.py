@@ -133,6 +133,21 @@ class LifecycleEvent:
 
 
 @dataclass
+class HookEvent:
+    """Represents a harness lifecycle hook event."""
+
+    hook: str
+    event_type: str
+    step: int
+    timestamp: str
+    tool: str = ""
+    action: str = ""
+    session_id: str = ""
+    backend_type: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class SummaryRecord:
     """Represents a summary prompt/output."""
 
@@ -149,6 +164,7 @@ class RunReport:
     task_id: str
     steps: List[StepRecord] = field(default_factory=list)
     lifecycle_events: List[LifecycleEvent] = field(default_factory=list)
+    hook_events: List[HookEvent] = field(default_factory=list)
     bugs: List[BugFinding] = field(default_factory=list)
     summaries: List[SummaryRecord] = field(default_factory=list)
     summary: str = ""
