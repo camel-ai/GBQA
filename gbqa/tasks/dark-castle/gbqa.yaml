@@ -63,6 +63,11 @@ service:
   terminal_field: "game_over"
 ground_truth:
   path: "bugs/dark-castle.json"
+evaluation:
+  method: "value_based"
+  value_rubric_version: "impact_scope_repro_v1"
+  baseline_values_path: "tests/value/baseline_values.json"
+  validation_cases_path: "tests/value/validation_cases.json"
 artifacts:
   agent_dir: "/logs/agent/gbqa"
   verifier_dir: "/logs/verifier"

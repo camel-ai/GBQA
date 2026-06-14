@@ -1,4 +1,4 @@
-# LLM-as-a-Judge semantic bug matching for Dark Castle.
+# Optional LLM-as-a-Judge review for Dark Castle value-based bug evaluation.
 # Pass API judge credentials or agent-judge subscription auth through task.toml
 # [verifier.env].
 
@@ -6,29 +6,32 @@
 judge = "anthropic/claude-sonnet-4-6"
 files = [
   "/tests/bugs/dark-castle.json",
+  "/tests/value/baseline_values.json",
+  "/tests/value/validation_cases.json",
   "/logs/agent/gbqa/bugs.json",
+  "/logs/verifier/gbqa_result.json",
 ]
-prompt_template = "semantic_matching.md"
+prompt_template = "value_evaluation_review.md"
 
 [[criterion]]
-name = "semantic_recall"
-description = "Fraction of ground-truth bugs that are semantically covered by at least one reported bug in the agent bugs JSON."
-type = "numeric"
-min = 0.0
-max = 1.0
-weight = 2.0
-
-[[criterion]]
-name = "semantic_precision"
-description = "Fraction of reported bugs that semantically match a real ground-truth bug rather than being hallucinated or unrelated."
+name = "test_reasonableness"
+description = "Whether the generated verification tests are fair, non-adversarial tests of the reported candidate bugs."
 type = "numeric"
 min = 0.0
 max = 1.0
 weight = 1.0
 
 [[criterion]]
-name = "semantic_alignment"
-description = "Overall semantic alignment between the two bug lists, considering whether matched pairs capture the same observed fault and reproduction steps."
+name = "value_rubric_alignment"
+description = "Whether verified bugs were assigned value tiers consistent with the configured impact/scope/reproducibility rubric."
+type = "numeric"
+min = 0.0
+max = 1.0
+weight = 1.0
+
+[[criterion]]
+name = "evaluation_quality"
+description = "Overall quality of the value-based evaluation details and rationales."
 type = "likert"
 points = 5
 weight = 1.0

@@ -9,7 +9,10 @@ Focus on:
 - inventory and room-state inconsistencies
 - mismatches between text feedback and backend state
 
-Write bug findings through the GBQA agent report artifacts. The verifier will compare your reported bugs against the task ground truth.
+Write bug findings through the GBQA agent report artifacts. The verifier will
+evaluate the top reported bugs as candidate defects, verify reasonable failing
+test cases for them, assign value tiers, and compare the total value against a
+human baseline. Put the highest-value findings first.
 
 If you are running as a generic Harbor CLI agent such as `claude-code` or
 `codex`, the target source is available at `/sandbox/software/dark-castle`.

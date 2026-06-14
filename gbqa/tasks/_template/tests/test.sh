@@ -8,7 +8,9 @@ GROUND_TRUTH="__GBQA_GROUND_TRUTH__"
 mkdir -p "${VERIFIER_DIR}"
 export PYTHONPATH="/sandbox:${PYTHONPATH:-}"
 export GBQA_GROUND_TRUTH="${GROUND_TRUTH}"
-export GBQA_MATCH_THRESHOLD="${GBQA_MATCH_THRESHOLD:-0.65}"
+export GBQA_EVAL_METHOD="${GBQA_EVAL_METHOD:-value_based}"
+export GBQA_BASELINE_VALUES="${GBQA_BASELINE_VALUES:-/tests/value/baseline_values.json}"
+export GBQA_BUG_VALIDATION_CASES="${GBQA_BUG_VALIDATION_CASES:-/tests/value/validation_cases.json}"
 export GBQA_TRAJECTORY_PATH="${GBQA_TRAJECTORY_PATH:-/logs/agent/gbqa/trace.jsonl}"
 export GBQA_STEPS_PATH="${GBQA_STEPS_PATH:-/logs/agent/gbqa/steps.jsonl}"
 
@@ -63,4 +65,7 @@ PYTHON_BIN="${PYTHON_BIN:-/opt/venv/bin/python}"
 "${PYTHON_BIN}" -m gbqa.rewards.runner \
   --tests-dir /tests \
   --workspace /sandbox \
-  --out-dir "${VERIFIER_DIR}"
+  --out-dir "${VERIFIER_DIR}" \
+  --eval-method "${GBQA_EVAL_METHOD}" \
+  --baseline-values "${GBQA_BASELINE_VALUES}" \
+  --validation-cases "${GBQA_BUG_VALIDATION_CASES}"

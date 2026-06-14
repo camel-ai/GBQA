@@ -23,8 +23,8 @@ from gbqa.env import load_root_dotenv
 from gbqa.protocol.schemas import load_bug_candidates
 from gbqa.reporting.export import export_harbor_artifacts
 from gbqa.spec import load_gbqa_metadata
-from gbqa.rewards.matching import evaluate_bug_report
 from gbqa.rewards.output import write_post_rewardkit_artifacts
+from gbqa.rewards.value_based import evaluate_value_based_report
 
 
 TASK_METADATA_PATH = ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "gbqa.yaml"
@@ -45,6 +45,10 @@ def test_metadata_loader() -> None:
     }
     assert metadata.service_api_base_url == "http://127.0.0.1:5000/api/agent"
     assert metadata.service_frontend_url == "http://127.0.0.1:5000/"
+    assert metadata.evaluation_method == "value_based"
+    assert metadata.value_rubric_version == "impact_scope_repro_v1"
+    assert metadata.baseline_values_path.name == "baseline_values.json"
+    assert metadata.validation_cases_path.name == "validation_cases.json"
     assert "Text adventure" in metadata.agent_profile
     assert metadata.software_type == "github_release"
     assert metadata.software_repository == "https://github.com/Tsumugii24/dark-castle"
@@ -293,7 +297,13 @@ def test_artifact_export_and_verifier() -> None:
                 "title": "Key assembles with only two fragments",
                 "description": "Running combine after two key fragments creates the full key.",
                 "confidence": 0.9,
-                "evidence": {},
+                "evidence": {
+                    "observed_fault": "The player can assemble the complete key with only two fragments.",
+                    "minimal_reproduction": [
+                        "Collect any two key fragments.",
+                        "Execute combine.",
+                    ],
+                },
                 "tags": [],
             }
         ],
@@ -312,13 +322,17 @@ def test_artifact_export_and_verifier() -> None:
     assert Path(exported["steps"]).exists()
     assert len(load_bug_candidates(out_dir / "bugs.json")) == 1
 
-    result = evaluate_bug_report(
+    task_dir = ROOT_DIR / "gbqa" / "tasks" / "dark-castle"
+    result = evaluate_value_based_report(
         bugs_path=out_dir / "bugs.json",
-        ground_truth_path=ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json",
-        match_threshold=0.1,
+        ground_truth_path=task_dir / "bugs" / "dark-castle.json",
+        baseline_values_path=task_dir / "tests" / "value" / "baseline_values.json",
+        validation_cases_path=task_dir / "tests" / "value" / "validation_cases.json",
     )
-    assert result["matched"] == 1
     assert result["total_ground_truth"] == 3
+    assert result["verified_bug_count"] == 1
+    assert result["agent_value"] > 0
+    assert result["human_value"] == 15
     assert result["reward"] > 0
 
     verifier_dir = temp_root / "verifier"
@@ -326,18 +340,22 @@ def test_artifact_export_and_verifier() -> None:
     (verifier_dir / "reward.json").write_text(
         json.dumps(
             {
-                "recall": result["recall"],
-                "precision": result["precision"],
                 "reward": result["reward"],
+                "agent_value": result["agent_value"],
+                "human_value": result["human_value"],
+                "verified_bug_count": result["verified_bug_count"],
+                "evaluated_bug_count": result["evaluated_bug_count"],
             }
         ),
         encoding="utf-8",
     )
     write_post_rewardkit_artifacts(
         {
-            "recall": result["recall"],
-            "precision": result["precision"],
             "reward": result["reward"],
+            "agent_value": result["agent_value"],
+            "human_value": result["human_value"],
+            "verified_bug_count": result["verified_bug_count"],
+            "evaluated_bug_count": result["evaluated_bug_count"],
         },
         result,
         verifier_dir,
@@ -347,8 +365,8 @@ def test_artifact_export_and_verifier() -> None:
     assert (verifier_dir / "gbqa_result.json").exists()
     reward_payload = json.loads((verifier_dir / "reward.json").read_text())
     assert reward_payload["reward"] == result["reward"]
-    assert reward_payload["recall"] == result["recall"]
-    assert reward_payload["precision"] == result["precision"]
+    assert reward_payload["agent_value"] == result["agent_value"]
+    assert reward_payload["human_value"] == result["human_value"]
     assert all(
         isinstance(value, (int, float))
         for value in reward_payload.values()
@@ -356,7 +374,7 @@ def test_artifact_export_and_verifier() -> None:
     assert (temp_root / "verifier" / "reward-details.json").exists()
     gbqa_result = json.loads((temp_root / "verifier" / "gbqa_result.json").read_text())
     assert gbqa_result["details"] == result["details"]
-    assert gbqa_result["precision"] == result["precision"]
+    assert gbqa_result["agent_value"] == result["agent_value"]
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
@@ -368,11 +386,42 @@ def test_empty_and_malformed_reports_score_zero() -> None:
 
     empty = temp_root / "empty.json"
     empty.write_text('{"bugs": []}', encoding="utf-8")
-    assert evaluate_bug_report(bugs_path=empty, ground_truth_path=truth)["reward"] == 0.0
+    baseline = (
+        ROOT_DIR
+        / "gbqa"
+        / "tasks"
+        / "dark-castle"
+        / "tests"
+        / "value"
+        / "baseline_values.json"
+    )
+    validation = (
+        ROOT_DIR
+        / "gbqa"
+        / "tasks"
+        / "dark-castle"
+        / "tests"
+        / "value"
+        / "validation_cases.json"
+    )
+    assert (
+        evaluate_value_based_report(
+            bugs_path=empty,
+            ground_truth_path=truth,
+            baseline_values_path=baseline,
+            validation_cases_path=validation,
+        )["reward"]
+        == 0.0
+    )
 
     malformed = temp_root / "malformed.json"
     malformed.write_text("{not json", encoding="utf-8")
-    malformed_result = evaluate_bug_report(bugs_path=malformed, ground_truth_path=truth)
+    malformed_result = evaluate_value_based_report(
+        bugs_path=malformed,
+        ground_truth_path=truth,
+        baseline_values_path=baseline,
+        validation_cases_path=validation,
+    )
     assert malformed_result["reward"] == 0.0
     assert "error" in malformed_result
     shutil.rmtree(temp_root, ignore_errors=True)

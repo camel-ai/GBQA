@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 
 from gbqa.rewards.evaluation import evaluate_task_report
@@ -33,7 +35,9 @@ def run_task_verifier(
     out_dir: str | Path,
     bugs_path: str | Path | None = None,
     ground_truth_path: str | Path | None = None,
-    match_threshold: float | None = None,
+    baseline_values_path: str | Path | None = None,
+    validation_cases_path: str | Path | None = None,
+    eval_method: str | None = None,
 ) -> dict[str, float]:
     """Run Rewardkit criteria and write GBQA post-processing artifacts."""
 
@@ -41,17 +45,47 @@ def run_task_verifier(
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    rewardkit_scores = rk.run(
-        tests_dir,
-        workspace=workspace,
-        output=out_path / "reward.json",
-    )
-    evaluation = evaluate_task_report(
-        Path(workspace),
-        bugs_path=bugs_path,
-        ground_truth_path=ground_truth_path,
-        match_threshold=match_threshold,
-    )
+    env_updates = {
+        "GBQA_EVAL_METHOD": eval_method,
+        "GBQA_BUGS_PATH": str(bugs_path) if bugs_path is not None else None,
+        "GBQA_GROUND_TRUTH": (
+            str(ground_truth_path) if ground_truth_path is not None else None
+        ),
+        "GBQA_BASELINE_VALUES": (
+            str(baseline_values_path) if baseline_values_path is not None else None
+        ),
+        "GBQA_BUG_VALIDATION_CASES": (
+            str(validation_cases_path) if validation_cases_path is not None else None
+        ),
+    }
+    previous_env = {key: os.environ.get(key) for key in env_updates}
+    try:
+        for key, value in env_updates.items():
+            if value is not None:
+                os.environ[key] = value
+        evaluation = evaluate_task_report(
+            Path(workspace),
+            bugs_path=bugs_path,
+            ground_truth_path=ground_truth_path,
+            baseline_values_path=baseline_values_path,
+            validation_cases_path=validation_cases_path,
+            eval_method=eval_method,
+        )
+        (out_path / "gbqa_result.json").write_text(
+            json.dumps(evaluation, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        rewardkit_scores = rk.run(
+            tests_dir,
+            workspace=workspace,
+            output=out_path / "reward.json",
+        )
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
     return write_post_rewardkit_artifacts(
         rewardkit_scores,
         evaluation,
@@ -68,7 +102,9 @@ def main() -> None:
     parser.add_argument("--out-dir", default="/logs/verifier")
     parser.add_argument("--bugs")
     parser.add_argument("--ground-truth")
-    parser.add_argument("--match-threshold", type=float)
+    parser.add_argument("--baseline-values")
+    parser.add_argument("--validation-cases")
+    parser.add_argument("--eval-method")
     args = parser.parse_args()
     scores = run_task_verifier(
         tests_dir=args.tests_dir,
@@ -76,7 +112,9 @@ def main() -> None:
         out_dir=args.out_dir,
         bugs_path=args.bugs,
         ground_truth_path=args.ground_truth,
-        match_threshold=args.match_threshold,
+        baseline_values_path=args.baseline_values,
+        validation_cases_path=args.validation_cases,
+        eval_method=args.eval_method,
     )
     print(f"[gbqa.rewards] wrote verifier rewards: {scores}")
 

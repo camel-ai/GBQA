@@ -30,7 +30,7 @@ def install_task_verifier_tests(
     for relative in (
         "test.sh",
         "quality/quality.toml",
-        "quality/semantic_matching.md",
+        "quality/value_evaluation_review.md",
     ):
         target = destination / relative
         if not target.is_file():

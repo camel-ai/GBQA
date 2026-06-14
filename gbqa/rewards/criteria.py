@@ -11,19 +11,34 @@ from rewardkit import criterion
 from gbqa.rewards.evaluation import evaluate_task_report
 
 
-@criterion(shared=True, description="GBQA bug-report recall against ground truth")
-def bug_recall(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("recall", 0.0))
+@criterion(shared=True, description="GBQA value-based reward against human baseline")
+def bug_value_reward(workspace: Path) -> float:
+    return float(evaluate_task_report(workspace).get("reward", 0.0))
 
 
-@criterion(shared=True, description="GBQA bug-report precision against predictions")
-def bug_precision(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("precision", 0.0))
+@criterion(shared=True, description="Total value points earned by verified reported bugs")
+def bug_agent_value(workspace: Path) -> float:
+    return float(evaluate_task_report(workspace).get("agent_value", 0.0))
+
+
+@criterion(shared=True, description="Precomputed human-baseline bug value points")
+def bug_human_value(workspace: Path) -> float:
+    return float(evaluate_task_report(workspace).get("human_value", 0.0))
+
+
+@criterion(shared=True, description="Number of reported bugs verified by the verifier")
+def bug_verified_bug_count(workspace: Path) -> float:
+    return float(evaluate_task_report(workspace).get("verified_bug_count", 0.0))
+
+
+@criterion(shared=True, description="Number of top-n reported bugs evaluated")
+def bug_evaluated_bug_count(workspace: Path) -> float:
+    return float(evaluate_task_report(workspace).get("evaluated_bug_count", 0.0))
 
 
 @criterion(
     shared=True,
-    description="Primary GBQA reward (recall against ground truth)",
+    description="Primary GBQA reward",
 )
 def bug_primary_reward(workspace: Path) -> float:
     return float(evaluate_task_report(workspace).get("reward", 0.0))

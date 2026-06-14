@@ -12,8 +12,12 @@ def primary_reward_score(scores: dict[str, float]) -> float:
 
     if "reward" in scores:
         return float(scores["reward"])
-    if "recall" in scores:
-        return float(scores["recall"])
+    if "agent_value" in scores and "human_value" in scores:
+        human_value = float(scores["human_value"])
+        agent_value = float(scores["agent_value"])
+        return 1.0 if human_value > 0 and agent_value >= human_value else (
+            agent_value / human_value if human_value > 0 else 0.0
+        )
     if not scores:
         return 0.0
     return float(next(iter(scores.values())))
@@ -64,9 +68,17 @@ def _gbqa_detail_payload(
 ) -> dict[str, Any]:
     return {
         "scores": scores,
-        "matched": int(evaluation.get("matched", 0) or 0),
-        "total_predicted": int(evaluation.get("total_predicted", 0) or 0),
+        "evaluation_method": evaluation.get("evaluation_method", ""),
+        "rubric_version": evaluation.get("rubric_version", ""),
+        "agent_value": float(evaluation.get("agent_value", 0.0) or 0.0),
+        "human_value": float(evaluation.get("human_value", 0.0) or 0.0),
+        "verified_bug_count": int(evaluation.get("verified_bug_count", 0) or 0),
+        "evaluated_bug_count": int(evaluation.get("evaluated_bug_count", 0) or 0),
+        "ignored_bug_count": int(evaluation.get("ignored_bug_count", 0) or 0),
+        "total_reported": int(evaluation.get("total_reported", 0) or 0),
         "total_ground_truth": int(evaluation.get("total_ground_truth", 0) or 0),
         "details": evaluation.get("details", []),
+        "ignored_candidates": evaluation.get("ignored_candidates", []),
+        "baseline": evaluation.get("baseline", {}),
         "error": evaluation.get("error", ""),
     }

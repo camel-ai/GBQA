@@ -212,6 +212,35 @@ class GBQAMetadata:
     def ground_truth_path(self) -> Path:
         return (self.path.parent / str(self.raw["ground_truth"]["path"])).resolve()
 
+    @property
+    def evaluation_method(self) -> str:
+        return str(self.raw.get("evaluation", {}).get("method", "value_based"))
+
+    @property
+    def value_rubric_version(self) -> str:
+        return str(
+            self.raw.get("evaluation", {}).get(
+                "value_rubric_version",
+                "impact_scope_repro_v1",
+            )
+        )
+
+    @property
+    def baseline_values_path(self) -> Path:
+        relative = self.raw.get("evaluation", {}).get(
+            "baseline_values_path",
+            "tests/value/baseline_values.json",
+        )
+        return (self.path.parent / str(relative)).resolve()
+
+    @property
+    def validation_cases_path(self) -> Path:
+        relative = self.raw.get("evaluation", {}).get(
+            "validation_cases_path",
+            "tests/value/validation_cases.json",
+        )
+        return (self.path.parent / str(relative)).resolve()
+
 
 def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:
     """Load and validate the minimal GBQA task metadata contract."""
