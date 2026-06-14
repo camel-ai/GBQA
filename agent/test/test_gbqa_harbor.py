@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -422,7 +423,10 @@ def test_harbor_agent_default_profile_enables_all_task_modes() -> None:
 
 
 def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
-    assert build_harbor_command(["run", "-p", "gbqa/tasks/dark-castle"]) == [
+    assert build_harbor_command(
+        ["run", "-p", "gbqa/tasks/dark-castle"],
+        env={},
+    ) == [
         "harbor",
         "run",
         "-p",
@@ -435,7 +439,8 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
             str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
             "--ak",
             "interaction_mode=computer_use",
-        ]
+        ],
+        env={},
     )
     assert command[:3] == ["harbor", "run", "-p"]
     overlay_path = Path(command[3])
@@ -452,7 +457,8 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
             str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
             "--ak",
             "interaction_mode=default",
-        ]
+        ],
+        env={},
     )
     assert Path(default_command[3]).name == "dark-castle-computer-use"
     default_profile_command = build_harbor_command(
@@ -462,9 +468,143 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
             str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
             "--ak",
             "interaction_profile=default",
-        ]
+        ],
+        env={},
     )
     assert Path(default_profile_command[3]).name == "dark-castle-computer-use"
+
+
+def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
+    claude_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            "gbqa/tasks/dark-castle",
+            "--gbqa-task-runner",
+            "claude-code",
+            "--gbqa-agent-model",
+            "anthropic/claude-opus-4-7",
+            "--gbqa-agent-auth",
+            "subscription",
+        ],
+        env={"CLAUDE_CODE_OAUTH_TOKEN": "claude-token"},
+    )
+    assert claude_command[:5] == [
+        "harbor",
+        "run",
+        "-p",
+        "gbqa/tasks/dark-castle",
+        "-a",
+    ]
+    assert "claude-code" in claude_command
+    assert ["-m", "anthropic/claude-opus-4-7"] == claude_command[
+        claude_command.index("-m") : claude_command.index("-m") + 2
+    ]
+    assert "--ae" in claude_command
+    assert "CLAUDE_CODE_OAUTH_TOKEN=claude-token" in claude_command
+    assert "CLAUDE_FORCE_OAUTH=1" in claude_command
+
+    codex_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            "gbqa/tasks/dark-castle",
+            "--gbqa-task-runner=codex",
+            "--gbqa-agent-model",
+            "gpt-5",
+            "--gbqa-agent-auth",
+            "subscription",
+            "--gbqa-codex-auth-file",
+            "/tmp/codex-auth.json",
+        ],
+        env={},
+    )
+    assert "codex" in codex_command
+    assert "CODEX_AUTH_JSON_PATH=/tmp/codex-auth.json" in codex_command
+
+    codex_api_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            "gbqa/tasks/dark-castle",
+            "--gbqa-task-runner",
+            "codex",
+        ],
+        env={
+            "CODEX_FORCE_API_KEY": "1",
+            "API_KEY": "provider-neutral-key",
+            "BASE_URL": "https://example.test/v1",
+        },
+    )
+    assert "OPENAI_API_KEY=provider-neutral-key" in codex_api_command
+    assert "OPENAI_BASE_URL=https://example.test/v1" in codex_api_command
+
+
+def test_harbor_run_wrapper_selects_rewardkit_agent_judges() -> None:
+    temp_root = ROOT_DIR / "agent" / "test" / "_tmp_codex_auth"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    temp_root.mkdir(parents=True)
+    auth_path = temp_root / "auth.json"
+    auth_path.write_text('{"tokens": "example"}', encoding="utf-8")
+    try:
+        command = build_harbor_command(
+            [
+                "run",
+                "-p",
+                "gbqa/tasks/dark-castle",
+                "--gbqa-judge",
+                "codex",
+                "--gbqa-judge-model",
+                "gpt-5.5",
+                "--gbqa-judge-auth",
+                "subscription",
+                "--gbqa-codex-auth-file",
+                str(auth_path),
+            ],
+            env={},
+        )
+        assert "REWARDKIT_JUDGE=codex" in command
+        assert "REWARDKIT_MODEL=gpt-5.5" in command
+        encoded = next(
+            item.removeprefix("CODEX_AUTH_JSON_B64=")
+            for item in command
+            if item.startswith("CODEX_AUTH_JSON_B64=")
+        )
+        assert base64.b64decode(encoded).decode("utf-8") == '{"tokens": "example"}'
+
+        token_command = build_harbor_command(
+            [
+                "run",
+                "-p",
+                "gbqa/tasks/dark-castle",
+                "--gbqa-judge",
+                "codex",
+                "--gbqa-judge-auth",
+                "subscription",
+            ],
+            env={"CODEX_ACCESS_TOKEN": "codex-token"},
+        )
+        assert "CODEX_ACCESS_TOKEN=codex-token" in token_command
+        assert "REWARDKIT_FORCE_OAUTH=1" in token_command
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_harbor_run_wrapper_supports_cowork_judge_alias_env() -> None:
+    command = build_harbor_command(
+        ["run", "-p", "gbqa/tasks/dark-castle"],
+        env={
+            "JUDGE_AGENT": "claude-code",
+            "JUDGE_MODEL": "claude-opus-4-7",
+            "CLAUDE_CODE_OAUTH_TOKEN": "claude-token",
+            "GBQA_JUDGE_AUTH": "subscription",
+        },
+    )
+    assert "REWARDKIT_JUDGE=claude-code" in command
+    assert "REWARDKIT_MODEL=claude-opus-4-7" in command
+    assert "CLAUDE_CODE_OAUTH_TOKEN=claude-token" in command
+    assert "CLAUDE_FORCE_OAUTH=1" in command
+    assert "REWARDKIT_FORCE_OAUTH=1" in command
 
 
 def test_harbor_agent_requires_model_key_and_name() -> None:

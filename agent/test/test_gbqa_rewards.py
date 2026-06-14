@@ -193,9 +193,18 @@ def test_dark_castle_verifier_env_has_subscription_defaults() -> None:
     config = tomllib.loads(task_toml.read_text(encoding="utf-8"))
     verifier_env = config["verifier"]["env"]
     assert verifier_env["REWARDKIT_JUDGE"] == "${REWARDKIT_JUDGE:-openai/gpt-4o}"
+    assert verifier_env["REWARDKIT_MODEL"] == "${REWARDKIT_MODEL:-}"
+    assert verifier_env["REWARDKIT_FORCE_OAUTH"] == "${REWARDKIT_FORCE_OAUTH:-}"
+    assert verifier_env["JUDGE_AGENT"] == "${JUDGE_AGENT:-}"
+    assert verifier_env["JUDGE_MODEL"] == "${JUDGE_MODEL:-}"
+    assert verifier_env["JUDGE_CODEX_MODEL"] == "${JUDGE_CODEX_MODEL:-}"
     assert verifier_env["OPENAI_API_BASE"].endswith("https://zenmux.ai/api/v1}")
+    assert verifier_env["ANTHROPIC_AUTH_TOKEN"] == "${ANTHROPIC_AUTH_TOKEN:-}"
     assert verifier_env["CLAUDE_CODE_OAUTH_TOKEN"] == "${CLAUDE_CODE_OAUTH_TOKEN:-}"
+    assert verifier_env["CLAUDE_FORCE_OAUTH"] == "${CLAUDE_FORCE_OAUTH:-}"
     assert verifier_env["CODEX_AUTH_JSON_B64"] == "${CODEX_AUTH_JSON_B64:-}"
+    assert verifier_env["CODEX_FORCE_API_KEY"] == "${CODEX_FORCE_API_KEY:-}"
+    assert verifier_env["CODEX_ACCESS_TOKEN"] == "${CODEX_ACCESS_TOKEN:-}"
     assert all(":-" in value for value in verifier_env.values())
 
 
@@ -212,9 +221,13 @@ def test_template_installs_subscription_ready_quality_prompt() -> None:
     quality_text = (temp_root / "quality" / "quality.toml").read_text(
         encoding="utf-8"
     )
+    test_script = (temp_root / "test.sh").read_text(encoding="utf-8")
     assert "/tests/bugs/example.json" in prompt_text
     assert "/tests/bugs/example.json" in quality_text
     assert "__GBQA_GROUND_TRUTH__" not in prompt_text
+    assert "JUDGE_AGENT" in test_script
+    assert "JUDGE_CODEX_MODEL" in test_script
+    assert "CODEX_AUTH_JSON_B64" in test_script
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
