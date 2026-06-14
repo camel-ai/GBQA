@@ -12,6 +12,35 @@ export GBQA_MATCH_THRESHOLD="${GBQA_MATCH_THRESHOLD:-0.65}"
 export GBQA_TRAJECTORY_PATH="${GBQA_TRAJECTORY_PATH:-/logs/agent/gbqa/trace.jsonl}"
 export GBQA_STEPS_PATH="${GBQA_STEPS_PATH:-/logs/agent/gbqa/steps.jsonl}"
 
+if { [ -z "${REWARDKIT_JUDGE:-}" ] || [ "${REWARDKIT_JUDGE:-}" = "openai/gpt-4o" ]; } && [ -n "${JUDGE_AGENT:-}" ]; then
+  export REWARDKIT_JUDGE="${JUDGE_AGENT}"
+fi
+
+if [ -z "${REWARDKIT_MODEL:-}" ]; then
+  if [ "${REWARDKIT_JUDGE:-}" = "codex" ] && [ -n "${JUDGE_CODEX_MODEL:-}" ]; then
+    export REWARDKIT_MODEL="${JUDGE_CODEX_MODEL}"
+  elif [ -n "${JUDGE_MODEL:-}" ]; then
+    export REWARDKIT_MODEL="${JUDGE_MODEL}"
+  fi
+fi
+
+case "${CLAUDE_FORCE_OAUTH:-${REWARDKIT_FORCE_OAUTH:-}}" in
+  1|true|TRUE|yes|YES|on|ON)
+    unset ANTHROPIC_API_KEY
+    unset ANTHROPIC_AUTH_TOKEN
+    ;;
+esac
+
+if [ "${REWARDKIT_JUDGE:-}" = "codex" ]; then
+  case "${REWARDKIT_FORCE_OAUTH:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      unset OPENAI_API_KEY
+      unset OPENAI_API_BASE
+      unset OPENAI_BASE_URL
+      ;;
+  esac
+fi
+
 if [ -f "${AGENT_DIR}/bugs.json" ]; then
   export GBQA_BUGS_PATH="${AGENT_DIR}/bugs.json"
 else
