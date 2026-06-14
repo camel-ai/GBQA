@@ -4,7 +4,7 @@ This `AGENTS.md` file records the current architecture decisions for GBQA and sh
 
 ## Overview
 
-The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned ground truth for scoring.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned human-baseline bugs plus value criteria for scoring.
 
 ## Milestone Planning
 
@@ -44,7 +44,7 @@ Validated result:
 - `GBQAHarborAgent` interacted with the environment through API mode for 10 steps.
 - Harbor downloaded `/logs/agent/gbqa` artifacts.
 - Verifier wrote `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`, and `/logs/verifier/gbqa_result.json`.
-- A 10-step smoke run may legitimately receive reward `0.0` if no ground-truth bug is found; this is not an infrastructure failure.
+- A 10-step smoke run may legitimately receive reward `0.0` if no verified candidate bug earns value; this is not an infrastructure failure.
 
 ### M2
 
@@ -77,7 +77,7 @@ Harbor task packages use this structure:
 - `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer-use overlay path.
 - `tests/`: verifier entrypoint and verifier assets.
 - `solution/`: oracle solution assets.
-- `bugs/`: GBQA ground-truth bug definitions.
+- `bugs/`: GBQA human-baseline bug definitions.
 - `gbqa.yaml`: GBQA-specific metadata that Harbor does not own.
 
 Harbor itself consumes `environment/`. When `interaction_mode=computer_use`,
@@ -148,7 +148,7 @@ Release policy:
 - Selection role: `latest_minus_one`
 - Archive URL: `https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz`
 
-The GitHub software repository must not contain GBQA ground-truth `bugs/` files. Ground truth belongs in the GBQA task package:
+The GitHub software repository must not contain GBQA human-baseline `bugs/` files. Human baseline bugs belong in the GBQA task package:
 
 - `gbqa/tasks/dark-castle/bugs/dark-castle.json`
 
@@ -377,7 +377,7 @@ This subscription path applies to Harbor's `-a claude-code` / `-a codex`
 agents. The default `GBQAHarborAgent` still uses `API_KEY`, `BASE_URL`, and
 `MODEL_NAME` because it runs the GBQA QA harness directly.
 
-Rewardkit semantic matching can also use subscription-backed agent judges by
+Rewardkit value-evaluation review can also use subscription-backed agent judges by
 setting `REWARDKIT_JUDGE=claude-code` or `REWARDKIT_JUDGE=codex`, or through
 `--gbqa-judge claude-code|codex` and
 `--gbqa-judge-auth api_key|subscription`. For Codex inside the verifier
@@ -415,12 +415,16 @@ Canonical task template:
 gbqa/tasks/_template/tests/
   test.sh
   criteria.py
-  recall/check.py
-  precision/check.py
   reward/check.py
+  agent_value/check.py
+  human_value/check.py
+  verified_bug_count/check.py
+  evaluated_bug_count/check.py
   trajectory/check.py
+  value/baseline_values.json
+  value/validation_cases.json
   quality/quality.toml
-  quality/semantic_matching.md
+  quality/value_evaluation_review.md
   judge/evidence_quality.toml.example
 ```
 
@@ -430,12 +434,26 @@ maps to one Rewardkit reward name in `reward.json`.
 
 Extension points:
 
-- Programmatic bug matching: shared criteria in `gbqa.rewards.criteria`
+- Value-based bug evaluation: shared criteria in `gbqa.rewards.criteria`
+  call `gbqa.rewards.value_based.evaluate_value_based_report(...)`.
+  Ground-truth bugs are a pre-scored human baseline, not the only bug oracle.
+  The default reward is `min(1.0, agent_value / human_value)`.
+- Candidate verification: `/tests/value/validation_cases.json` provides
+  deterministic task validation cases. A validation case may include a
+  `command`; nonzero exit in the buggy environment is treated as the rule-based
+  failing-test signal. Optional verifier-side commands
+  `GBQA_BUG_TEST_GENERATOR_CMD`, `GBQA_BUG_TEST_REASONABLENESS_CMD`, and
+  `GBQA_BUG_TEST_EXECUTOR_CMD` can dynamically construct, review, and execute
+  hidden-bug tests.
+- Value scoring: verified bugs are scored on impact, scope, and
+  reproducibility, then mapped to stable tier points. `GBQA_VALUE_AGENT_CMD`
+  can replace the deterministic fallback scorer.
 - Trajectory checks: `trajectory_exported` for GBQA `trace.jsonl` /
   `steps.jsonl`, plus optional `atif_trajectory_tool_used` for ATIF JSON
-- Semantic bug matching (LLM-as-a-Judge): `quality/quality.toml` loads
-  ground truth and `/logs/agent/gbqa/bugs.json` into the same judge context.
-  Configure the judge model and credentials through `task.toml` `[verifier.env]`
+- Value-evaluation review (LLM-as-a-Judge): `quality/quality.toml` loads the
+  human baseline, baseline values, validation cases, reported bugs, and
+  `/logs/verifier/gbqa_result.json` into the same judge context. Configure the
+  judge model and credentials through `task.toml` `[verifier.env]`
   (`REWARDKIT_JUDGE`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` / `OPENAI_API_BASE`,
   `CLAUDE_CODE_OAUTH_TOKEN`, or Codex `auth.json` variables).
 - Optional rubric extensions: copy `judge/evidence_quality.toml.example` to
@@ -452,12 +470,12 @@ Verifier outputs:
   `gbqa` evidence section
 - `/logs/verifier/reward.txt` — primary scalar reward derived from
   `reward.json`
-- `/logs/verifier/gbqa_result.json` — full bug-matching payload for debugging
+- `/logs/verifier/gbqa_result.json` — full value-evaluation payload for debugging
 
 Core platform entrypoints:
 
 - `gbqa.rewards.run_task_verifier(...)`
-- `gbqa.rewards.matching.evaluate_bug_report(...)`
+- `gbqa.rewards.value_based.evaluate_value_based_report(...)`
 - `gbqa.rewards.criteria.*` shared Rewardkit criteria
 - `gbqa.rewards.template.install_task_verifier_tests(...)`
 
@@ -478,7 +496,7 @@ Use these directories for new platform code:
 - `gbqa/harbor/`: Harbor wrappers and integration glue.
 - `gbqa/reporting/`: conversion from harness-specific reports to GBQA normalized artifacts.
 - `gbqa/protocol/`: lightweight stable run/report/bug schemas and normalizers.
-- `gbqa/rewards/`: Harbor Rewardkit bridge, bug matching, and verifier outputs.
+- `gbqa/rewards/`: Harbor Rewardkit bridge, value evaluation, and verifier outputs.
 - `gbqa/tasks/`: first-party Harbor-compatible task packages.
 - `agent/`: current QA agent harness implementation.
 - `agent/skills/`: runtime skill instructions used for progressive tool
@@ -494,7 +512,7 @@ Use these directories for new platform code:
   human review, and task package generation. This directory is not part of the
   GBQA runtime package and must not be uploaded into Daytona during Harbor runs.
 - `environment/export/`: draft task package generation. Generated packages are
-  not production-ready until ground truth, verifier behavior, and reward output
+  not production-ready until human baseline, verifier behavior, and reward output
   contracts are reviewed.
 
 Environment export currently generates package files from Python code in
@@ -530,7 +548,7 @@ the root-level `environment/` preparation system.
 ## Verification Commands
 
 `agent/` owns only the QA harness runtime and must not own benchmark scoring or
-ground-truth evaluation logic. The benchmark verifier path is `tests/test.sh`
+verifier value-evaluation logic. The benchmark verifier path is `tests/test.sh`
 -> `python -m gbqa.rewards.runner`; keep task-local criteria aligned with
 `gbqa/tasks/_template/tests`. Do not reintroduce local agent-side evaluator CLIs.
 

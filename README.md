@@ -10,7 +10,7 @@
 
 ## 📖 Overview
 
-The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned ground truth for scoring.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned human-baseline bugs plus value criteria for scoring.
 
 ## 🚀 Quick Start
 
@@ -123,7 +123,7 @@ supported with `REWARDKIT_JUDGE=openai/<model>` plus `OPENAI_API_KEY` and
 `OPENAI_API_BASE`. Subscription-backed judges use RewardKit agent judges:
 
 ```bash
-# Claude Code judge for semantic bug matching
+# Claude Code judge for optional value-evaluation review
 export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
@@ -135,7 +135,7 @@ python -m gbqa.cli.harbor_run run \
 ```
 
 ```bash
-# Codex judge for semantic bug matching inside the verifier container
+# Codex judge for optional value-evaluation review inside the verifier container
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
@@ -172,7 +172,13 @@ Here `--n-concurrent` controls how many Harbor trials can run at once. In the Da
 
 In Harbor benchmark runs, evaluation is performed automatically by the verifier
 phase after the agent writes normalized artifacts. The `agent/` harness does not
-read ground truth or compute benchmark scores.
+read human-baseline verifier assets or compute benchmark scores.
+
+GBQA's default verifier reward is value-based. The task human baseline is treated
+as a pre-scored human baseline, not as the only bug oracle. The verifier
+evaluates the top `n` reported candidate bugs, where `n` is the number of human
+baseline bugs, verifies reasonable failing test cases, assigns impact/scope/
+reproducibility value tiers, and returns `min(1.0, agent_value / human_value)`.
 
 - Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
 - Harbor reward outputs: `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`
@@ -180,7 +186,7 @@ read ground truth or compute benchmark scores.
 
 ## Task Packages
 
-Each benchmark task is a Harbor-compatible package under `gbqa/tasks/<task-id>`. The task package defines the GitHub software release, sandbox runtime assets, interaction modes, verifier entrypoint, ground-truth bug file, and artifact contract.
+Each benchmark task is a Harbor-compatible package under `gbqa/tasks/<task-id>`. The task package defines the GitHub software release, sandbox runtime assets, interaction modes, verifier entrypoint, human-baseline bug file, precomputed baseline value file, validation cases, and artifact contract.
 
 ## Environment Preparation
 

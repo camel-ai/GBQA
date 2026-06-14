@@ -57,7 +57,7 @@ Runtime ownership:
 - GBQA owns task metadata, the QA harness behavior, normalized agent artifacts,
   and platform-level verifier-side bug evaluation.
 - `agent/` owns harness execution only. It emits reports and trajectories, but
-  does not read verifier ground truth or compute benchmark scores.
+  does not read verifier human-baseline bugs or compute benchmark scores.
 - `GBQAHarborAgent` uploads the harness and GBQA package into the sandbox,
   renders `/sandbox/runtime/config.toml`, starts the target software service,
   runs `agent/run_agent.py`, and exports normalized GBQA artifacts.
@@ -96,7 +96,7 @@ The current first-party task package is:
 - `gbqa/tasks/dark-castle/`
 
 Task metadata belongs in `gbqa.yaml`; the target software repository must not
-contain GBQA ground-truth bug definitions.
+contain GBQA human-baseline bug definitions.
 
 ## 4. Layered Architecture
 
@@ -563,6 +563,11 @@ Verifier outputs remain under `/logs/verifier`:
 - `reward.txt`
 - `gbqa_result.json`
 
+The default verifier reward is value-based. It evaluates the top `n` reported
+bugs, where `n` is the human-baseline bug count, verifies candidate bugs through
+reasonable failing test cases, assigns impact/scope/reproducibility value tiers,
+and scores `min(1.0, agent_value / human_value)`.
+
 Do not move Harbor reward files or verifier outputs out of `/logs/verifier`.
 
 ## 19. Current Feature Matrix
@@ -679,4 +684,4 @@ The current QA Agent Harness does not:
 - Assume source-code access in minimal mode.
 - Assume logs are memory.
 - Float benchmark baselines automatically when upstream releases change.
-- Store GBQA ground-truth bugs in the external target software repository.
+- Store GBQA human-baseline bugs in the external target software repository.

@@ -106,6 +106,11 @@ RewardKit reads `REWARDKIT_JUDGE` at runtime. If the value is a known agent
 judge such as `claude-code` or `codex`, RewardKit shells out to that CLI instead
 of using a standard API LLM judge.
 
+GBQA's default reward is value-based and is computed by programmatic verifier
+criteria. Subscription-backed judges are used for optional value-evaluation
+review dimensions, such as generated-test reasonableness and value-rubric
+alignment, rather than closed-oracle recall/precision matching.
+
 ### API-Key Judge
 
 ```bash

@@ -12,7 +12,7 @@ Milestone 1 runs GBQA as a Harbor-compatible benchmark on a remote Daytona sandb
 ## Configuration Boundaries
 
 - `agent/config.toml` is harness policy only: model sampling, loop budgets, memory, operator retry, and current QA-agent backend defaults.
-- `gbqa/tasks/dark-castle/gbqa.yaml` is the task source of truth: software source release, service endpoints, interaction modes, ground truth, artifact contract, and agent-facing task profile.
+- `gbqa/tasks/dark-castle/gbqa.yaml` is the task source of truth: software source release, service endpoints, interaction modes, human baseline, artifact contract, and agent-facing task profile.
 - `gbqa.protocol` defines the stable QA output schema consumed by verifiers, independent of which agent harness produced the artifacts.
 - `gbqa.reporting` converts harness-specific outputs into `run.json`, `bugs.json`, `steps.jsonl`, and artifact files.
 
