@@ -14,7 +14,8 @@ Milestone 1 is complete and remains the validated Daytona-first baseline:
 
 - Harbor owns task packaging, trial execution, verifier execution, and artifact collection.
 - Daytona owns remote sandbox lifecycle through Harbor's `daytona` environment provider.
-- GBQA owns task metadata, QA agent harness behavior, normalized reports, and bug evaluation.
+- GBQA owns task metadata, QA agent harness behavior, normalized reports, and
+  platform-level bug evaluation. `agent/` must not own benchmark scoring logic.
 - Local Docker is not an M1 acceptance path.
 - `GBQAHarborAgent` is the default custom Harbor agent wrapper.
 - Dark Castle is the first external GitHub software task and is ready in the remote Daytona sandbox.
@@ -528,7 +529,10 @@ the root-level `environment/` preparation system.
 
 ## Verification Commands
 
-`agent/run_eval.py` is a legacy local helper and is not part of the M1 Harbor verifier contract. Do not include it in the standard M1 verification command. The benchmark verifier path is `tests/test.sh` -> `python -m gbqa.rewards.runner`; keep task-local criteria aligned with `gbqa/tasks/_template/tests`.
+`agent/` owns only the QA harness runtime and must not own benchmark scoring or
+ground-truth evaluation logic. The benchmark verifier path is `tests/test.sh`
+-> `python -m gbqa.rewards.runner`; keep task-local criteria aligned with
+`gbqa/tasks/_template/tests`. Do not reintroduce local agent-side evaluator CLIs.
 
 Before claiming architecture or path changes are complete, run the commands for your operating system.
 

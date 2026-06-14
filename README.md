@@ -170,7 +170,9 @@ Here `--n-concurrent` controls how many Harbor trials can run at once. In the Da
 
 ### 5. Outputs
 
-In Harbor benchmark runs, evaluation is performed automatically by the verifier phase after the agent writes normalized artifacts.
+In Harbor benchmark runs, evaluation is performed automatically by the verifier
+phase after the agent writes normalized artifacts. The `agent/` harness does not
+read ground truth or compute benchmark scores.
 
 - Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
 - Harbor reward outputs: `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`

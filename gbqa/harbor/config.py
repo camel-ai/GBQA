@@ -310,7 +310,6 @@ def render_agent_config(
                 "session_id_field": metadata.service_session_id_field,
                 "terminal_field": metadata.service_terminal_field,
                 "name": metadata.task_title,
-                "ground_truth": False,
                 "profile": metadata.agent_profile,
             }
         },
@@ -318,11 +317,6 @@ def render_agent_config(
             "output_dir": report_output_dir,
             "format": "both",
             "auto_save": True,
-        },
-        "evaluation": {
-            "match_threshold": 0.65,
-            "llm_threshold": 0.6,
-            "use_llm": False,
         },
         "bug_detection": {
             "enable_llm_analysis": True,

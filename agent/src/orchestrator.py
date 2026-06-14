@@ -7,7 +7,6 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Type
 
 from .bug_detector import BugDetector
-from .evaluator import Evaluator
 from .execution_backends import ExecutionBackend
 from .hooks import HookManager, event_type_for_action
 from .memory import MemoryManager
@@ -64,7 +63,6 @@ class Orchestrator:
         memory: MemoryManager,
         detector: Optional[BugDetector] = None,
         reporter: Reporter,
-        evaluator: Optional[Evaluator] = None,
         max_steps: int = 50,
         reflection_analyzer: Optional[ReflectionAnalyzer] = None,
         reflection_threshold: int = 3,
@@ -88,7 +86,6 @@ class Orchestrator:
         self._memory = memory
         self._detector = detector
         self._reporter = reporter
-        self._evaluator = evaluator
         self._max_steps = max_steps
         self._reflection_analyzer = reflection_analyzer
         self._reflection_threshold = reflection_threshold

@@ -84,14 +84,6 @@ class BugReviewBatch(BaseModel):
     findings: List[BugReviewItem] = Field(default_factory=list)
 
 
-class GroundTruthMatch(BaseModel):
-    """Evaluator match result schema."""
-
-    match_id: str = ""
-    score: float = Field(default=0.0, ge=0.0, le=1.0)
-    rationale: str = ""
-
-
 class ExplorerWorkerDecision(BaseModel):
     """Explorer subagent output schema."""
 

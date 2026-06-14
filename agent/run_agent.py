@@ -23,7 +23,6 @@ from src.config_layers import (
     config_resolution_for_run_spec,
     load_toml_dict,
 )
-from src.evaluator import Evaluator
 from src.execution_backends import (
     MultiModeExecutionBackend,
     backend_type_for_interaction_mode,
@@ -35,7 +34,6 @@ from src.environment_clients import (
     EnvironmentClientConfig,
     create_http_code_tool_adapter,
 )
-from src.ground_truth import resolve_ground_truth_path
 from src.hooks import HookManager, normalize_hook_policy
 from src.llm_client import DEFAULT_BASE_URL, LlmClient
 from src.log_sources import AgentTrajectoryLogSource, build_log_sources
@@ -356,7 +354,6 @@ def _task_metadata_config_layer(metadata_path: str) -> dict[str, Any]:
                 "session_id_field": metadata.service_session_id_field,
                 "terminal_field": metadata.service_terminal_field,
                 "name": metadata.task_title,
-                "ground_truth": False,
                 "profile": metadata.agent_profile,
                 "supported_interaction_modes": list(metadata.supported_interaction_modes),
                 "default_interaction_mode": metadata.default_interaction_mode,
@@ -462,7 +459,6 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
         "session_id_field": metadata.service_session_id_field,
         "terminal_field": metadata.service_terminal_field,
         "name": metadata.task_title,
-        "ground_truth": False,
         "profile": metadata.agent_profile,
         "supported_interaction_modes": list(metadata.supported_interaction_modes),
         "default_interaction_mode": metadata.default_interaction_mode,
@@ -679,17 +675,6 @@ def main() -> None:
         task_slug,
     )
 
-    evaluator = None
-    if task_config.get("ground_truth", False):
-        ground_truth_path = resolve_ground_truth_path(config, task_id)
-        evaluator = Evaluator(
-            ground_truth_path,
-            match_threshold=config.get_section("evaluation").get("match_threshold", 0.65),
-            llm_client=llm_client
-            if config.get_section("evaluation").get("use_llm", True)
-            else None,
-        )
-
     max_steps = (
         args.max_steps
         if args.max_steps is not None
@@ -897,7 +882,6 @@ def main() -> None:
         memory=memory,
         detector=detector,
         reporter=reporter,
-        evaluator=evaluator,
         max_steps=max_steps,
         reflection_analyzer=reflection_analyzer,
         reflection_threshold=reflection_threshold,
@@ -940,7 +924,6 @@ def main() -> None:
         "interaction_profile": str(run_section.get("interaction_profile", "")),
         "enabled_interaction_modes": list(backend_spec.enabled_modes),
         "harness_mode": harness_mode,
-        "have_ground_truth": bool(task_config.get("ground_truth", False)),
         "profile": task_profile,
     }
     report.metadata["agent"] = {

@@ -134,7 +134,6 @@ def _run(actions: list[Action], *, max_steps: int):
         memory=MemoryStub(),
         detector=None,
         reporter=reporter,
-        evaluator=None,
         max_steps=max_steps,
     )
     return orchestrator.run("Generic QA task"), backend, reporter
@@ -301,7 +300,6 @@ def test_lifecycle_skill_is_activated_by_default() -> None:
         memory=MemoryStub(),
         detector=None,
         reporter=ReporterStub(),
-        evaluator=None,
         max_steps=1,
     )
     orchestrator._ensure_lifecycle_tools()

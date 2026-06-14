@@ -55,7 +55,9 @@ Runtime ownership:
   collection.
 - Daytona owns the remote sandbox isolation boundary.
 - GBQA owns task metadata, the QA harness behavior, normalized agent artifacts,
-  and verifier-side bug evaluation.
+  and platform-level verifier-side bug evaluation.
+- `agent/` owns harness execution only. It emits reports and trajectories, but
+  does not read verifier ground truth or compute benchmark scores.
 - `GBQAHarborAgent` uploads the harness and GBQA package into the sandbox,
   renders `/sandbox/runtime/config.toml`, starts the target software service,
   runs `agent/run_agent.py`, and exports normalized GBQA artifacts.

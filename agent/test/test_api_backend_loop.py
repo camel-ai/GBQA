@@ -142,7 +142,6 @@ def main() -> None:
         memory=memory,
         detector=None,
         reporter=ReporterStub(),
-        evaluator=None,
         max_steps=1,
         reflection_analyzer=None,
         reflection_threshold=3,

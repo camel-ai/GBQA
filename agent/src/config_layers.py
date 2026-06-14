@@ -293,11 +293,6 @@ def built_in_defaults() -> Dict[str, Any]:
             "format": "both",
             "auto_save": True,
         },
-        "evaluation": {
-            "match_threshold": 0.65,
-            "llm_threshold": 0.6,
-            "use_llm": False,
-        },
         "bug_detection": {
             "enable_llm_analysis": True,
             "auto_confirm_threshold": 0.8,

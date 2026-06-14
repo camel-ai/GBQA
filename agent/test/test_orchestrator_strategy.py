@@ -205,7 +205,6 @@ def _run(
         memory=MemoryStub(),
         detector=None,
         reporter=reporter,
-        evaluator=None,
         max_steps=max_steps,
         reflection_analyzer=reflection_analyzer,
         reflection_threshold=3,
