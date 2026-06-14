@@ -1,5 +1,6 @@
 # LLM-as-a-Judge semantic bug matching for Dark Castle.
-# Pass judge credentials through task.toml [verifier.env].
+# Pass API judge credentials or agent-judge subscription auth through task.toml
+# [verifier.env].
 
 [judge]
 judge = "anthropic/claude-sonnet-4-6"

@@ -107,7 +107,7 @@ API mode:
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=api
 ```
 
@@ -117,9 +117,26 @@ Browser mode:
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=browser
 ```
+
+Harbor built-in Codex and Claude Code task runners can also be selected through
+the same wrapper:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner codex \
+  --gbqa-agent-model gpt-5 \
+  --gbqa-agent-auth subscription \
+  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
+```
+
+Verifier judges are independently selectable with `--gbqa-judge`, including
+subscription-backed RewardKit agent judges. See `docs/subscription-auth.md` for
+the full Codex / Claude Code task-runner and verifier-judge matrix.
 
 ## Expected Artifacts
 

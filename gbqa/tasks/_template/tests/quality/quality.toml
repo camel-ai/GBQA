@@ -1,5 +1,6 @@
 # LLM-as-a-Judge semantic bug matching.
-# Requires API credentials in task.toml [verifier.env] (see AGENTS.md).
+# Configure API credentials or agent-judge subscription auth in task.toml
+# [verifier.env] (see AGENTS.md).
 # Rewardkit discovers this as the "quality" reward dimension.
 
 [judge]

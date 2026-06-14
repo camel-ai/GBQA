@@ -51,7 +51,7 @@ Run the default GBQA Harbor agent against a task package in a remote Daytona san
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/<task-id> \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=api \
   --ak max_steps=10
 ```
@@ -62,7 +62,7 @@ Use browser interaction by switching the interaction mode:
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/<task-id> \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=browser \
   --ak max_steps=10
 ```
@@ -70,55 +70,81 @@ python -m gbqa.cli.harbor_run run \
 > [!WARNING]
 > Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
-### 3a. Optional Claude Code / Codex Subscription Auth
+### 3a. Optional Runner And Judge Selection
 
-GBQA's default `GBQAHarborAgent` uses the provider-neutral `API_KEY`,
-`BASE_URL`, and `MODEL_NAME` settings. Harbor's built-in CLI agents can also run
-the task with their official subscription credentials:
+GBQA supports two task-running paths:
+
+- `GBQAHarborAgent`, the custom QA harness. It uses provider-neutral `API_KEY`,
+  `BASE_URL`, and `MODEL_NAME`.
+- Harbor built-in CLI agents such as `codex` and `claude-code`. These can use
+  Codex / Claude Code subscription auth.
+
+Use the GBQA launcher selectors to choose the path:
 
 ```bash
-# Claude Code Pro/Max subscription
+# Custom GBQA QA harness
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner gbqa \
+  --ak interaction_mode=api \
+  --ak max_steps=10
+```
+
+```bash
+# Harbor built-in Claude Code with subscription auth
 claude setup-token
 export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  -a claude-code \
-  -m anthropic/claude-sonnet-4-6 \
-  --ae CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN
+  --gbqa-task-runner claude-code \
+  --gbqa-agent-model anthropic/claude-sonnet-4-6 \
+  --gbqa-agent-auth subscription
 ```
 
 ```bash
-# Codex / ChatGPT subscription
+# Harbor built-in Codex with subscription auth
 codex login
-export CODEX_FORCE_AUTH_JSON=1
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  -a codex \
-  -m gpt-5 \
-  --ae CODEX_FORCE_AUTH_JSON=1
+  --gbqa-task-runner codex \
+  --gbqa-agent-model gpt-5 \
+  --gbqa-agent-auth subscription \
+  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
 ```
 
 The task instruction tells generic CLI agents to start Dark Castle and write
 `/logs/agent/gbqa/bugs.json`, which is the verifier input.
 
-Rewardkit's `quality` judge can also use subscription-backed CLI judges:
+The verifier judge is independently selectable. API-key scoring remains
+supported with `REWARDKIT_JUDGE=openai/<model>` plus `OPENAI_API_KEY` and
+`OPENAI_API_BASE`. Subscription-backed judges use RewardKit agent judges:
 
 ```bash
 # Claude Code judge for semantic bug matching
-export REWARDKIT_JUDGE=claude-code
 export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner gbqa \
+  --gbqa-judge claude-code \
+  --gbqa-judge-model claude-opus-4-7 \
+  --gbqa-judge-auth subscription
 ```
 
 ```bash
 # Codex judge for semantic bug matching inside the verifier container
-export REWARDKIT_JUDGE=codex
-export CODEX_AUTH_JSON_B64="$(base64 -w0 ~/.codex/auth.json)"
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner gbqa \
+  --gbqa-judge codex \
+  --gbqa-judge-model gpt-5.5 \
+  --gbqa-judge-auth subscription \
+  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
 ```
-
-API-key scoring still works by setting `REWARDKIT_JUDGE=openai/<model>` plus
-`OPENAI_API_KEY` and `OPENAI_API_BASE`.
 
 See `docs/subscription-auth.md` for the full Harbor/Rewardkit subscription
 authentication reference.
@@ -133,7 +159,7 @@ For example, once `gbqa/tasks` contains many verified task packages, run up to 1
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=api \
   --ak max_steps=10 \
   --n-tasks 100 \
@@ -184,7 +210,11 @@ python -m environment.export.cli generate \
 
 ### M2: More Harnesses And More Environments
 
-- Add `CodexHarborAgent` and `ClaudeCodeHarborAgent`.
+- Keep Harbor built-in `codex` and `claude-code` task runners selectable through
+  `gbqa.cli.harbor_run`, including subscription auth.
+- Add optional custom QA-harness wrappers such as `CodexHarborAgent` and
+  `ClaudeCodeHarborAgent` if they provide GBQA-specific behavior beyond
+  Harbor's built-in CLI agents.
 - Support local sandbox + colocated agent.
 - Support local agent + remote sandbox.
 - Add more verified benchmark environments and task manifests.

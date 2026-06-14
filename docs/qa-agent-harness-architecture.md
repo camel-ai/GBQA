@@ -59,6 +59,13 @@ Runtime ownership:
 - `GBQAHarborAgent` uploads the harness and GBQA package into the sandbox,
   renders `/sandbox/runtime/config.toml`, starts the target software service,
   runs `agent/run_agent.py`, and exports normalized GBQA artifacts.
+- Harbor built-in `codex` and `claude-code` agents are supported as alternative
+  task runners through `gbqa.cli.harbor_run` selectors. They do not run the GBQA
+  QA Agent Harness; they run Harbor's CLI-agent path and must follow the task
+  instruction artifact contract.
+- RewardKit agent judges are supported independently in the verifier phase by
+  selecting `REWARDKIT_JUDGE=codex` or `REWARDKIT_JUDGE=claude-code`, either
+  directly or through `--gbqa-judge`.
 
 ## 3. Repository Boundaries
 
@@ -153,7 +160,7 @@ Important paths:
 - `/logs/agent/gbqa`: normalized agent artifacts.
 - `/logs/verifier`: Harbor-compatible reward outputs.
 
-Do not reintroduce `/opt/gbqa` as a runtime root.
+Do not reintroduce the old opt-based GBQA runtime root.
 
 ## 6. Configuration Model
 
@@ -594,13 +601,13 @@ When adding new harness capabilities:
 
 ## 21. Common Execution Paths
 
-API mode:
+Custom QA harness, API mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=api
 ```
 
@@ -610,7 +617,7 @@ Default multi-mode profile:
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=default
 ```
 
@@ -620,9 +627,45 @@ Full harness mode:
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
-  --agent-import-path gbqa.harbor.agent:GBQAHarborAgent \
+  --gbqa-task-runner gbqa \
   --ak interaction_mode=api \
   --ak harness_mode=full
+```
+
+Harbor built-in Claude Code task runner:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner claude-code \
+  --gbqa-agent-model anthropic/claude-sonnet-4-6 \
+  --gbqa-agent-auth subscription
+```
+
+Harbor built-in Codex task runner:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner codex \
+  --gbqa-agent-model gpt-5 \
+  --gbqa-agent-auth subscription \
+  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
+```
+
+Subscription-backed verifier judge with the custom QA harness:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle \
+  -e daytona \
+  --gbqa-task-runner gbqa \
+  --gbqa-judge codex \
+  --gbqa-judge-model gpt-5.5 \
+  --gbqa-judge-auth subscription \
+  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
 ```
 
 ## 22. Non-Goals
