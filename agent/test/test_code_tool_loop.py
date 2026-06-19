@@ -9,7 +9,12 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from src.tool_registry import ToolRegistry, register_code_tools, register_environment_action_tool
+from src.tool_registry import (
+    SkillCard,
+    ToolRegistry,
+    register_code_tools,
+    register_environment_action_tool,
+)
 from src.orchestrator import Orchestrator
 from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
@@ -146,6 +151,17 @@ class ReporterStub:
 
 
 def main() -> None:
+    empty_skill_registry = ToolRegistry()
+    empty_skill_registry.register_skill(
+        SkillCard(
+            name="code",
+            description="Codebase reading and white-box debugging capabilities.",
+        )
+    )
+    empty_result = empty_skill_registry.invoke("use_skill", {"skill": "code"}, {})
+    assert not empty_result.observation.success
+    assert "no registered tools" in empty_result.observation.summary
+
     registry = ToolRegistry()
 
     def environment_action_handler(payload, runtime_context):  # noqa: ANN001
@@ -179,6 +195,14 @@ def main() -> None:
     assert report.steps[1].action.tool == "code_read_file"
     assert "Code tool result" in report.steps[1].observation.summary
     assert report.steps[1].observation.env_state == {}
+    after_step_events = [
+        event
+        for event in report.hook_events
+        if event.hook == "after_step" and event.step == 2
+    ]
+    assert after_step_events
+    assert after_step_events[0].session_id == "browser-session"
+    assert after_step_events[0].backend_type == "playwright_mcp"
     print("code tool loop smoke test passed")
 
 

@@ -120,9 +120,15 @@ class CamelTaskAgent:
 
     @staticmethod
     def _model_config_dict(config: CamelRuntimeConfig) -> Dict[str, Any]:
+        context_limit = max(
+            int(config.input_token_limit or DEFAULT_INPUT_TOKEN_LIMIT)
+            + int(config.max_tokens or 0),
+            int(config.max_tokens or 0),
+        )
         request_config: Dict[str, Any] = {
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
+            "max_context_tokens": context_limit,
         }
         request_config.update(build_reasoning_request_config(config.reasoning))
         return request_config

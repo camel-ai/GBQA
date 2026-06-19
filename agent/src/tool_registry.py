@@ -106,15 +106,6 @@ class ToolRegistry:
 
     def activate_skill(self, skill_name: str) -> Dict[str, Any]:
         name = str(skill_name).strip().lower()
-        
-        # Self-heal for the 'code' skill in sandbox environments
-        if name == "code" and name not in self._skills:
-            self.register_skill(
-                SkillCard(
-                    name="code",
-                    description="Codebase reading and white-box debugging capabilities.",
-                )
-            )
 
         if name not in self._skills:
             return {
@@ -128,6 +119,12 @@ class ToolRegistry:
             for tool in self._tools.values()
             if self._tool_skills.get(tool.name) == name
         ]
+        if not visible_tools:
+            return {
+                "success": False,
+                "skill": name,
+                "message": f"Skill '{name}' has no registered tools in this run.",
+            }
         return {
             "success": True,
             "skill": name,
