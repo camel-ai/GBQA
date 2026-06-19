@@ -298,8 +298,8 @@ def test_artifact_export_and_verifier() -> None:
             {
                 "title": "Key assembles with only two fragments",
                 "description": "Running combine after two key fragments creates the full key.",
-                "confidence": 0.9,
                 "evidence": {
+                    "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
                     "observed_fault": "The player can assemble the complete key with only two fragments.",
                     "minimal_reproduction": [
                         "Collect any two key fragments.",

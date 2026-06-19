@@ -200,4 +200,5 @@ values should be treated as the source of truth.
   Daytona verifier containers after a run.
 - Generic Harbor CLI agents must follow the task instruction and write
   `/logs/agent/gbqa/bugs.json`; otherwise the verifier falls back to an empty
-  bug list.
+  bug list. Each reported bug should include `evidence.expected_behavior`,
+  `evidence.observed_fault`, and `evidence.minimal_reproduction`.

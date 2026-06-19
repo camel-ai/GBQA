@@ -125,6 +125,7 @@ def test_run_task_verifier_with_rewardkit_layout() -> None:
                         "title": "Locked door opens without key",
                         "description": "Running combine after two key fragments creates the full key.",
                         "evidence": {
+                            "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
                             "observed_fault": "The player can assemble the complete key with only two fragments.",
                             "minimal_reproduction": [
                                 "Collect any two key fragments.",
@@ -293,6 +294,7 @@ def test_value_based_evaluation_scores_verified_reports() -> None:
                             "description": "The combine command bypasses a core progression gate after only two fragments.",
                             "severity": "high",
                             "evidence": {
+                            "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
                             "observed_fault": "The player can assemble the complete key with only two fragments.",
                             "minimal_reproduction": [
                                 "Collect any two key fragments.",
@@ -304,6 +306,7 @@ def test_value_based_evaluation_scores_verified_reports() -> None:
                         "title": "Ignored extra candidate",
                         "description": "This should be outside the top-n budget when n is one.",
                         "evidence": {
+                            "expected_behavior": "extra expected",
                             "observed_fault": "extra",
                             "minimal_reproduction": ["extra"],
                         },
@@ -363,6 +366,7 @@ def test_value_based_validation_case_command_verifies_failure() -> None:
                         "description": "A deterministic validation command fails.",
                         "severity": "medium",
                         "evidence": {
+                            "expected_behavior": "The validation command should pass.",
                             "observed_fault": "validation command fails",
                             "minimal_reproduction": ["run validation command"],
                         },

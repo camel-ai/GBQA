@@ -46,9 +46,31 @@ def test_bug_ids_are_zero_based_in_ground_truth_files() -> None:
         assert [bug["id"] for bug in payload["bugs"]] == [0, 1, 2]
 
 
+def test_ground_truth_files_include_expected_behavior() -> None:
+    paths = [
+        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json",
+        ROOT_DIR
+        / "gbqa"
+        / "tasks"
+        / "dark-castle"
+        / "tests"
+        / "bugs"
+        / "dark-castle.json",
+        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "solution" / "oracle_bugs.json",
+    ]
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        for bug in payload["bugs"]:
+            if isinstance(bug.get("evidence"), dict):
+                assert str(bug["evidence"].get("expected_behavior", "")).strip()
+            else:
+                assert str(bug.get("expected_behavior", "")).strip()
+
+
 def main() -> None:
     test_dark_castle_baseline_uses_latest_minus_one_github_release()
     test_bug_ids_are_zero_based_in_ground_truth_files()
+    test_ground_truth_files_include_expected_behavior()
     print("dark castle release metadata smoke test passed")
 
 

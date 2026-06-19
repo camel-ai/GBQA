@@ -181,6 +181,7 @@ baseline bugs, verifies reasonable failing test cases, assigns impact/scope/
 reproducibility value tiers, and returns `min(1.0, agent_value / human_value)`.
 
 - Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
+- Each bug report should include `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
 - Harbor reward outputs: `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`
 - Full GBQA evaluation payload: `/logs/verifier/gbqa_result.json`
 

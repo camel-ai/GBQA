@@ -10,12 +10,55 @@ from typing import Any
 SCHEMA_VERSION = "0.1"
 
 
+def normalize_bug_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize bug evidence fields into the GBQA protocol shape."""
+
+    raw_evidence = payload.get("evidence", {})
+    evidence: dict[str, Any] = {}
+    if isinstance(raw_evidence, dict):
+        evidence.update(raw_evidence)
+    elif raw_evidence not in (None, ""):
+        evidence["raw"] = raw_evidence
+
+    for key in (
+        "expected_behavior",
+        "observed_fault",
+        "minimal_reproduction",
+        "reproduction_steps",
+    ):
+        value = payload.get(key)
+        if value not in (None, "", []):
+            evidence.setdefault(key, value)
+
+    expected = str(evidence.get("expected_behavior", "")).strip()
+    if not expected:
+        for alias in ("expected_outcome", "expected", "correct_behavior"):
+            value = evidence.get(alias) or payload.get(alias)
+            if value:
+                expected = str(value).strip()
+                break
+    if expected:
+        evidence["expected_behavior"] = expected
+
+    observed = str(evidence.get("observed_fault", "")).strip()
+    if not observed:
+        for alias in ("actual_behavior", "failure", "assertion"):
+            value = evidence.get(alias) or payload.get(alias)
+            if value:
+                observed = str(value).strip()
+                break
+    if observed:
+        evidence["observed_fault"] = observed
+
+    for alias in ("expected_outcome", "expected", "correct_behavior", "actual_behavior", "failure", "assertion"):
+        evidence.pop(alias, None)
+
+    return evidence
+
+
 def normalize_bug_candidate(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize a harness-specific bug candidate into the GBQA protocol shape."""
 
-    evidence = payload.get("evidence", {})
-    if not isinstance(evidence, dict):
-        evidence = {"raw": evidence}
     tags = payload.get("tags", [])
     if not isinstance(tags, list):
         tags = []
@@ -23,9 +66,8 @@ def normalize_bug_candidate(payload: dict[str, Any]) -> dict[str, Any]:
         "id": str(payload.get("id", "")).strip(),
         "title": str(payload.get("title", "")).strip(),
         "description": str(payload.get("description", "")).strip(),
-        "confidence": float(payload.get("confidence", 0.0) or 0.0),
         "severity": str(payload.get("severity", "")).strip(),
-        "evidence": evidence,
+        "evidence": normalize_bug_evidence(payload),
         "reproduction_hints": payload.get("reproduction_hints", []),
         "status": str(payload.get("status", "candidate")).strip() or "candidate",
         "tags": [str(tag) for tag in tags if str(tag).strip()],

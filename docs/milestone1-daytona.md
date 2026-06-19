@@ -143,7 +143,7 @@ the full Codex / Claude Code task-runner and verifier-judge matrix.
 The agent writes stable GBQA artifacts under `/logs/agent/gbqa`:
 
 - `run.json`
-- `bugs.json`
+- `bugs.json` — each bug should include `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
 - `steps.jsonl`
 - `trace.jsonl` when available
 - `report.md` when available
