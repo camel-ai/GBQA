@@ -56,7 +56,7 @@ def main() -> None:
 
     config = Config(
         raw={
-            "run": {"interaction_mode": "api"},
+            "run": {"interaction_mode": "terminal"},
             "interaction": {
                 "primary": "playwright_mcp",
                 "adapters": {"playwright_mcp": {}},
@@ -80,7 +80,7 @@ def main() -> None:
 
     computer_config = Config(
         raw={
-            "run": {"interaction_mode": "computer_use"},
+            "run": {"interaction_mode": "computer"},
             "interaction": {
                 "primary": "api",
                 "adapters": {"computer_use": {}},
@@ -94,6 +94,7 @@ def main() -> None:
     )
     computer_interaction = computer_config.get_section("interaction")
     assert computer_interaction["primary"] == "computer_use"
+    assert computer_interaction["primary_mode"] == "computer"
     assert computer_interaction["adapters"]["computer_use"]["server_url"] == (
         "http://127.0.0.1:8030"
     )
@@ -118,18 +119,18 @@ def main() -> None:
     default_run = default_config.get_section("run")
     default_interaction = default_config.get_section("interaction")
     assert default_run["interaction_profile"] == "default"
-    assert default_run["interaction_mode"] == "api"
+    assert default_run["interaction_mode"] == "terminal"
     assert default_run["enabled_interaction_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
     assert default_interaction["primary"] == "api"
-    assert default_interaction["primary_mode"] == "api"
+    assert default_interaction["primary_mode"] == "terminal"
     assert default_interaction["enabled_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
     assert default_interaction["enabled_backends"] == [
         "api",
@@ -138,8 +139,8 @@ def main() -> None:
     ]
     default_spec = resolve_backend_spec(default_config)
     assert default_spec.backend_type == "api"
-    assert default_spec.primary_mode == "api"
-    assert default_spec.enabled_modes == ["api", "browser", "computer_use"]
+    assert default_spec.primary_mode == "terminal"
+    assert default_spec.enabled_modes == ["terminal", "browser", "computer"]
     assert default_spec.enabled_backends == [
         "api",
         "playwright_mcp",
@@ -169,9 +170,9 @@ def main() -> None:
         "playwright_mcp"
     )
     assert default_browser_config.get_section("interaction")["enabled_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
 
     _apply_harness_mode(default_config, "minimal")
@@ -218,14 +219,14 @@ def main() -> None:
     registry = ToolRegistry()
     _register_interaction_mode_tools(
         registry=registry,
-        enabled_modes=["api", "browser", "computer_use"],
-        primary_mode="api",
+        enabled_modes=["terminal", "browser", "computer"],
+        primary_mode="terminal",
         operator=object(),
         backend=object(),
         task_id="demo",
     )
     visible_tools = {tool.name for tool in registry.list_visible_tools()}
-    assert {"api_action", "browser_action", "computer_action"} <= visible_tools
+    assert {"terminal_action", "browser_action", "computer_action"} <= visible_tools
     print("run_agent endpoint resolution smoke test passed")
 
 

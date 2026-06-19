@@ -63,9 +63,19 @@ class ExecutionBackendSpec:
 
 
 _BACKEND_BY_INTERACTION_MODE = {
-    "api": "api",
+    "terminal": "api",
     "browser": "playwright_mcp",
-    "computer_use": "computer_use",
+    "computer": "computer_use",
+}
+
+_INTERACTION_MODE_ALIASES = {
+    "api": "terminal",
+    "cli": "terminal",
+    "shell": "terminal",
+    "code": "terminal",
+    "computer_use": "computer",
+    "computeruse": "computer",
+    "gui": "computer",
 }
 
 _INTERACTION_MODE_BY_BACKEND = {
@@ -80,6 +90,7 @@ def normalize_interaction_mode(value: Any) -> str:
     text = str(value or "").strip().lower().replace("-", "_")
     if text in {"", "default"}:
         return "default"
+    text = _INTERACTION_MODE_ALIASES.get(text, text)
     if text in _BACKEND_BY_INTERACTION_MODE:
         return text
     return text

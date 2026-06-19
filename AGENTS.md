@@ -19,8 +19,8 @@ Milestone 1 is complete and remains the validated Daytona-first baseline:
 - Local Docker is not an M1 acceptance path.
 - `GBQAHarborAgent` is the default custom Harbor agent wrapper.
 - Dark Castle is the first external GitHub software task and is ready in the remote Daytona sandbox.
-- API mode and browser mode are the completed interaction paths.
-- Computer-use is present in task metadata and Harbor config as an experimental post-M1 path, but it is not part of the validated M1 smoke baseline.
+- Terminal mode and browser mode are the completed interaction paths.
+- Computer interaction is present in task metadata and Harbor config as an experimental post-M1 path, but it is not part of the validated M1 smoke baseline.
 - Harbor-compatible verifier execution and GBQA artifact export are implemented.
 - Parallel evaluation is available through Harbor's concurrent trial runner; in the Daytona path, this means multiple independent Daytona sandboxes can run at the same time.
 
@@ -34,14 +34,14 @@ The validated M1 topology is colocated:
 Validated smoke command:
 
 ```powershell
-$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=api --ak max_steps=10
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 Validated result:
 
 - Daytona provisioned the remote sandbox.
 - Dark Castle started inside the sandbox.
-- `GBQAHarborAgent` interacted with the environment through API mode for 10 steps.
+- `GBQAHarborAgent` interacted with the environment through terminal mode's HTTP API surface for 10 steps.
 - Harbor downloaded `/logs/agent/gbqa` artifacts.
 - Verifier wrote `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`, and `/logs/verifier/gbqa_result.json`.
 - A 10-step smoke run may legitimately receive reward `0.0` if no verified candidate bug earns value; this is not an infrastructure failure.
@@ -54,7 +54,7 @@ Validated result:
   `ClaudeCodeHarborAgent` only if they provide GBQA-specific behavior beyond
   Harbor's built-in CLI agents.
 - M2: add more verified benchmark environments and task manifests.
-- M2: harden the experimental computer-use path and extend further toward free interaction mode (mixed interaction mode).
+- M2: harden the experimental computer interaction path and extend further toward free interaction mode (mixed interaction mode).
 - M2: keep Linux as the validated sandbox baseline while expanding toward Windows and macOS support.
 
 ### M3
@@ -74,16 +74,16 @@ Harbor task packages use this structure:
 - `task.toml`: Harbor-compatible task metadata, runtime resource requirements, agent/verifier timeout, environment config.
 - `instruction.md`: agent-facing instruction.
 - `environment/`: environment definition, normally `Dockerfile`.
-- `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer-use overlay path.
+- `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer overlay path.
 - `tests/`: verifier entrypoint and verifier assets.
 - `solution/`: oracle solution assets.
 - `bugs/`: GBQA human-baseline bug definitions.
 - `gbqa.yaml`: GBQA-specific metadata that Harbor does not own.
 
-Harbor itself consumes `environment/`. When `interaction_mode=computer_use`,
+Harbor itself consumes `environment/`. When `interaction_mode=computer`,
 `gbqa.cli.harbor_run` may create a temporary task overlay that replaces
 `environment/` with `environment-computer-use/` before delegating to Harbor.
-Direct `harbor run` should not be treated as a stable computer-use entrypoint.
+Direct `harbor run` should not be treated as a stable computer interaction entrypoint.
 
 Harbor's standard in-sandbox paths must remain stable:
 
@@ -193,7 +193,7 @@ Current planner-visible tool architecture:
   trajectory logs and task-declared runtime logs.
 - Task/session lifecycle is owned by `agent/skills/lifecycle/SKILL.md`.
   A **session** is the harness-level unit of interactive context for one task.
-  It is mode-agnostic: API, browser, and computer-use runs all use the same
+  It is mode-agnostic: terminal, browser, and computer runs all use the same
   session naming and lifecycle tools regardless of which execution backend
   creates the session. Do not label planner-facing lifecycle text as
   "backend session", "browser session", or similar provider-specific variants.
@@ -233,22 +233,25 @@ source belong in task metadata.
 
 Current interaction modes:
 
-- `api`
+- `terminal`
 - `browser`
-- `computer_use`
+- `computer`
 
-These modes are tool-use paths, but they operate at different abstraction levels:
+These modes are tool-use paths, while concrete task-specific surfaces are
+metadata. For example, terminal mode may expose an HTTP API, CLI, shell command,
+Python API, or other code-facing contract through `metadata.interaction_surfaces`.
+The public mode names must stay coarse and stable:
 
-- API mode calls the target backend contract directly.
+- Terminal mode calls or drives the target's code-facing surface.
 - Browser mode drives the frontend through Playwright MCP/runtime.
-- Computer-use mode drives a GUI/Cua environment and currently depends on
+- Computer mode drives a GUI/Cua environment and currently depends on
   `gbqa.cli.harbor_run` selecting `environment-computer-use/` through a temporary
   overlay when that directory exists.
 
 Validated baseline status:
 
-- API and browser are the completed M1 paths.
-- Computer-use is wired through task metadata, config rendering, and the Harbor
+- Terminal and browser are the completed M1 paths.
+- Computer is wired through task metadata, config rendering, and the Harbor
   wrapper, but remains experimental until GUI/Cua environment selection becomes
   a first-class task mechanism.
 
@@ -258,12 +261,12 @@ Planned post-M1 modes:
 
 The harness uses `interaction_profile` to select interaction exposure:
 
-- `api`, `browser`, and `computer_use` constrain the run to one interaction mode.
+- `terminal`, `browser`, and `computer` constrain the run to one interaction mode.
 - `default` enables every mode declared by task metadata and uses
   `run.interaction_mode` as the primary mode when configured; otherwise it falls
   back to the task's default interaction mode.
 - In multi-mode/default runs, planner-facing mode tools should stay explicit
-  (`api_action`, `browser_action`, `computer_action`) rather than relying on
+  (`terminal_action`, `browser_action`, `computer_action`) rather than relying on
   natural-language mode selection inside a single action string.
 
 The harness uses `harness_mode` to select the capability surface:
@@ -298,7 +301,7 @@ in reports. Stable hook event labels include:
 
 - `RunStarted` / `RunEnded`
 - `Planning` / `Planned` / `PlanFailed`
-- `Explored` for environment/API/browser/computer-use actions
+- `Explored` for environment/terminal/browser/computer actions
 - `Ran` for non-editing tool calls
 - `Edited` for code write/restore tools
 - `Lifecycle` for session/task lifecycle events
@@ -588,13 +591,13 @@ Expected result for the path scan is no matches.
 For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbor summary output does not fail under a GBK console:
 
 ```powershell
-$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=api --ak max_steps=10
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run ...` because
 the wrapper loads the repository-root `.env`, expands GBQA-only selector flags
 such as `--gbqa-task-runner`, and then forwards native arguments to Harbor.
-Direct `harbor run ...` is valid for completed API/browser paths only when the
+Direct `harbor run ...` is valid for completed terminal/browser paths only when the
 required environment variables are already present in the shell and native Harbor
 agent flags are used:
 
@@ -603,13 +606,13 @@ $env:DAYTONA_API_KEY='...'
 $env:API_KEY='...'
 $env:BASE_URL='https://zenmux.ai/api/v1'
 $env:MODEL_NAME='...'
-harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
 ```
 
-For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and
+For completed terminal/browser modes, `python -m gbqa.cli.harbor_run run ...` and
 `harbor run ...` should be behaviorally equivalent after environment variables
 are loaded and equivalent native Harbor agent flags are used. Do not assume this
-equivalence for post-M1 `computer_use`: computer-use needs a GUI/Cua environment
+equivalence for post-M1 `computer`: computer needs a GUI/Cua environment
 image, and any temporary task overlay or backend-specific environment selection
 must be explicit and documented before direct `harbor run` is considered
 supported.
@@ -617,7 +620,7 @@ supported.
 For parallel Daytona evaluation, use Harbor's concurrent trial runner. For example, five independent task environments can run in five independent Daytona sandboxes:
 
 ```powershell
-$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=api --ak max_steps=10 --n-tasks 5 --n-concurrent 5
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10 --n-tasks 5 --n-concurrent 5
 ```
 
 `--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.
@@ -662,13 +665,13 @@ Expected result for the path scan is no matches.
 For Daytona smoke validation:
 
 ```bash
-python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-api -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=api --ak max_steps=10
+python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run run` because
 the wrapper loads the repository-root `.env`, expands GBQA-only selector flags
 such as `--gbqa-task-runner`, and then forwards native arguments to Harbor.
-Direct `harbor run` is valid for completed API/browser paths only when the
+Direct `harbor run` is valid for completed terminal/browser paths only when the
 required environment variables are already exported and native Harbor agent
 flags are used:
 
@@ -677,20 +680,20 @@ export DAYTONA_API_KEY='...'
 export API_KEY='...'
 export BASE_URL='https://zenmux.ai/api/v1'
 export MODEL_NAME='...'
-harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=api --ak max_steps=10
+harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
 ```
 
-For completed API/browser modes, `python -m gbqa.cli.harbor_run run ...` and
+For completed terminal/browser modes, `python -m gbqa.cli.harbor_run run ...` and
 `harbor run ...` should be behaviorally equivalent after environment variables
 are loaded and equivalent native Harbor agent flags are used.
 
 > [!WARNING]
-> Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
+> Warning for  `computer`: computer interaction (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
 For parallel Daytona evaluation:
 
 ```bash
-python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=api --ak max_steps=10 --n-tasks 5 --n-concurrent 5
+python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10 --n-tasks 5 --n-concurrent 5
 ```
 
 `--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.

@@ -75,8 +75,8 @@ Primary implementation paths:
 
 - `agent/run_agent.py`: harness entrypoint and dependency wiring.
 - `agent/src/orchestrator.py`: main QA loop and task/session lifecycle.
-- `agent/src/execution_backends.py`: API, browser, computer-use, and multi-mode
-  execution backends.
+- `agent/src/execution_backends.py`: terminal, browser, computer, and multi-mode
+  interaction routing over the concrete backend implementations.
 - `agent/src/tool_registry.py`: planner-visible tool registry and progressive
   skill disclosure.
 - `agent/src/qa_state.py`: coverage state and hypothesis manager.
@@ -108,7 +108,7 @@ flowchart TB
   Planner["Planner and Strategy State<br/>planner.py, qa_state.py, memory.py"]
   Orchestrator["Orchestrator Loop<br/>orchestrator.py"]
   Tools["Tools, Skills, and Workers<br/>tool_registry.py, skills/, subagents.py"]
-  Backends["Execution Backends<br/>API, browser, computer_use, multi_mode"]
+  Backends["Execution Backends<br/>terminal/API, browser, computer, multi_mode"]
   Reports["Reports and Artifacts<br/>reporter.py, run_spec.py, gbqa/reporting"]
 
   Config --> Orchestrator
@@ -209,16 +209,16 @@ The harness separates interaction exposure from backend implementation.
 
 Supported public interaction profiles:
 
-- `api`: use only the backend API interaction mode.
+- `terminal`: use terminal-oriented execution through the task's declared surfaces, such as HTTP API, CLI, Python API, or shell commands.
 - `browser`: use only browser interaction mode through Playwright MCP/runtime.
-- `computer_use`: use screenshot-based GUI computer-use mode.
+- `computer`: use screenshot-based GUI computer interaction mode.
 - `default`: enable every interaction mode declared by task metadata.
 
 In `default`, the task's `default_interaction_mode` is used unless
 `run.interaction_mode` configures a different primary mode. When multiple modes
 are enabled, the planner sees explicit mode tools:
 
-- `api_action`
+- `terminal_action`
 - `browser_action`
 - `computer_action`
 
@@ -357,7 +357,7 @@ Current backend paths:
 - Multi-mode backend: lazily creates child sessions for each enabled mode and
   routes explicit mode tools to the correct backend.
 
-API and browser modes are the completed M1 paths. Computer-use is wired through
+Terminal and browser modes are the completed M1 paths. Computer interaction is wired through
 metadata and config but remains experimental until GUI/Cua environment selection
 is fully first-class across entrypoints.
 
@@ -608,14 +608,14 @@ When adding new harness capabilities:
 
 ## 21. Common Execution Paths
 
-Custom QA harness, API mode:
+Custom QA harness, terminal mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api
+  --ak interaction_mode=terminal
 ```
 
 Default multi-mode profile:
@@ -635,7 +635,7 @@ python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api \
+  --ak interaction_mode=terminal \
   --ak harness_mode=full
 ```
 
@@ -680,7 +680,7 @@ python -m gbqa.cli.harbor_run run \
 The current QA Agent Harness does not:
 
 - Replace Harbor's trial runner or verifier system.
-- Treat direct `harbor run` as the stable computer-use entrypoint.
+- Treat direct `harbor run` as the stable computer interaction entrypoint.
 - Assume source-code access in minimal mode.
 - Assume logs are memory.
 - Float benchmark baselines automatically when upstream releases change.

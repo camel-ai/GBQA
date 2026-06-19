@@ -16,10 +16,10 @@ from gbqa.spec import GBQAMetadata, load_gbqa_metadata
 
 DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
 COMPUTER_USE_ENVIRONMENT_HINT = (
-    "computer_use/default interaction profiles require the GBQA GUI/Cua environment. "
+    "computer/default interaction profiles require the GBQA GUI/Cua environment. "
     "If this run was started with direct `harbor run`, Harbor may have selected "
     "the default non-GUI environment. Use `python -m gbqa.cli.harbor_run run ... "
-    "--ak interaction_mode=computer_use` or `--ak interaction_mode=default` so GBQA can select the "
+    "--ak interaction_mode=computer` or `--ak interaction_mode=default` so GBQA can select the "
     "`environment-computer-use` overlay."
 )
 
@@ -74,7 +74,7 @@ class GBQAHarborAgent(BaseAgent):
         self,
         logs_dir: Path,
         model_name: str | None = None,
-        interaction_mode: str = "api",
+        interaction_mode: str = "terminal",
         interaction_profile: str | None = None,
         harness_mode: str = "minimal",
         max_steps: int = 30,
@@ -157,7 +157,7 @@ class GBQAHarborAgent(BaseAgent):
 
         await self._start_software_service(environment)
         await self._wait_for_service(environment)
-        if "computer_use" in self._enabled_interaction_modes():
+        if "computer" in self._enabled_interaction_modes():
             await self._start_computer_use_services(environment)
             await self._wait_for_computer_server(environment)
             await self._open_computer_use_frontend(environment)
@@ -271,6 +271,16 @@ class GBQAHarborAgent(BaseAgent):
     @staticmethod
     def _normalize_interaction_profile(value: str) -> str:
         text = str(value or "").strip().lower().replace("-", "_")
+        aliases = {
+            "api": "terminal",
+            "cli": "terminal",
+            "shell": "terminal",
+            "code": "terminal",
+            "computer_use": "computer",
+            "computeruse": "computer",
+            "gui": "computer",
+        }
+        text = aliases.get(text, text)
         return text or "default"
 
     @staticmethod
@@ -365,7 +375,7 @@ class GBQAHarborAgent(BaseAgent):
             raise RuntimeError(f"Task service did not become healthy: {url}")
 
     async def _start_computer_use_services(self, environment: BaseEnvironment) -> None:
-        adapter = self.metadata.interaction_adapter("computer_use")
+        adapter = self.metadata.interaction_adapter("computer")
         display = adapter.get("display", {})
         if not isinstance(display, dict):
             display = {}

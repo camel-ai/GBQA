@@ -171,7 +171,7 @@ def built_in_defaults() -> Dict[str, Any]:
         "run": {
             "harness_mode": "minimal",
             "interaction_profile": "default",
-            "interaction_mode": "api",
+            "interaction_mode": "terminal",
         },
         "harness": {
             "mode": "minimal",
@@ -202,9 +202,9 @@ def built_in_defaults() -> Dict[str, Any]:
         },
         "interaction": {
             "profile": "default",
-            "primary_mode": "api",
+            "primary_mode": "terminal",
             "primary": "api",
-            "enabled_modes": ["api"],
+            "enabled_modes": ["terminal"],
             "enabled_backends": ["api"],
             "adapters": {
                 "api": {},

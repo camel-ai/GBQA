@@ -24,8 +24,9 @@ cd /sandbox/software/dark-castle/backend
 PORT=5000 /opt/venv/bin/python app.py > /logs/runtime/dark-castle-server.log 2>&1 &
 ```
 
-Then use the API at `http://127.0.0.1:5000/api/agent`. Before finishing, write
-your findings to `/logs/agent/gbqa/bugs.json` using this shape:
+Then use the terminal interaction surface exposed as the HTTP API at
+`http://127.0.0.1:5000/api/agent`. Before finishing, write your findings to
+`/logs/agent/gbqa/bugs.json` using this shape:
 
 ```json
 {

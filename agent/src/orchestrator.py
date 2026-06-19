@@ -42,6 +42,7 @@ _LIFECYCLE_SESSION_TOOLS = frozenset(
 _ENVIRONMENT_ACTION_TOOLS = frozenset(
     {
         "environment_action",
+        "terminal_action",
         "api_action",
         "browser_action",
         "computer_action",

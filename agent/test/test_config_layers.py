@@ -61,11 +61,11 @@ base_url = "http://trial.test/api"
             },
             cli_overrides={
                 "agent": {"max_steps": 30},
-                "run": {"interaction_profile": "api"},
+                "run": {"interaction_profile": "terminal"},
             },
         )
         assert resolution.resolved["agent"]["max_steps"] == 30
-        assert resolution.resolved["run"]["interaction_profile"] == "api"
+        assert resolution.resolved["run"]["interaction_profile"] == "terminal"
         assert resolution.resolved["run"]["interaction_mode"] == "browser"
         assert resolution.resolved["llm"]["max_tokens"] == 2000
         assert resolution.resolved["llm"]["api_key"] == "repo-secret"
@@ -104,7 +104,7 @@ base_url = "http://trial.test/api"
         )
         assert (
             example_resolution.resolved["interaction"]["enabled_modes"]
-            == ["api", "browser", "computer_use"]
+            == ["terminal", "browser", "computer"]
         )
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

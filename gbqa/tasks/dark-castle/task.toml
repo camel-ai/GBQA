@@ -4,7 +4,7 @@ schema_version = "1.1"
 name = "gbqa/dark-castle"
 description = "Find seeded QA bugs in the Dark Castle browser/API game."
 authors = [{ name = "GBQA Team" }]
-keywords = ["gbqa", "qa", "game", "browser", "api"]
+keywords = ["gbqa", "qa", "game", "terminal", "browser", "computer", "http-api"]
 
 [metadata]
 category = "software-qa"
@@ -17,6 +17,13 @@ software_version = "v0.1.0"
 software_latest_version = "v0.2.0"
 software_archive_url = "https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz"
 software_release_page = "https://github.com/Tsumugii24/dark-castle/releases/tag/v0.1.0"
+operating_system = "linux"
+supported_interaction_modes = ["terminal", "browser", "computer"]
+default_interaction_mode = "terminal"
+interaction_surfaces = [
+  { id = "agent_http_api", kind = "http_api", modes = ["terminal"], base_path = "/api/agent" },
+  { id = "browser_ui", kind = "web_ui", modes = ["browser", "computer"], path = "/" },
+]
 
 [verifier]
 timeout_sec = 600.0

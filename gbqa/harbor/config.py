@@ -67,14 +67,25 @@ def _dumps_toml(payload: dict[str, Any]) -> str:
 
 
 _BACKEND_BY_INTERACTION_MODE = {
-    "api": "api",
+    "terminal": "api",
     "browser": "playwright_mcp",
-    "computer_use": "computer_use",
+    "computer": "computer_use",
+}
+
+_INTERACTION_MODE_ALIASES = {
+    "api": "terminal",
+    "cli": "terminal",
+    "shell": "terminal",
+    "code": "terminal",
+    "computer_use": "computer",
+    "computeruse": "computer",
+    "gui": "computer",
 }
 
 
 def _normalize_interaction_profile(value: str) -> str:
     text = str(value or "").strip().lower().replace("-", "_")
+    text = _INTERACTION_MODE_ALIASES.get(text, text)
     return text or "default"
 
 
@@ -134,7 +145,7 @@ def render_agent_config(
             "width": 1280,
             "height": 720,
         },
-        **metadata.interaction_adapter("computer_use"),
+        **metadata.interaction_adapter("computer"),
         "frontend_url": frontend_url,
         "screenshot_dir": screenshot_dir,
     }
@@ -187,6 +198,7 @@ def render_agent_config(
                 _BACKEND_BY_INTERACTION_MODE[mode]
                 for mode in enabled_modes
             ],
+            "surfaces": metadata.interaction_surfaces,
             "adapters": {
                 "api": {
                     "base_url": base_url,
@@ -311,6 +323,9 @@ def render_agent_config(
                 "terminal_field": metadata.service_terminal_field,
                 "name": metadata.task_title,
                 "profile": metadata.agent_profile,
+                "supported_interaction_modes": list(metadata.supported_interaction_modes),
+                "default_interaction_mode": metadata.default_interaction_mode,
+                "interaction_surfaces": metadata.interaction_surfaces,
             }
         },
         "report": {

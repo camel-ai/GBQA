@@ -52,7 +52,7 @@ python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/<task-id> \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api \
+  --ak interaction_mode=terminal \
   --ak max_steps=10
 ```
 
@@ -68,7 +68,7 @@ python -m gbqa.cli.harbor_run run \
 ```
 
 > [!WARNING]
-> Warning for  `computer_use`: computer-use (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
+> Warning for  `computer`: computer interaction (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
 ### 3a. Optional Runner And Judge Selection
 
@@ -87,7 +87,7 @@ python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api \
+  --ak interaction_mode=terminal \
   --ak max_steps=10
 ```
 
@@ -160,7 +160,7 @@ python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api \
+  --ak interaction_mode=terminal \
   --ak max_steps=10 \
   --n-tasks 100 \
   --n-concurrent 100
@@ -213,7 +213,7 @@ python -m environment.export.cli generate \
 
 - `GBQAHarborAgent` as the default custom QA agent wrapper.
 - Example real GitHub software environment: Dark Castle in a remote Daytona sandbox.
-- API and browser interaction modes for the example task.
+- Terminal and browser interaction modes for the example task.
 - Harbor-compatible verifier and reward outputs.
 
 ### M2: More Harnesses And More Environments
@@ -230,7 +230,8 @@ python -m environment.export.cli generate \
 
 ### M3: Richer Interaction And Cross-Platform Sandboxes
 
-- Support API, browser, computer-use, and mixed interaction methods.
+- Support terminal, browser, computer, and mixed interaction methods, with task
+  metadata recording concrete terminal surfaces such as API, CLI, or Python API.
 - Extend sandbox support from Linux toward Windows and macOS.
 - Run broader LLM evaluation experiments and release a leaderboard.
 
