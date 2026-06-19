@@ -12,7 +12,7 @@ from .hooks import HookManager, event_type_for_action
 from .memory import MemoryManager
 from .operator import Operator
 from .planner import ActionPlanner
-from .qa_state import CoverageState, HypothesisManager
+from .qa_state import CoverageState, HypothesisManager, build_bug_evidence
 from .reflection import ReflectionAnalyzer
 from .reporter import Reporter
 from .subagents import SubagentManager, SubagentResult
@@ -1192,6 +1192,11 @@ class Orchestrator:
                 source=source,
             )
             return False
+        bug.evidence = build_bug_evidence(
+            bug.evidence,
+            action=action,
+            observation=observation,
+        )
         report.bugs.append(bug)
         self._hypotheses.add_from_finding(
             finding=bug,
@@ -1322,12 +1327,22 @@ class Orchestrator:
             title="Reflection-identified environment issue",
             description=evidence_text,
             confidence=confidence,
-            evidence={
-                "step": step,
-                "action": action_command,
-                "observation": observation.summary or observation.message,
-                "source": "reflection",
-            },
+            evidence=build_bug_evidence(
+                {
+                    "step": step,
+                    "action": action_command,
+                    "observation": observation.summary or observation.message,
+                    "observed_fault": evidence_text,
+                    "source": "reflection",
+                },
+                action=Action(
+                    tool="reflection",
+                    command=action_command,
+                    bug_exist=True,
+                    explanation=evidence_text,
+                ),
+                observation=observation,
+            ),
             tags=["reflection"],
         )
         if self._is_duplicate_bug(candidate, existing_bugs):

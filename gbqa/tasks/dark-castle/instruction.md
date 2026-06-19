@@ -35,6 +35,7 @@ Then use the terminal interaction surface exposed as the HTTP API at
       "title": "Short descriptive title",
       "description": "What goes wrong and why it is a bug.",
       "evidence": {
+        "expected_behavior": "What correct behavior should look like.",
         "observed_fault": "The incorrect behavior you observed.",
         "minimal_reproduction": ["step 1", "step 2"]
       }

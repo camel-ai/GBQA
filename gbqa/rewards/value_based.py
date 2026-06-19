@@ -257,7 +257,7 @@ def _generate_test_case(candidate: dict[str, Any]) -> GeneratedTestCase:
             expected_failure=str(
                 payload.get("expected_failure")
                 or payload.get("assertion")
-                or _observed_fault(candidate)
+                or _expected_failure_assertion(candidate)
             ),
             source=str(payload.get("source") or "external_generator"),
             validation_case_id=str(payload.get("validation_case_id", "")),
@@ -267,7 +267,7 @@ def _generate_test_case(candidate: dict[str, Any]) -> GeneratedTestCase:
     return GeneratedTestCase(
         title=str(candidate.get("title", "")),
         steps=_reproduction_steps(candidate),
-        expected_failure=_observed_fault(candidate),
+        expected_failure=_expected_failure_assertion(candidate),
     )
 
 
@@ -293,6 +293,10 @@ def _judge_test_reasonableness(
         missing.append("description")
     if not generated_test.steps:
         missing.append("reproduction_steps")
+    if not _expected_behavior(candidate):
+        missing.append("expected_behavior")
+    if not _observed_fault(candidate):
+        missing.append("observed_fault")
     if not generated_test.expected_failure:
         missing.append("expected_failure")
     if missing:
@@ -305,8 +309,8 @@ def _judge_test_reasonableness(
         reasonable=True,
         source="heuristic_judge",
         rationale=(
-            "Report contains a title, description, reproduction steps, and an "
-            "expected failure assertion."
+            "Report contains a title, description, expected behavior, observed "
+            "fault, reproduction steps, and an expected failure assertion."
         ),
     )
 
@@ -451,12 +455,15 @@ def _heuristic_dimensions(candidate: dict[str, Any]) -> dict[str, int]:
 
     steps = _reproduction_steps(candidate)
     observed = _observed_fault(candidate)
-    if len(steps) >= 2 and observed:
+    expected = _expected_behavior(candidate)
+    if len(steps) >= 2 and observed and expected:
         reproducibility = 4
-    elif steps and observed:
+    elif steps and observed and expected:
         reproducibility = 3
-    elif steps or observed:
+    elif steps and (observed or expected):
         reproducibility = 2
+    elif steps or observed or expected:
+        reproducibility = 1
     else:
         reproducibility = 0
     return {
@@ -555,15 +562,42 @@ def _reward_from_values(*, agent_value: float, human_value: float) -> float:
 
 
 def _candidate_text(candidate: dict[str, Any]) -> str:
-    evidence = candidate.get("evidence", {})
     parts = [
         candidate.get("title", ""),
         candidate.get("description", ""),
+        _expected_behavior(candidate),
+        _observed_fault(candidate),
         " ".join(str(tag) for tag in candidate.get("tags", []) if tag),
     ]
+    evidence = candidate.get("evidence", {})
     if isinstance(evidence, dict):
-        parts.extend(str(value) for value in evidence.values() if value)
+        for key, value in evidence.items():
+            if key in {
+                "expected_behavior",
+                "observed_fault",
+                "expected_outcome",
+                "actual_behavior",
+                "failure",
+                "assertion",
+            }:
+                continue
+            if value:
+                parts.append(str(value))
     return " ".join(str(part).strip() for part in parts if str(part).strip())
+
+
+def _expected_behavior(candidate: dict[str, Any]) -> str:
+    evidence = candidate.get("evidence", {})
+    if isinstance(evidence, dict):
+        for key in ("expected_behavior", "expected_outcome", "expected", "correct_behavior"):
+            value = evidence.get(key)
+            if value:
+                return str(value).strip()
+    for key in ("expected_behavior", "expected", "correct_behavior"):
+        value = candidate.get(key)
+        if value:
+            return str(value).strip()
+    return ""
 
 
 def _observed_fault(candidate: dict[str, Any]) -> str:
@@ -573,7 +607,19 @@ def _observed_fault(candidate: dict[str, Any]) -> str:
             value = evidence.get(key)
             if value:
                 return str(value).strip()
+    for key in ("observed_fault", "actual_behavior", "failure"):
+        value = candidate.get(key)
+        if value:
+            return str(value).strip()
     return str(candidate.get("description", "")).strip()
+
+
+def _expected_failure_assertion(candidate: dict[str, Any]) -> str:
+    observed = _observed_fault(candidate)
+    expected = _expected_behavior(candidate)
+    if expected and observed:
+        return f"Expected: {expected} Actual: {observed}"
+    return observed or expected
 
 
 def _reproduction_steps(candidate: dict[str, Any]) -> list[str]:

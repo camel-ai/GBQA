@@ -10,6 +10,36 @@ from typing import Any, Dict, Iterable, List, Optional
 from .types import Action, BugFinding, Observation
 
 
+def build_bug_evidence(
+    evidence: Dict[str, Any] | None,
+    *,
+    action: Action,
+    observation: Observation,
+) -> Dict[str, Any]:
+    """Normalize planner/harness evidence into the GBQA bug-report shape."""
+
+    normalized = dict(evidence or {})
+    expected = str(
+        normalized.get("expected_behavior")
+        or normalized.get("expected_outcome")
+        or action.expected_outcome
+        or ""
+    ).strip()
+    if expected:
+        normalized["expected_behavior"] = expected
+    normalized.pop("expected_outcome", None)
+
+    observed = str(normalized.get("observed_fault") or "").strip()
+    if not observed and action.bug_exist:
+        observed = str(action.explanation or "").strip()
+    if not observed:
+        observed = str(observation.summary or observation.message or "").strip()
+    if observed:
+        normalized["observed_fault"] = observed
+
+    return normalized
+
+
 @dataclass
 class Hypothesis:
     """One suspected software defect tracked across exploration steps."""
@@ -46,7 +76,11 @@ class HypothesisManager:
         observation: Observation,
         source: str,
     ) -> Hypothesis:
-        evidence = dict(finding.evidence or {})
+        evidence = build_bug_evidence(
+            finding.evidence,
+            action=action,
+            observation=observation,
+        )
         evidence.setdefault("source", source)
         evidence.setdefault("action", action.command)
         evidence.setdefault("observation", observation.summary or observation.message)
@@ -94,12 +128,15 @@ class HypothesisManager:
             confidence=action.confidence,
             status=status,
             step=step,
-            evidence={
-                "source": "planner",
-                "action": action.command,
-                "expected_outcome": action.expected_outcome,
-                "observation": observation.summary or observation.message,
-            },
+            evidence=build_bug_evidence(
+                {
+                    "source": "planner",
+                    "action": action.command,
+                    "observation": observation.summary or observation.message,
+                },
+                action=action,
+                observation=observation,
+            ),
             tags=["planner"],
             reproduction_step={
                 "step": step,

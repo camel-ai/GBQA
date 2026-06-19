@@ -404,6 +404,28 @@ Every GBQA run should export normalized artifacts under `/logs/agent/gbqa`:
 - `report.md` when available
 - `artifacts/` for screenshots, traces, DOM dumps, or other interaction files
 
+Each entry in `bugs.json` should use this evidence shape:
+
+```json
+{
+  "bugs": [
+    {
+      "title": "Short descriptive title",
+      "description": "What goes wrong and why it is a bug.",
+      "evidence": {
+        "expected_behavior": "What correct behavior should look like.",
+        "observed_fault": "The incorrect behavior you observed.",
+        "minimal_reproduction": ["step 1", "step 2"]
+      }
+    }
+  ]
+}
+```
+
+Human-baseline bug files may keep the same three fields at the top level;
+`gbqa.protocol.schemas.normalize_bug_evidence(...)` lifts them into `evidence`
+during export and verifier loading.
+
 GBQA verifiers must use Harbor Rewardkit. `harbor-rewardkit` is a required
 platform dependency; if it is missing, `gbqa.rewards.runner` fails fast with
 an install hint. Rewardkit discovers criteria from `tests/`, writes numeric

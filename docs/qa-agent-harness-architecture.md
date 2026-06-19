@@ -550,11 +550,15 @@ directory. Harbor export then normalizes those into `/logs/agent/gbqa`.
 Canonical agent artifacts:
 
 - `run.json`
-- `bugs.json`
+- `bugs.json` — normalized bug candidates with `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
 - `steps.jsonl`
 - `trace.jsonl`
 - `report.md`
 - `artifacts/`
+
+Human-baseline bug files may store the same three fields at the top level. Export
+and verifier code lift them into `evidence` through
+`gbqa.protocol.schemas.normalize_bug_evidence(...)`.
 
 Verifier outputs remain under `/logs/verifier`:
 
