@@ -82,6 +82,8 @@ def main() -> None:
     print(summary_prompt)
     assert "{task_profile}" not in planner_prompt
     assert "## Task Profile:" in planner_prompt
+    assert "CRITICAL TESTING REQUIREMENT" not in system_prompt
+    assert "code_list_files" not in system_prompt
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ RUN python3.12 -m venv /opt/venv \
       cua \
       flask \
       flask-cors \
+      harbor-rewardkit \
       openai \
       pillow \
       pydantic \

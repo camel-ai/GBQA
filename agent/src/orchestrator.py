@@ -260,6 +260,7 @@ class Orchestrator:
                     observation=current_observation,
                     plan=plan,
                     capability_prompt=capability_prompt,
+                    session=active_session,
                 )
                 task_end_reason = self._lifecycle_reason(action) or "agent requested task end"
                 task_end_trigger = "agent"
@@ -301,6 +302,7 @@ class Orchestrator:
                     observation=current_observation,
                     plan=plan,
                     capability_prompt=capability_prompt,
+                    session=None,
                 )
                 consecutive_failures += 1
                 continue
@@ -321,6 +323,7 @@ class Orchestrator:
                 observation=current_observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=active_session,
             )
 
             # Bug detection for environment actions
@@ -679,6 +682,7 @@ class Orchestrator:
                 observation=observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=session,
             )
             return active_session, observation, True
 
@@ -694,6 +698,7 @@ class Orchestrator:
                 observation=observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=active_session,
             )
             return active_session, observation, True
 
@@ -752,6 +757,7 @@ class Orchestrator:
                 observation=observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=target_session,
             )
             return active_session, observation, True
 
@@ -772,6 +778,7 @@ class Orchestrator:
                 observation=observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=None,
             )
             return active_session, observation, True
 
@@ -800,6 +807,7 @@ class Orchestrator:
                 observation=observation,
                 plan=plan,
                 capability_prompt=capability_prompt,
+                session=target_session,
             )
             return active_session, observation, True
 
@@ -832,6 +840,7 @@ class Orchestrator:
             observation=observation,
             plan=plan,
             capability_prompt=capability_prompt,
+            session=target_session,
         )
         if active_session and active_session.session_id == session_id:
             observation = self._inject_capability_observation(
@@ -1113,6 +1122,7 @@ class Orchestrator:
         observation: Observation,
         plan,
         capability_prompt: str,
+        session: Optional[SessionHandle] = None,
     ) -> StepRecord:
         record = StepRecord(
             step=step,
@@ -1133,6 +1143,7 @@ class Orchestrator:
             event_type=event_type_for_action(action),
             step=step,
             action=action,
+            session=session,
             metadata={"success": observation.success},
         )
         return record

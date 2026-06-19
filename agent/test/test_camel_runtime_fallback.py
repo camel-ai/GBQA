@@ -52,6 +52,17 @@ class FakeChatAgent:
 
 
 def main() -> None:
+    request_config = CamelTaskAgent._model_config_dict(
+        CamelRuntimeConfig(
+            model="gpt-5.5",
+            api_key="demo-key",
+            base_url="https://example.test/v1",
+            input_token_limit=12000,
+            max_tokens=4096,
+        )
+    )
+    assert request_config["max_context_tokens"] == 16096
+
     agent = CamelTaskAgent.__new__(CamelTaskAgent)
     agent._config = CamelRuntimeConfig(
         model="demo",
