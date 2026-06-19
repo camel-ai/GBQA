@@ -55,6 +55,8 @@ class ExportGeneratorTests(unittest.TestCase):
             metadata = (task_root / "gbqa.yaml").read_text(encoding="utf-8")
             self.assertIn('benchmark_status: "draft"', metadata)
             self.assertIn('archive_url: "https://github.com/acme/flow-ui/archive/refs/tags/v1.0.0.tar.gz"', metadata)
+            self.assertIn('default_mode: "terminal"', metadata)
+            self.assertIn('kind: "http_api"', metadata)
 
     def test_generate_normalizes_unsafe_slug(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

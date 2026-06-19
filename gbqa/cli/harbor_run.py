@@ -416,7 +416,10 @@ def _rewrite_backend_environment(argv: list[str]) -> list[str]:
         _agent_kwarg(argv, "interaction_profile")
         or _agent_kwarg(argv, "interaction_mode")
     )
-    if interaction_mode.replace("-", "_") not in {"computer_use", "default"}:
+    normalized_mode = interaction_mode.replace("-", "_")
+    if normalized_mode == "computer_use":
+        normalized_mode = "computer"
+    if normalized_mode not in {"computer", "default"}:
         return argv
     path_index = _task_path_index(argv)
     if path_index is None:

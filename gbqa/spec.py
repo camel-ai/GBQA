@@ -9,6 +9,17 @@ from urllib.parse import urljoin
 
 import yaml
 
+INTERACTION_MODES = {"terminal", "browser", "computer"}
+INTERACTION_MODE_ALIASES = {
+    "api": "terminal",
+    "cli": "terminal",
+    "shell": "terminal",
+    "code": "terminal",
+    "computer_use": "computer",
+    "computeruse": "computer",
+    "gui": "computer",
+}
+
 
 class GBQAMetadataError(ValueError):
     """Raised when a GBQA metadata file is missing required fields."""
@@ -136,11 +147,14 @@ class GBQAMetadata:
 
     @property
     def default_interaction_mode(self) -> str:
-        return str(self.raw["interaction"]["default_mode"])
+        return normalize_interaction_mode(self.raw["interaction"]["default_mode"])
 
     @property
     def supported_interaction_modes(self) -> list[str]:
-        return [str(item) for item in self.raw["interaction"]["supported_modes"]]
+        return [
+            normalize_interaction_mode(item)
+            for item in self.raw["interaction"]["supported_modes"]
+        ]
 
     @property
     def interaction_adapters(self) -> dict[str, Any]:
@@ -148,13 +162,39 @@ class GBQAMetadata:
         return adapters if isinstance(adapters, dict) else {}
 
     def interaction_adapter(self, name: str) -> dict[str, Any]:
+        name = normalize_interaction_mode(name)
         adapter = self.interaction_adapters.get(name, {})
+        if not adapter and name == "computer":
+            adapter = self.interaction_adapters.get("computer_use", {})
         return dict(adapter) if isinstance(adapter, dict) else {}
+
+    @property
+    def interaction_surfaces(self) -> list[dict[str, Any]]:
+        metadata = self.raw.get("metadata", {})
+        if not isinstance(metadata, dict):
+            return []
+        surfaces = metadata.get("interaction_surfaces", [])
+        if not isinstance(surfaces, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for surface in surfaces:
+            if not isinstance(surface, dict):
+                continue
+            item = dict(surface)
+            modes = item.get("modes", [])
+            if isinstance(modes, list):
+                item["modes"] = [normalize_interaction_mode(mode) for mode in modes]
+            elif modes:
+                item["modes"] = [normalize_interaction_mode(modes)]
+            else:
+                item["modes"] = []
+            normalized.append(item)
+        return normalized
 
     @property
     def computer_use_server_url(self) -> str:
         return str(
-            self.interaction_adapter("computer_use").get(
+            self.interaction_adapter("computer").get(
                 "server_url",
                 "http://127.0.0.1:8030",
             )
@@ -242,6 +282,11 @@ class GBQAMetadata:
         return (self.path.parent / str(relative)).resolve()
 
 
+def normalize_interaction_mode(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    return INTERACTION_MODE_ALIASES.get(text, text)
+
+
 def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:
     """Load and validate the minimal GBQA task metadata contract."""
 
@@ -283,8 +328,17 @@ def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:
     modes = raw["interaction"]["supported_modes"]
     if not isinstance(modes, list) or not modes:
         raise GBQAMetadataError("interaction.supported_modes must be a non-empty list")
-    default_mode = raw["interaction"]["default_mode"]
-    if default_mode not in modes:
+    normalized_modes = [normalize_interaction_mode(item) for item in modes]
+    invalid_modes = [mode for mode in normalized_modes if mode not in INTERACTION_MODES]
+    if invalid_modes:
+        raise GBQAMetadataError(
+            "interaction.supported_modes contains unsupported modes: "
+            + ", ".join(invalid_modes)
+        )
+    raw["interaction"]["supported_modes"] = list(dict.fromkeys(normalized_modes))
+    default_mode = normalize_interaction_mode(raw["interaction"]["default_mode"])
+    raw["interaction"]["default_mode"] = default_mode
+    if default_mode not in normalized_modes:
         raise GBQAMetadataError(
             "interaction.default_mode must be included in interaction.supported_modes"
         )

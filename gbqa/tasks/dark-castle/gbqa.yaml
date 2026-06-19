@@ -40,19 +40,38 @@ runtime:
       tail_bytes: 200000
       max_files: 5
 interaction:
-  default_mode: "api"
+  default_mode: "terminal"
   supported_modes:
-    - "api"
+    - "terminal"
     - "browser"
-    - "computer_use"
+    - "computer"
   adapters:
-    computer_use:
+    computer:
       server_url: "http://127.0.0.1:8030"
       startup_timeout: 30
       sandbox_name: "gbqa-local-computer"
       display:
         width: 1280
         height: 720
+metadata:
+  operating_system:
+    default: "linux"
+    supported:
+      - "linux"
+  interaction_surfaces:
+    - id: "agent_http_api"
+      kind: "http_api"
+      modes:
+        - "terminal"
+      base_path: "/api/agent"
+      description: "JSON action API used by the terminal interaction backend."
+    - id: "browser_ui"
+      kind: "web_ui"
+      modes:
+        - "browser"
+        - "computer"
+      path: "/"
+      description: "Playable web frontend for browser automation or screenshot-based computer interaction."
 service:
   host: "127.0.0.1"
   port: 5000

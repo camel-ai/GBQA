@@ -6,8 +6,8 @@
 # Run-level defaults for this harness. Harbor can override this per trial.
 [run]
 harness_mode = "minimal" # minimal | full
-interaction_profile = "default" # default | api | browser | computer_use
-interaction_mode = "api" # primary mode used when interaction_profile = default
+interaction_profile = "default" # default | terminal | browser | computer
+interaction_mode = "terminal" # primary mode used when interaction_profile = default
 
 [harness]
 mode = "minimal" # minimal keeps only the closed-loop QA core; full enables diagnostic skills/tools.
@@ -47,9 +47,9 @@ prompt_dir = "prompts"
 # planner-visible auxiliary tools when the active session supports them.
 [interaction]
 profile = "default"
-primary_mode = "api"
+primary_mode = "terminal"
 primary = "api" # api | playwright_mcp | computer_use
-enabled_modes = ["api", "browser", "computer_use"]
+enabled_modes = ["terminal", "browser", "computer"]
 enabled_backends = ["api", "playwright_mcp", "computer_use"]
 
 [interaction.adapters.api]

@@ -8,6 +8,88 @@ from typing import Any
 from environment.sourcing.utils import slugify
 from gbqa.rewards.template import install_task_verifier_tests
 
+_MODE_ALIASES = {
+    "api": "terminal",
+    "cli": "terminal",
+    "shell": "terminal",
+    "code": "terminal",
+    "computer_use": "computer",
+    "computeruse": "computer",
+    "gui": "computer",
+}
+
+
+def _normalize_mode(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    return _MODE_ALIASES.get(text, text)
+
+
+def _unique_modes(values: list[Any]) -> list[str]:
+    modes: list[str] = []
+    for value in values:
+        mode = _normalize_mode(value)
+        if mode in {"terminal", "browser", "computer"} and mode not in modes:
+            modes.append(mode)
+    return modes or ["terminal"]
+
+
+def _interaction_surfaces(seed: dict[str, Any], modes: list[str]) -> list[dict[str, Any]]:
+    configured = seed.get("interaction_surfaces")
+    if isinstance(configured, list) and configured:
+        surfaces: list[dict[str, Any]] = []
+        for surface in configured:
+            if not isinstance(surface, dict):
+                continue
+            item = dict(surface)
+            item_modes = item.get("modes") or modes
+            item["modes"] = _unique_modes(item_modes if isinstance(item_modes, list) else [item_modes])
+            surfaces.append(item)
+        return surfaces
+
+    service = seed.get("service", {})
+    surfaces = []
+    if "terminal" in modes:
+        surfaces.append(
+            {
+                "id": "terminal_api",
+                "kind": "http_api",
+                "modes": ["terminal"],
+                "base_path": service.get("api_base_path", "/"),
+            }
+        )
+    if "browser" in modes or "computer" in modes:
+        surface_modes = [mode for mode in ("browser", "computer") if mode in modes]
+        surfaces.append(
+            {
+                "id": "web_ui",
+                "kind": "web_ui",
+                "modes": surface_modes,
+                "path": service.get("frontend_path", "/"),
+            }
+        )
+    return surfaces
+
+
+def _toml_string(value: Any) -> str:
+    return json.dumps(str(value))
+
+
+def _toml_string_array(values: list[Any]) -> str:
+    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _toml_inline_surfaces(surfaces: list[dict[str, Any]]) -> str:
+    tables: list[str] = []
+    for surface in surfaces:
+        parts: list[str] = []
+        for key, value in surface.items():
+            if isinstance(value, list):
+                parts.append(f"{key} = {_toml_string_array(value)}")
+            else:
+                parts.append(f"{key} = {_toml_string(value)}")
+        tables.append("{ " + ", ".join(parts) + " }")
+    return "[" + ", ".join(tables) + "]"
+
 
 def generate_task_packages(*, input_path: Path, output_dir: Path) -> list[Path]:
     generated: list[Path] = []
@@ -50,6 +132,11 @@ def _write_task_package(task_root: Path, seed: dict[str, Any]) -> None:
 
 
 def _render_task_toml(seed: dict[str, Any]) -> str:
+    modes = _unique_modes(seed.get("interaction_modes", []))
+    primary_mode = _normalize_mode(seed.get("primary_interaction_mode", modes[0]))
+    if primary_mode not in modes:
+        primary_mode = modes[0]
+    surfaces = _interaction_surfaces(seed, modes)
     return f"""id = "{seed['task_id']}"
 name = "{seed['slug']}"
 description = "Draft GBQA task generated from environment sourcing."
@@ -74,6 +161,10 @@ software_repository = "{seed['repository']}"
 software_selected_version = "{seed['baseline_release']}"
 software_fixed_reference_version = "{seed.get('fixed_release', '')}"
 software_archive_url = "{seed['baseline_archive_url']}"
+operating_system = "{seed.get('operating_system', 'linux')}"
+supported_interaction_modes = {_toml_string_array(modes)}
+default_interaction_mode = "{primary_mode}"
+interaction_surfaces = {_toml_inline_surfaces(surfaces)}
 
 [environment]
 provider = "daytona"
@@ -83,8 +174,12 @@ dockerfile = "environment/Dockerfile"
 
 def _render_gbqa_yaml(seed: dict[str, Any]) -> str:
     service = seed.get("service", {})
-    modes = seed.get("interaction_modes", [])
+    modes = _unique_modes(seed.get("interaction_modes", []))
+    primary_mode = _normalize_mode(seed.get("primary_interaction_mode", modes[0]))
+    if primary_mode not in modes:
+        primary_mode = modes[0]
     mode_lines = "".join(f'    - "{mode}"\n' for mode in modes)
+    surface_lines = _render_surfaces_yaml(_interaction_surfaces(seed, modes))
     return f"""schema_version: "0.1"
 task:
   id: "{seed['task_id']}"
@@ -103,19 +198,43 @@ runtime:
   default_provider: "daytona"
   local_docker_supported: false
 interaction:
-  default_mode: "{seed.get('primary_interaction_mode', 'api')}"
+  default_mode: "{primary_mode}"
   supported_modes:
-{mode_lines if mode_lines else '    - "api"\\n'}service:
+{mode_lines}metadata:
+  operating_system:
+    default: "{seed.get('operating_system', 'linux')}"
+    supported:
+      - "{seed.get('operating_system', 'linux')}"
+  interaction_surfaces:
+{surface_lines}service:
   host: "{service.get('host', '127.0.0.1')}"
   port: {int(service.get('port', 8000))}
   health_path: "{service.get('health_path', '/health')}"
   api_base_path: "{service.get('api_base_path', '/')}"
+  frontend_path: "{service.get('frontend_path', '/')}"
 ground_truth:
   path: "bugs/ground_truth.json"
 artifacts:
   agent_dir: "/logs/agent/gbqa"
   verifier_dir: "/logs/verifier"
 """
+
+
+def _render_surfaces_yaml(surfaces: list[dict[str, Any]]) -> str:
+    if not surfaces:
+        return "    []\n"
+    lines: list[str] = []
+    for surface in surfaces:
+        lines.append(f'    - id: "{surface.get("id", "")}"')
+        lines.append(f'      kind: "{surface.get("kind", "unknown")}"')
+        lines.append("      modes:")
+        for mode in _unique_modes(surface.get("modes", [])):
+            lines.append(f'        - "{mode}"')
+        for key, value in surface.items():
+            if key in {"id", "kind", "modes"} or value in (None, ""):
+                continue
+            lines.append(f'      {key}: "{value}"')
+    return "\n".join(lines) + "\n"
 
 
 def _render_instruction(seed: dict[str, Any]) -> str:

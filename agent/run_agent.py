@@ -60,20 +60,20 @@ from src.types import Action
 
 
 _INTERACTION_TOOL_BY_MODE = {
-    "api": "api_action",
+    "terminal": "terminal_action",
     "browser": "browser_action",
-    "computer_use": "computer_action",
+    "computer": "computer_action",
 }
 
 _INTERACTION_TOOL_DESCRIPTIONS = {
-    "api": (
-        "Execute one semantic action through the task backend API interaction mode"
+    "terminal": (
+        "Execute one semantic action through terminal/code execution mode"
     ),
     "browser": (
         "Execute one semantic action through the browser UI interaction mode"
     ),
-    "computer_use": (
-        "Execute one semantic action through screenshot-based GUI computer-use mode"
+    "computer": (
+        "Execute one semantic action through screenshot-based GUI computer mode"
     ),
 }
 
@@ -235,7 +235,7 @@ def _resolve_interaction_profile(
     supported = [normalize_interaction_mode(item) for item in supported_modes]
     primary_mode = normalize_interaction_mode(default_mode)
     if primary_mode == "default":
-        primary_mode = supported[0] if supported else "api"
+        primary_mode = supported[0] if supported else "terminal"
     if profile == "default":
         if primary_mode not in supported:
             raise ValueError(
@@ -313,6 +313,7 @@ def _task_metadata_config_layer(metadata_path: str) -> dict[str, Any]:
             "primary": backend_type,
             "enabled_modes": enabled_modes,
             "enabled_backends": enabled_backends,
+            "surfaces": metadata.interaction_surfaces,
             "adapters": {
                 "api": {
                     "base_url": metadata.service_api_base_url,
@@ -323,7 +324,7 @@ def _task_metadata_config_layer(metadata_path: str) -> dict[str, Any]:
                     "frontend_url": metadata.service_frontend_url,
                 },
                 "computer_use": {
-                    **metadata.interaction_adapter("computer_use"),
+                    **metadata.interaction_adapter("computer"),
                     "server_url": "http://127.0.0.1:8030",
                     "frontend_url": metadata.service_frontend_url,
                     "startup_timeout": 30,
@@ -357,6 +358,7 @@ def _task_metadata_config_layer(metadata_path: str) -> dict[str, Any]:
                 "profile": metadata.agent_profile,
                 "supported_interaction_modes": list(metadata.supported_interaction_modes),
                 "default_interaction_mode": metadata.default_interaction_mode,
+                "interaction_surfaces": metadata.interaction_surfaces,
             },
         },
     }
@@ -405,6 +407,7 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
         backend_type_for_interaction_mode(mode)
         for mode in enabled_modes
     ]
+    interaction["surfaces"] = metadata.interaction_surfaces
     adapters = interaction.setdefault("adapters", {})
 
     api_settings = adapters.setdefault("api", {})
@@ -419,7 +422,7 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
 
     computer_use_settings = adapters.setdefault("computer_use", {})
     if isinstance(computer_use_settings, dict):
-        metadata_computer_use = metadata.interaction_adapter("computer_use")
+        metadata_computer_use = metadata.interaction_adapter("computer")
         for key, value in metadata_computer_use.items():
             computer_use_settings.setdefault(key, value)
         computer_use_settings.setdefault("server_url", "http://127.0.0.1:8030")
@@ -462,6 +465,7 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
         "profile": metadata.agent_profile,
         "supported_interaction_modes": list(metadata.supported_interaction_modes),
         "default_interaction_mode": metadata.default_interaction_mode,
+        "interaction_surfaces": metadata.interaction_surfaces,
     }
     for key, value in task_defaults.items():
         task_entry.setdefault(key, value)

@@ -150,6 +150,7 @@ The app imports ranked/verified JSONL files into SQLite, lets reviewers accept o
 
 - GitHub-only discovery.
 - Linux-first deployment signals.
-- API and CLI candidates are prioritized.
-- Browser-only and computer-use environments are tagged for future work.
+- Terminal candidates are prioritized, with concrete API/CLI/Python API surfaces
+  recorded as metadata rather than separate interaction modes.
+- Browser-only and computer environments are tagged for future work.
 - Generic Daytona verification is represented by a stable interface; candidate-specific build and probe execution will be expanded after the first deterministic sourcing loop is stable.

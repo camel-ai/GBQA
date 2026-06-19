@@ -36,13 +36,14 @@ def test_metadata_loader() -> None:
     assert metadata.task_slug == "dark-castle"
     assert metadata.task_title == "Dark Castle: Night of Awakening"
     assert metadata.default_provider == "daytona"
-    assert metadata.default_interaction_mode == "api"
-    assert metadata.supported_interaction_modes == ["api", "browser", "computer_use"]
+    assert metadata.default_interaction_mode == "terminal"
+    assert metadata.supported_interaction_modes == ["terminal", "browser", "computer"]
     assert metadata.computer_use_server_url == "http://127.0.0.1:8030"
-    assert metadata.interaction_adapter("computer_use")["display"] == {
+    assert metadata.interaction_adapter("computer")["display"] == {
         "width": 1280,
         "height": 720,
     }
+    assert metadata.interaction_surfaces[0]["kind"] == "http_api"
     assert metadata.service_api_base_url == "http://127.0.0.1:5000/api/agent"
     assert metadata.service_frontend_url == "http://127.0.0.1:5000/"
     assert metadata.evaluation_method == "value_based"
@@ -99,15 +100,15 @@ def test_metadata_loader() -> None:
 
 def test_config_rendering() -> None:
     metadata = load_gbqa_metadata(TASK_METADATA_PATH)
-    api_config = render_agent_config(metadata=metadata, interaction_mode="api", max_steps=3)
-    api_payload = tomllib.loads(api_config)
-    full_api_config = render_agent_config(
+    terminal_config = render_agent_config(metadata=metadata, interaction_mode="terminal", max_steps=3)
+    terminal_payload = tomllib.loads(terminal_config)
+    full_terminal_config = render_agent_config(
         metadata=metadata,
-        interaction_mode="api",
+        interaction_mode="terminal",
         harness_mode="full",
         max_steps=3,
     )
-    full_api_payload = tomllib.loads(full_api_config)
+    full_terminal_payload = tomllib.loads(full_terminal_config)
     browser_config = render_agent_config(
         metadata=metadata,
         interaction_mode="browser",
@@ -115,7 +116,7 @@ def test_config_rendering() -> None:
     )
     computer_config = render_agent_config(
         metadata=metadata,
-        interaction_mode="computer_use",
+        interaction_mode="computer",
         max_steps=3,
     )
     computer_payload = tomllib.loads(computer_config)
@@ -125,11 +126,12 @@ def test_config_rendering() -> None:
         max_steps=3,
     )
     default_payload = tomllib.loads(default_config)
-    assert 'primary = "api"' in api_config
+    assert 'primary_mode = "terminal"' in terminal_config
+    assert 'primary = "api"' in terminal_config
     assert 'primary = "playwright_mcp"' in browser_config
     assert 'primary = "computer_use"' in computer_config
-    assert "http://127.0.0.1:5000/api/agent" in api_config
-    assert "Dark Castle: Night of Awakening" in api_config
+    assert "http://127.0.0.1:5000/api/agent" in terminal_config
+    assert "Dark Castle: Night of Awakening" in terminal_config
     assert "http://127.0.0.1:5000/" in browser_config
     assert computer_payload["interaction"]["primary"] == "computer_use"
     assert computer_payload["interaction"]["adapters"]["computer_use"]["server_url"] == (
@@ -139,45 +141,45 @@ def test_config_rendering() -> None:
         "width": 1280,
         "height": 720,
     }
-    assert "execution_backend" not in api_payload
-    assert "code_tool_" + "provider" not in api_payload
-    assert "runtime_log_" + "provider" not in api_payload
-    assert api_payload["run"]["interaction_profile"] == "api"
-    assert api_payload["run"]["harness_mode"] == "minimal"
-    assert api_payload["run"]["task_metadata_path"] == (
+    assert "execution_backend" not in terminal_payload
+    assert "code_tool_" + "provider" not in terminal_payload
+    assert "runtime_log_" + "provider" not in terminal_payload
+    assert terminal_payload["run"]["interaction_profile"] == "terminal"
+    assert terminal_payload["run"]["harness_mode"] == "minimal"
+    assert terminal_payload["run"]["task_metadata_path"] == (
         "/sandbox/gbqa/tasks/dark-castle/gbqa.yaml"
     )
-    assert api_payload["harness"]["mode"] == "minimal"
-    assert api_payload["run"]["enabled_interaction_modes"] == ["api"]
-    assert api_payload["interaction"]["primary"] == "api"
-    assert api_payload["interaction"]["enabled_modes"] == ["api"]
-    assert api_payload["interaction"]["adapters"]["api"]["base_url"] == (
+    assert terminal_payload["harness"]["mode"] == "minimal"
+    assert terminal_payload["run"]["enabled_interaction_modes"] == ["terminal"]
+    assert terminal_payload["interaction"]["primary"] == "api"
+    assert terminal_payload["interaction"]["enabled_modes"] == ["terminal"]
+    assert terminal_payload["interaction"]["adapters"]["api"]["base_url"] == (
         "http://127.0.0.1:5000/api/agent"
     )
     assert default_payload["run"]["interaction_profile"] == "default"
-    assert default_payload["run"]["interaction_mode"] == "api"
+    assert default_payload["run"]["interaction_mode"] == "terminal"
     assert default_payload["run"]["enabled_interaction_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
     assert default_payload["interaction"]["primary"] == "api"
-    assert default_payload["interaction"]["primary_mode"] == "api"
+    assert default_payload["interaction"]["primary_mode"] == "terminal"
     assert default_payload["interaction"]["enabled_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
     assert default_payload["interaction"]["enabled_backends"] == [
         "api",
         "playwright_mcp",
         "computer_use",
     ]
-    assert api_payload["interaction"]["adapters"]["logs"]["enabled"] is False
-    assert api_payload["interaction"]["adapters"]["logs"]["session_id_field"] == (
+    assert terminal_payload["interaction"]["adapters"]["logs"]["enabled"] is False
+    assert terminal_payload["interaction"]["adapters"]["logs"]["session_id_field"] == (
         metadata.service_session_id_field
     )
-    log_sources = api_payload["interaction"]["adapters"]["logs"]["sources"]
+    log_sources = terminal_payload["interaction"]["adapters"]["logs"]["sources"]
     assert log_sources[0]["name"] == (
         "stdout_stderr"
     )
@@ -187,42 +189,42 @@ def test_config_rendering() -> None:
     assert log_sources[1]["name"] == "software_session_logs"
     assert log_sources[1]["kind"] == "file_directory"
     assert log_sources[1]["glob"] == "game_*.json"
-    assert "analysis_" + "enabled" not in api_payload["interaction"]["adapters"]["logs"]
-    assert api_payload["interaction"]["adapters"]["code"]["enabled"] is False
-    assert api_payload["tool_policy"]["auto_log_analysis"]["enabled"] is False
-    assert api_payload["tool_policy"]["auto_code_lookup"]["enabled"] is False
-    assert api_payload["tool_policy"]["end_conditions"]["end_on_terminal"] is False
-    assert api_payload["hooks"]["enabled"] is True
-    assert api_payload["hooks"]["diagnostics"] is False
-    assert api_payload["hooks"]["context_injection"] is False
-    assert api_payload["subagents"]["enabled"] is False
-    assert api_payload["subagents"]["explorer"]["enabled"] is False
-    assert full_api_payload["run"]["harness_mode"] == "full"
-    assert full_api_payload["harness"]["mode"] == "full"
-    assert full_api_payload["interaction"]["adapters"]["logs"]["enabled"] is True
-    assert full_api_payload["interaction"]["adapters"]["code"]["enabled"] is True
-    assert full_api_payload["interaction"]["adapters"]["code"]["root_dir"] == (
+    assert "analysis_" + "enabled" not in terminal_payload["interaction"]["adapters"]["logs"]
+    assert terminal_payload["interaction"]["adapters"]["code"]["enabled"] is False
+    assert terminal_payload["tool_policy"]["auto_log_analysis"]["enabled"] is False
+    assert terminal_payload["tool_policy"]["auto_code_lookup"]["enabled"] is False
+    assert terminal_payload["tool_policy"]["end_conditions"]["end_on_terminal"] is False
+    assert terminal_payload["hooks"]["enabled"] is True
+    assert terminal_payload["hooks"]["diagnostics"] is False
+    assert terminal_payload["hooks"]["context_injection"] is False
+    assert terminal_payload["subagents"]["enabled"] is False
+    assert terminal_payload["subagents"]["explorer"]["enabled"] is False
+    assert full_terminal_payload["run"]["harness_mode"] == "full"
+    assert full_terminal_payload["harness"]["mode"] == "full"
+    assert full_terminal_payload["interaction"]["adapters"]["logs"]["enabled"] is True
+    assert full_terminal_payload["interaction"]["adapters"]["code"]["enabled"] is True
+    assert full_terminal_payload["interaction"]["adapters"]["code"]["root_dir"] == (
         "/sandbox/software/dark-castle"
     )
-    assert full_api_payload["tool_policy"]["auto_log_analysis"]["enabled"] is True
-    assert full_api_payload["tool_policy"]["auto_code_lookup"]["enabled"] is True
-    assert full_api_payload["hooks"]["diagnostics"] is True
-    assert full_api_payload["hooks"]["context_injection"] is True
-    assert full_api_payload["subagents"]["enabled"] is True
-    assert full_api_payload["subagents"]["explorer"]["enabled"] is True
-    assert full_api_payload["subagents"]["log_analyst"]["enabled"] is True
-    assert "input_token_limit" in api_payload["llm"]
-    assert "context_token_limit" not in api_payload["llm"]
-    assert "message_window_" + "size" not in api_payload["llm"]
-    assert api_payload["llm"]["reasoning"]["mode"] == "auto"
-    assert api_payload["memory"]["memory_context_token_limit"] == 12000
-    assert api_payload["memory"]["long_term_file"].endswith(
+    assert full_terminal_payload["tool_policy"]["auto_log_analysis"]["enabled"] is True
+    assert full_terminal_payload["tool_policy"]["auto_code_lookup"]["enabled"] is True
+    assert full_terminal_payload["hooks"]["diagnostics"] is True
+    assert full_terminal_payload["hooks"]["context_injection"] is True
+    assert full_terminal_payload["subagents"]["enabled"] is True
+    assert full_terminal_payload["subagents"]["explorer"]["enabled"] is True
+    assert full_terminal_payload["subagents"]["log_analyst"]["enabled"] is True
+    assert "input_token_limit" in terminal_payload["llm"]
+    assert "context_token_limit" not in terminal_payload["llm"]
+    assert "message_window_" + "size" not in terminal_payload["llm"]
+    assert terminal_payload["llm"]["reasoning"]["mode"] == "auto"
+    assert terminal_payload["memory"]["memory_context_token_limit"] == 12000
+    assert terminal_payload["memory"]["long_term_file"].endswith(
         "/memory/{task_slug}/long_term.json"
     )
-    assert api_payload["tasks"]["dark-castle"]["base_url"] == (
+    assert terminal_payload["tasks"]["dark-castle"]["base_url"] == (
         "http://127.0.0.1:5000/api/agent"
     )
-    assert "ga" + "mes" not in api_payload
+    assert "ga" + "mes" not in terminal_payload
 
 
 def test_agent_harness_example_has_no_task_endpoints() -> None:
@@ -245,11 +247,11 @@ def test_agent_harness_example_has_no_task_endpoints() -> None:
     assert payload["tool_policy"]["auto_code_lookup"]["enabled"] is False
     assert payload["tool_policy"]["end_conditions"]["end_on_terminal"] is False
     assert payload["run"]["interaction_profile"] == "default"
-    assert payload["run"]["interaction_mode"] == "api"
+    assert payload["run"]["interaction_mode"] == "terminal"
     assert payload["interaction"]["enabled_modes"] == [
-        "api",
+        "terminal",
         "browser",
-        "computer_use",
+        "computer",
     ]
     assert "input_token_limit" in payload["llm"]
     assert "context_token_limit" not in payload["llm"]
@@ -267,11 +269,11 @@ def test_agent_config_loader_requires_toml() -> None:
         (ROOT_DIR / "agent" / "config.toml.example").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    yaml_path.write_text("run:\n  interaction_mode: api\n", encoding="utf-8")
+    yaml_path.write_text("run:\n  interaction_mode: terminal\n", encoding="utf-8")
     try:
         config = load_config(str(toml_path))
         assert config.get_section("run")["interaction_profile"] == "default"
-        assert config.get_section("run")["interaction_mode"] == "api"
+        assert config.get_section("run")["interaction_mode"] == "terminal"
         try:
             load_config(str(yaml_path))
         except ValueError as exc:
@@ -447,7 +449,7 @@ def test_harbor_agent_defaults_to_zenmux_base_url() -> None:
         for key in keys:
             os.environ.pop(key, None)
         os.environ["GBQA_ENV_FILE"] = str(temp_root / "missing.env")
-        env = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")._runtime_env()
+        env = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="terminal")._runtime_env()
         assert env["BASE_URL"] == "https://zenmux.ai/api/v1"
     finally:
         for key, value in previous.items():
@@ -462,10 +464,10 @@ def test_harbor_agent_default_profile_enables_all_task_modes() -> None:
     agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="default")
     assert agent.interaction_mode == "default"
     assert agent.harness_mode == "minimal"
-    assert agent._enabled_interaction_modes() == ["api", "browser", "computer_use"]
+    assert agent._enabled_interaction_modes() == ["terminal", "browser", "computer"]
     full_agent = GBQAHarborAgent(
         logs_dir=Path("logs"),
-        interaction_mode="api",
+        interaction_mode="terminal",
         harness_mode="full",
     )
     assert full_agent.harness_mode == "full"
@@ -487,7 +489,7 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
             "-p",
             str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
             "--ak",
-            "interaction_mode=computer_use",
+            "interaction_mode=computer",
         ],
         env={},
     )
@@ -701,7 +703,7 @@ def test_root_dotenv_feeds_harbor_agent_runtime_env() -> None:
         assert load_root_dotenv() == env_path
         assert os.environ["DAYTONA_API_KEY"] == "daytona-from-root"
 
-        agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")
+        agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="terminal")
         runtime_env = agent._runtime_env()
         assert runtime_env["API_KEY"] == "api-key-from-root"
         assert runtime_env["MODEL_NAME"] == "model-from-root"
@@ -739,7 +741,7 @@ async def _exercise_setup_with_fake_environment() -> None:
             )
 
     env = FakeEnvironment()
-    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api", max_steps=2)
+    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="terminal", max_steps=2)
     await agent.setup(env)
     assert any(target == "/sandbox/agent" for _, target in env.uploads)
     assert any(target == "/sandbox/gbqa" for _, target in env.uploads)
@@ -785,7 +787,7 @@ async def _exercise_runtime_startup_log_capture() -> None:
             return Result()
 
     env = FakeEnvironment()
-    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")
+    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="terminal")
     await agent._start_software_service(env)
 
     command = env.commands[-1][0]
@@ -811,7 +813,7 @@ async def _exercise_runtime_log_artifact_export() -> None:
             return Result()
 
     env = FakeEnvironment()
-    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="api")
+    agent = GBQAHarborAgent(logs_dir=Path("logs"), interaction_mode="terminal")
     await agent._export_artifacts(env)
 
     command = env.commands[-1][0]
@@ -845,7 +847,7 @@ async def _exercise_computer_use_setup_starts_no_gui_services() -> None:
     env = FakeEnvironment()
     agent = GBQAHarborAgent(
         logs_dir=Path("logs"),
-        interaction_mode="computer_use",
+        interaction_mode="computer",
         max_steps=2,
     )
     await agent.setup(env)
@@ -869,7 +871,7 @@ async def _exercise_computer_use_preflight_explains_default_environment() -> Non
 
     agent = GBQAHarborAgent(
         logs_dir=Path("logs"),
-        interaction_mode="computer_use",
+        interaction_mode="computer",
         max_steps=2,
     )
     try:
@@ -878,7 +880,7 @@ async def _exercise_computer_use_preflight_explains_default_environment() -> Non
         message = str(exc)
         assert "default non-GUI environment" in message
         assert "python -m gbqa.cli.harbor_run" in message
-        assert "interaction_mode=computer_use" in message
+        assert "interaction_mode=computer" in message
     else:
         raise AssertionError("computer_use preflight failure should raise RuntimeError")
 

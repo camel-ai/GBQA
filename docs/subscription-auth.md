@@ -43,7 +43,7 @@ python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api \
+  --ak interaction_mode=terminal \
   --ak max_steps=10
 ```
 

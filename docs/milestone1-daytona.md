@@ -23,12 +23,12 @@ under `run_spec.config` for reproducible runs.
 
 GBQA interaction profiles are harness-side execution presets:
 
-- `api`: use only the backend API interaction mode.
+- `terminal`: use only terminal-oriented interaction through task metadata surfaces such as HTTP API, CLI, shell, or Python API.
 - `browser`: use only the browser interaction mode.
-- `computer_use`: use only the GUI computer-use interaction mode.
+- `computer`: use only the GUI computer interaction mode.
 - `default`: enable every mode declared by the task metadata and use `run.interaction_mode` as the primary mode when configured, otherwise falling back to the task's default interaction mode.
 
-In `default`, the planner sees explicit mode tools such as `api_action`, `browser_action`, and `computer_action` so it can choose the interaction path per step.
+In `default`, the planner sees explicit mode tools such as `terminal_action`, `browser_action`, and `computer_action` so it can choose the interaction path per step.
 
 GBQA harness modes are a separate capability setting:
 
@@ -101,14 +101,14 @@ python -m gbqa.cli.harbor_run run \
   -a oracle
 ```
 
-API mode:
+Terminal mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
   -p gbqa/tasks/dark-castle \
   -e daytona \
   --gbqa-task-runner gbqa \
-  --ak interaction_mode=api
+  --ak interaction_mode=terminal
 ```
 
 Browser mode:
