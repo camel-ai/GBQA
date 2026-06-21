@@ -729,8 +729,8 @@ def _invoke_code_read(payload, runtime, adapter: Any):
     return ToolInvocationResult(observation=_tool_observation("code_read_file", payload, res))
 
 def _invoke_code_search(payload, runtime, adapter: Any):
-    matches = adapter.search_code(payload.get("pattern", ""))
-    res = {"success": True, "matches": matches}
+    raw = adapter.search_code(payload.get("pattern", ""))
+    res = _normalize_code_search_result(raw)
     return ToolInvocationResult(observation=_tool_observation("code_search", payload, res))
 
 def _invoke_code_write(payload, runtime, adapter: Any):
@@ -740,8 +740,27 @@ def _invoke_code_write(payload, runtime, adapter: Any):
     if hasattr(adapter, "write_code_file"):
         res = adapter.write_code_file(path, content=content, patch=patch)
     else:
+        if patch:
+            current = adapter.read_file(path)
+            if current is None:
+                res = {"success": False, "path": path, "message": "File could not be read"}
+                return ToolInvocationResult(
+                    observation=_tool_observation("code_write_file", payload, res)
+                )
+            search = str(patch.get("search") or "")
+            replace = str(patch.get("replace") or "")
+            if not search or search not in current:
+                res = {
+                    "success": False,
+                    "path": path,
+                    "message": "Patch search text was not found",
+                }
+                return ToolInvocationResult(
+                    observation=_tool_observation("code_write_file", payload, res)
+                )
+            content = current.replace(search, replace, 1)
         success = adapter.write_file(path, content)
-        res = {"success": success}
+        res = {"success": success, "path": path}
     return ToolInvocationResult(observation=_tool_observation("code_write_file", payload, res))
 
 def _invoke_code_restore(payload, runtime, adapter: Any):
@@ -764,6 +783,48 @@ def _invoke_use_skill_tool(
     return ToolInvocationResult(
         observation=_tool_observation("use_skill", payload, result),
     )
+
+
+def _normalize_code_search_result(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        result = dict(raw)
+        matches = result.get("matches")
+        if matches is None:
+            for key in ("results", "files"):
+                if isinstance(result.get(key), list):
+                    matches = result[key]
+                    break
+        result["matches"] = _normalize_code_matches(matches)
+        result.setdefault("success", True)
+        return result
+    return {
+        "success": True,
+        "matches": _normalize_code_matches(raw),
+    }
+
+
+def _normalize_code_matches(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(
+            item.get("text")
+            or item.get("content")
+            or item.get("line_text")
+            or ""
+        )
+        normalized.append(
+            {
+                **item,
+                "path": str(item.get("path") or ""),
+                "line": item.get("line") or item.get("line_number") or "",
+                "text": text,
+            }
+        )
+    return normalized
 
 
 def _parse_end_session_action(action_text: str) -> ToolPayload:
@@ -1025,7 +1086,11 @@ def _tool_summary(tool_name: str, result: Dict[str, Any]) -> str:
                     continue
                 path = str(item.get("path", "")).strip()
                 line = item.get("line")
-                text = str(item.get("text", "")).strip()
+                text = str(
+                    item.get("text")
+                    or item.get("content")
+                    or ""
+                ).strip()
                 location = f"{path}:{line}" if path and line else path or str(line or "")
                 lines.append(f"{location} {text}".strip())
             if lines:

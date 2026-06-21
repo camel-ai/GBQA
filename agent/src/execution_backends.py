@@ -6,6 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Protocol
 from uuid import uuid4
 
+from .interaction_modes import (
+    backend_type_for_interaction_mode,
+    interaction_mode_for_backend_type,
+    normalize_interaction_mode,
+)
+
 from .config import Config
 from .environment_clients import (
     EnvironmentActionClient,
@@ -60,55 +66,6 @@ class ExecutionBackendSpec:
     primary_mode: str = ""
     enabled_modes: list[str] = field(default_factory=list)
     enabled_backends: list[str] = field(default_factory=list)
-
-
-_BACKEND_BY_INTERACTION_MODE = {
-    "terminal": "api",
-    "browser": "playwright_mcp",
-    "computer": "computer_use",
-}
-
-_INTERACTION_MODE_ALIASES = {
-    "api": "terminal",
-    "cli": "terminal",
-    "shell": "terminal",
-    "code": "terminal",
-    "computer_use": "computer",
-    "computeruse": "computer",
-    "gui": "computer",
-}
-
-_INTERACTION_MODE_BY_BACKEND = {
-    backend_type: mode
-    for mode, backend_type in _BACKEND_BY_INTERACTION_MODE.items()
-}
-
-
-def normalize_interaction_mode(value: Any) -> str:
-    """Normalize public interaction mode/profile names."""
-
-    text = str(value or "").strip().lower().replace("-", "_")
-    if text in {"", "default"}:
-        return "default"
-    text = _INTERACTION_MODE_ALIASES.get(text, text)
-    if text in _BACKEND_BY_INTERACTION_MODE:
-        return text
-    return text
-
-
-def backend_type_for_interaction_mode(mode: str) -> str:
-    """Return the execution backend type for an interaction mode."""
-
-    normalized = normalize_interaction_mode(mode)
-    if normalized not in _BACKEND_BY_INTERACTION_MODE:
-        raise ValueError(f"Unsupported interaction mode: {mode}")
-    return _BACKEND_BY_INTERACTION_MODE[normalized]
-
-
-def interaction_mode_for_backend_type(backend_type: str) -> str:
-    """Return the public interaction mode for an execution backend type."""
-
-    return _INTERACTION_MODE_BY_BACKEND.get(backend_type, backend_type)
 
 
 class MultiModeExecutionBackend:

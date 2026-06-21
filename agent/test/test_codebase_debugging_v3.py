@@ -8,6 +8,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agent.src.codebase_types import UniversalCodebaseAdapter
+from agent.src.tool_registry import ToolRegistry, register_code_tools
 
 @pytest.fixture
 def mock_sandbox_backend():
@@ -45,7 +46,7 @@ def test_universal_adapter_shell_write_with_backup(mock_sandbox_backend):
     assert adapter._backups["buggy.py"] == "original code"
     # Verify the write command uses heredoc
     args, _ = mock_sandbox_backend.shell.run.call_args
-    assert "cat > /sandbox/software/buggy.py <<'GBQA_CODE_EOF'" in args[0]
+    assert "cat > /sandbox/software/buggy.py <<'GBQA_CODE_EOF_" in args[0]
     assert "fixed code" in args[0]
 
 
@@ -66,3 +67,28 @@ def test_universal_adapter_local_filesystem_fallback(tmp_path):
     assert "return 'new'" in app_file.read_text(encoding="utf-8")
     assert adapter.restore_file("app.py")
     assert "return 'old'" in app_file.read_text(encoding="utf-8")
+
+
+def test_code_tool_patch_fallback_updates_existing_content(tmp_path):
+    source_root = tmp_path / "software"
+    source_root.mkdir()
+    app_file = source_root / "app.py"
+    app_file.write_text("def bug():\n    return 'old'\n", encoding="utf-8")
+
+    registry = ToolRegistry()
+    adapter = UniversalCodebaseAdapter(shell_client=None, root_dir=str(source_root))
+    register_code_tools(registry, adapter)
+    registry.activate_skill("code")
+
+    result = registry.invoke(
+        "code_write_file",
+        {
+            "path": "app.py",
+            "patch": {"search": "return 'old'", "replace": "return 'new'"},
+        },
+        {},
+    )
+
+    assert result.observation.success
+    assert "return 'new'" in app_file.read_text(encoding="utf-8")
+    assert "return 'old'" not in app_file.read_text(encoding="utf-8")

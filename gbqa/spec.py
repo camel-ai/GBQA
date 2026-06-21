@@ -9,16 +9,10 @@ from urllib.parse import urljoin
 
 import yaml
 
-INTERACTION_MODES = {"terminal", "browser", "computer"}
-INTERACTION_MODE_ALIASES = {
-    "api": "terminal",
-    "cli": "terminal",
-    "shell": "terminal",
-    "code": "terminal",
-    "computer_use": "computer",
-    "computeruse": "computer",
-    "gui": "computer",
-}
+from gbqa.protocol.interaction import (
+    SUPPORTED_INTERACTION_MODES,
+    normalize_interaction_mode,
+)
 
 
 class GBQAMetadataError(ValueError):
@@ -282,11 +276,6 @@ class GBQAMetadata:
         return (self.path.parent / str(relative)).resolve()
 
 
-def normalize_interaction_mode(value: Any) -> str:
-    text = str(value or "").strip().lower().replace("-", "_")
-    return INTERACTION_MODE_ALIASES.get(text, text)
-
-
 def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:
     """Load and validate the minimal GBQA task metadata contract."""
 
@@ -329,7 +318,9 @@ def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:
     if not isinstance(modes, list) or not modes:
         raise GBQAMetadataError("interaction.supported_modes must be a non-empty list")
     normalized_modes = [normalize_interaction_mode(item) for item in modes]
-    invalid_modes = [mode for mode in normalized_modes if mode not in INTERACTION_MODES]
+    invalid_modes = [
+        mode for mode in normalized_modes if mode not in SUPPORTED_INTERACTION_MODES
+    ]
     if invalid_modes:
         raise GBQAMetadataError(
             "interaction.supported_modes contains unsupported modes: "

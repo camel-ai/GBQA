@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from gbqa.env import load_root_dotenv
 from gbqa.harbor.config import render_agent_config
+from gbqa.protocol.interaction import normalize_interaction_mode
 from gbqa.spec import GBQAMetadata, load_gbqa_metadata
 
 DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
@@ -86,14 +87,18 @@ class GBQAHarborAgent(BaseAgent):
         self._task_metadata_path = task_metadata_path
         self.metadata = self._load_task_metadata(task_metadata_path)
         requested_interaction = interaction_profile or interaction_mode
-        normalized_interaction_mode = self._normalize_interaction_profile(requested_interaction)
+        normalized_interaction_mode = normalize_interaction_mode(requested_interaction)
+        supported_modes = [
+            normalize_interaction_mode(mode)
+            for mode in self.metadata.supported_interaction_modes
+        ]
         if (
             normalized_interaction_mode != "default"
-            and normalized_interaction_mode not in self.metadata.supported_interaction_modes
+            and normalized_interaction_mode not in supported_modes
         ):
             raise ValueError(
                 "interaction_mode must be one of: default, "
-                + ", ".join(self.metadata.supported_interaction_modes)
+                + ", ".join(supported_modes)
         )
         self.interaction_mode = normalized_interaction_mode
         self.harness_mode = self._normalize_harness_mode(harness_mode)
@@ -269,21 +274,6 @@ class GBQAHarborAgent(BaseAgent):
         )
 
     @staticmethod
-    def _normalize_interaction_profile(value: str) -> str:
-        text = str(value or "").strip().lower().replace("-", "_")
-        aliases = {
-            "api": "terminal",
-            "cli": "terminal",
-            "shell": "terminal",
-            "code": "terminal",
-            "computer_use": "computer",
-            "computeruse": "computer",
-            "gui": "computer",
-        }
-        text = aliases.get(text, text)
-        return text or "default"
-
-    @staticmethod
     def _normalize_harness_mode(value: str) -> str:
         mode = str(value or "minimal").strip().lower().replace("-", "_")
         if mode == "bare":
@@ -294,7 +284,10 @@ class GBQAHarborAgent(BaseAgent):
 
     def _enabled_interaction_modes(self) -> list[str]:
         if self.interaction_mode == "default":
-            return list(self.metadata.supported_interaction_modes)
+            return [
+                normalize_interaction_mode(mode)
+                for mode in self.metadata.supported_interaction_modes
+            ]
         return [self.interaction_mode]
 
     async def _ensure_software_release(self, environment: BaseEnvironment) -> None:

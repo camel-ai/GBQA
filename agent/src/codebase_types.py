@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from uuid import uuid4
 
 
 @dataclass(frozen=True)
@@ -36,14 +38,17 @@ class UniversalCodebaseAdapter:
         clean_path = os.path.normpath(user_path.lstrip("/"))
         if clean_path.startswith(".."):
             return None
-        
+
         full_path = self.root_dir if clean_path == "." else os.path.join(self.root_dir, clean_path)
-        
-        # Double-check against root_dir to prevent advanced traversal
-        if not os.path.abspath(full_path).startswith(self.root_dir):
+        root = os.path.abspath(self.root_dir)
+        candidate = os.path.abspath(full_path)
+        try:
+            if os.path.commonpath([root, candidate]) != root:
+                return None
+        except ValueError:
             return None
-            
-        return full_path
+
+        return candidate
 
     def list_files(self, path: str = ".") -> List[CodebaseFile]:
         target = self._safe_path(path)
@@ -53,7 +58,9 @@ class UniversalCodebaseAdapter:
             return self._list_local_files(target)
             
         # Use find with depth limit for discovery
-        output = self._run_shell(f"find {target} -maxdepth 2 -not -path '*/.*'")
+        output = self._run_shell(
+            f"find {shlex.quote(target)} -maxdepth 2 -not -path '*/.*'"
+        )
         files = []
         for line in output.strip().splitlines():
             if not line.strip(): continue
@@ -77,14 +84,15 @@ class UniversalCodebaseAdapter:
             except OSError:
                 return None
         
-        return self._run_shell(f"cat {full_path}")
+        return self._run_shell(f"cat {shlex.quote(full_path)}")
 
     def search_code(self, pattern: str) -> List[Dict[str, Any]]:
         if not self.shell_client:
             return self._search_local_code(pattern)
-        # Escape single quotes for shell safety
-        p = pattern.replace("'", "'\\\"'\\\"'")
-        output = self._run_shell(f"grep -rnE '{p}' {self.root_dir} --exclude-dir=.* --max-count=100")
+        output = self._run_shell(
+            "grep -rnE --exclude-dir=.* --max-count=100 "
+            f"{shlex.quote(pattern)} {shlex.quote(self.root_dir)}"
+        )
         matches = []
         for line in output.splitlines():
             if ":" in line:
@@ -120,9 +128,14 @@ class UniversalCodebaseAdapter:
             return True
             
         if path not in self._backups:
-            self._backups[path] = self._run_shell(f"cat {full_path}")
-        
-        cmd = f"cat > {full_path} <<'GBQA_CODE_EOF'\n{content}\nGBQA_CODE_EOF"
+            self._backups[path] = self._run_shell(f"cat {shlex.quote(full_path)}")
+
+        delimiter = _heredoc_delimiter(content)
+        cmd = (
+            f"cat > {shlex.quote(full_path)} <<'{delimiter}'\n"
+            f"{content}\n"
+            f"{delimiter}"
+        )
         self._run_shell(cmd)
         return True
 
@@ -138,12 +151,23 @@ class UniversalCodebaseAdapter:
                 except OSError:
                     return False
                 return True
-            cmd = f"cat > {full_path} <<'GBQA_CODE_EOF'\n{content}\nGBQA_CODE_EOF"
+            delimiter = _heredoc_delimiter(content)
+            cmd = (
+                f"cat > {shlex.quote(full_path)} <<'{delimiter}'\n"
+                f"{content}\n"
+                f"{delimiter}"
+            )
             self._run_shell(cmd)
             return True
 
         backup_path = f"{self._backups_dir}/{path.replace('/', '_')}.bak"
-        res = self._run_shell(f"test -f {backup_path} && cp {backup_path} {full_path} && rm {backup_path} && echo ok || echo fail")
+        quoted_backup = shlex.quote(backup_path)
+        quoted_target = shlex.quote(full_path)
+        res = self._run_shell(
+            f"test -f {quoted_backup} && "
+            f"cp {quoted_backup} {quoted_target} && "
+            f"rm {quoted_backup} && echo ok || echo fail"
+        )
         return "ok" in res
 
     def _run_shell(self, command: str) -> str:
@@ -162,7 +186,8 @@ class UniversalCodebaseAdapter:
             if hasattr(self.shell_client, "_run_command"):
                 return str(self.shell_client._run_command(command))
                 
-        except Exception: pass
+        except Exception:
+            pass
         return ""
 
     def _list_local_files(self, target: str) -> List[CodebaseFile]:
@@ -215,3 +240,10 @@ class UniversalCodebaseAdapter:
                     if len(matches) >= 100:
                         return matches
         return matches
+
+
+def _heredoc_delimiter(content: str) -> str:
+    delimiter = f"GBQA_CODE_EOF_{uuid4().hex}"
+    while delimiter in content:
+        delimiter = f"GBQA_CODE_EOF_{uuid4().hex}"
+    return delimiter

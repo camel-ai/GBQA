@@ -168,6 +168,7 @@ $RECYCLE.BIN/
 /.research/
 /_research/
 /_tmp*/
+/agent/test/_tmp*/
 /openai-agents-python/
 
 # Benchmark/runtime outputs
@@ -209,4 +210,3 @@ environment/review/data/
 *.bak
 *.backup
 *_backup.*
-

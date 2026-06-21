@@ -6,6 +6,10 @@ import json
 import re
 from typing import Any
 
+from gbqa.protocol.interaction import (
+    backend_type_for_interaction_mode,
+    normalize_interaction_mode,
+)
 from gbqa.spec import GBQAMetadata
 
 _BARE_TOML_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -66,40 +70,17 @@ def _dumps_toml(payload: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-_BACKEND_BY_INTERACTION_MODE = {
-    "terminal": "api",
-    "browser": "playwright_mcp",
-    "computer": "computer_use",
-}
-
-_INTERACTION_MODE_ALIASES = {
-    "api": "terminal",
-    "cli": "terminal",
-    "shell": "terminal",
-    "code": "terminal",
-    "computer_use": "computer",
-    "computeruse": "computer",
-    "gui": "computer",
-}
-
-
-def _normalize_interaction_profile(value: str) -> str:
-    text = str(value or "").strip().lower().replace("-", "_")
-    text = _INTERACTION_MODE_ALIASES.get(text, text)
-    return text or "default"
-
-
 def _resolve_interaction_profile(
     *,
     requested: str,
     metadata: GBQAMetadata,
 ) -> tuple[str, str, list[str]]:
-    profile = _normalize_interaction_profile(requested)
+    profile = normalize_interaction_mode(requested)
     supported_modes = [
-        _normalize_interaction_profile(mode)
+        normalize_interaction_mode(mode)
         for mode in metadata.supported_interaction_modes
     ]
-    default_mode = _normalize_interaction_profile(metadata.default_interaction_mode)
+    default_mode = normalize_interaction_mode(metadata.default_interaction_mode)
     if profile == "default":
         return "default", default_mode, supported_modes
     if profile not in supported_modes:
@@ -149,9 +130,7 @@ def render_agent_config(
         "frontend_url": frontend_url,
         "screenshot_dir": screenshot_dir,
     }
-    backend_type = _BACKEND_BY_INTERACTION_MODE.get(primary_mode)
-    if backend_type is None:
-        raise ValueError(f"Unsupported GBQA interaction mode: {primary_mode}")
+    backend_type = backend_type_for_interaction_mode(primary_mode)
 
     payload: dict[str, Any] = {
         "run": {
@@ -195,7 +174,7 @@ def render_agent_config(
             "primary": backend_type,
             "enabled_modes": list(enabled_modes),
             "enabled_backends": [
-                _BACKEND_BY_INTERACTION_MODE[mode]
+                backend_type_for_interaction_mode(mode)
                 for mode in enabled_modes
             ],
             "surfaces": metadata.interaction_surfaces,

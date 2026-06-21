@@ -46,7 +46,6 @@ _EDIT_TOOLS = {"code_write_file", "code_restore_file"}
 _ENVIRONMENT_TOOLS = {
     "environment_action",
     "terminal_action",
-    "api_action",
     "browser_action",
     "computer_action",
 }

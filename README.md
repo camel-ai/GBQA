@@ -170,6 +170,16 @@ Here `--n-concurrent` controls how many Harbor trials can run at once. In the Da
 
 ### 5. Outputs
 
+For local Linux verification, run:
+
+```bash
+bash scripts/test-linux.sh
+```
+
+Set `GBQA_RUN_AGENT_SCRIPT_SMOKES=1` to also run the standalone
+`agent/test/test_*.py` smoke scripts. Set `GBQA_RUN_NETWORK_SMOKES=1` only when
+you intentionally want to include model/API network smoke tests.
+
 In Harbor benchmark runs, evaluation is performed automatically by the verifier
 phase after the agent writes normalized artifacts. The `agent/` harness does not
 read human-baseline verifier assets or compute benchmark scores.

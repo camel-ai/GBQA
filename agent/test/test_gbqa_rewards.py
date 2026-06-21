@@ -7,6 +7,8 @@ import os
 import shutil
 import sys
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +30,17 @@ GROUND_TRUTH = (
 )
 BASELINE_VALUES = TASK_TESTS_DIR / "value" / "baseline_values.json"
 VALIDATION_CASES = TASK_TESTS_DIR / "value" / "validation_cases.json"
+
+
+@contextmanager
+def _temp_test_dir(name: str) -> Iterator[Path]:
+    temp_root = Path(REPO_ROOT) / "agent" / "test" / name
+    shutil.rmtree(temp_root, ignore_errors=True)
+    temp_root.mkdir(parents=True)
+    try:
+        yield temp_root
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def _programmatic_tests_dir(temp_root: Path) -> Path:
@@ -53,115 +66,116 @@ def test_primary_reward_score_prefers_reward_key() -> None:
 
 
 def test_write_post_rewardkit_artifacts_preserves_reward_json() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_rewards"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    (temp_root / "reward.json").write_text(
-        json.dumps(
+    with _temp_test_dir("_tmp_gbqa_rewards") as temp_root:
+        (temp_root / "reward.json").write_text(
+            json.dumps(
+                {
+                    "reward": 0.4,
+                    "agent_value": 6.0,
+                    "human_value": 15.0,
+                    "verified_bug_count": 1,
+                    "evaluated_bug_count": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        evaluation = {
+            "evaluation_method": "value_based",
+            "reward": 0.4,
+            "agent_value": 6.0,
+            "human_value": 15.0,
+            "verified_bug_count": 1,
+            "evaluated_bug_count": 1,
+            "ignored_bug_count": 0,
+            "total_reported": 1,
+            "total_ground_truth": 3,
+            "details": [],
+        }
+        scores = write_post_rewardkit_artifacts(
             {
                 "reward": 0.4,
                 "agent_value": 6.0,
                 "human_value": 15.0,
                 "verified_bug_count": 1,
                 "evaluated_bug_count": 1,
-            }
-        ),
-        encoding="utf-8",
-    )
-    evaluation = {
-        "evaluation_method": "value_based",
-        "reward": 0.4,
-        "agent_value": 6.0,
-        "human_value": 15.0,
-        "verified_bug_count": 1,
-        "evaluated_bug_count": 1,
-        "ignored_bug_count": 0,
-        "total_reported": 1,
-        "total_ground_truth": 3,
-        "details": [],
-    }
-    scores = write_post_rewardkit_artifacts(
-        {
+            },
+            evaluation,
+            temp_root,
+        )
+        assert scores["reward"] == 0.4
+        reward_payload = json.loads((temp_root / "reward.json").read_text())
+        assert reward_payload == {
             "reward": 0.4,
             "agent_value": 6.0,
             "human_value": 15.0,
             "verified_bug_count": 1,
             "evaluated_bug_count": 1,
-        },
-        evaluation,
-        temp_root,
-    )
-    assert scores["reward"] == 0.4
-    reward_payload = json.loads((temp_root / "reward.json").read_text())
-    assert reward_payload == {
-        "reward": 0.4,
-        "agent_value": 6.0,
-        "human_value": 15.0,
-        "verified_bug_count": 1,
-        "evaluated_bug_count": 1,
-    }
-    assert (temp_root / "reward.txt").read_text().strip() == "0.4"
-    details = json.loads((temp_root / "reward-details.json").read_text())
-    assert details["gbqa"]["verified_bug_count"] == 1
-    assert details["gbqa"]["agent_value"] == 6.0
-    assert (temp_root / "gbqa_result.json").exists()
-    shutil.rmtree(temp_root, ignore_errors=True)
+        }
+        assert (temp_root / "reward.txt").read_text().strip() == "0.4"
+        details = json.loads((temp_root / "reward-details.json").read_text())
+        assert details["gbqa"]["verified_bug_count"] == 1
+        assert details["gbqa"]["agent_value"] == 6.0
+        assert (temp_root / "gbqa_result.json").exists()
 
 
 def test_run_task_verifier_with_rewardkit_layout() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_rewardkit"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    trace_path = temp_root / "trace.jsonl"
-    trace_path.write_text('{"type":"trace","step":1}\n', encoding="utf-8")
-    os.environ["GBQA_TRAJECTORY_PATH"] = str(trace_path)
-    bugs = temp_root / "bugs.json"
-    out_dir = temp_root / "verifier"
-    bugs.write_text(
-        json.dumps(
-            {
-                "bugs": [
+    with _temp_test_dir("_tmp_gbqa_rewardkit") as temp_root:
+        previous_trajectory_path = os.environ.get("GBQA_TRAJECTORY_PATH")
+        try:
+            trace_path = temp_root / "trace.jsonl"
+            trace_path.write_text('{"type":"trace","step":1}\n', encoding="utf-8")
+            os.environ["GBQA_TRAJECTORY_PATH"] = str(trace_path)
+            bugs = temp_root / "bugs.json"
+            out_dir = temp_root / "verifier"
+            bugs.write_text(
+                json.dumps(
                     {
-                        "title": "Locked door opens without key",
-                        "description": "Running combine after two key fragments creates the full key.",
-                        "evidence": {
-                            "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
-                            "observed_fault": "The player can assemble the complete key with only two fragments.",
-                            "minimal_reproduction": [
-                                "Collect any two key fragments.",
-                                "Execute combine.",
-                            ],
-                        },
+                        "bugs": [
+                            {
+                                "title": "Locked door opens without key",
+                                "description": "Running combine after two key fragments creates the full key.",
+                                "evidence": {
+                                    "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
+                                    "observed_fault": "The player can assemble the complete key with only two fragments.",
+                                    "minimal_reproduction": [
+                                        "Collect any two key fragments.",
+                                        "Execute combine.",
+                                    ],
+                                },
+                            },
+                        ]
                     }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
+                ),
+                encoding="utf-8",
+            )
 
-    scores = run_task_verifier(
-        tests_dir=_programmatic_tests_dir(temp_root),
-        workspace=temp_root,
-        out_dir=out_dir,
-        bugs_path=bugs,
-        ground_truth_path=GROUND_TRUTH,
-        baseline_values_path=BASELINE_VALUES,
-        validation_cases_path=VALIDATION_CASES,
-    )
-    assert "reward" in scores
-    assert "agent_value" in scores
-    assert "human_value" in scores
-    assert "verified_bug_count" in scores
-    assert "evaluated_bug_count" in scores
-    assert "trajectory" in scores
-    reward_payload = json.loads((out_dir / "reward.json").read_text())
-    assert isinstance(reward_payload["agent_value"], (int, float))
-    assert reward_payload["human_value"] == 15.0
-    details = json.loads((out_dir / "reward-details.json").read_text())
-    assert "agent_value" in details
-    assert "human_value" in details
-    assert "gbqa" in details
-    shutil.rmtree(temp_root, ignore_errors=True)
+            scores = run_task_verifier(
+                tests_dir=_programmatic_tests_dir(temp_root),
+                workspace=temp_root,
+                out_dir=out_dir,
+                bugs_path=bugs,
+                ground_truth_path=GROUND_TRUTH,
+                baseline_values_path=BASELINE_VALUES,
+                validation_cases_path=VALIDATION_CASES,
+            )
+            assert "reward" in scores
+            assert "agent_value" in scores
+            assert "human_value" in scores
+            assert "verified_bug_count" in scores
+            assert "evaluated_bug_count" in scores
+            assert "trajectory" in scores
+            reward_payload = json.loads((out_dir / "reward.json").read_text())
+            assert isinstance(reward_payload["agent_value"], (int, float))
+            assert reward_payload["human_value"] == 15.0
+            details = json.loads((out_dir / "reward-details.json").read_text())
+            assert "agent_value" in details
+            assert "human_value" in details
+            assert "gbqa" in details
+        finally:
+            if previous_trajectory_path is None:
+                os.environ.pop("GBQA_TRAJECTORY_PATH", None)
+            else:
+                os.environ["GBQA_TRAJECTORY_PATH"] = previous_trajectory_path
 
 
 def test_rewardkit_dependency_error_message() -> None:
@@ -173,37 +187,33 @@ def test_rewardkit_dependency_error_message() -> None:
 
 def test_quality_toml_is_discoverable() -> None:
     rk = require_rewardkit()
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_quality_discover"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
-    reward_names = {reward.name for reward in rewards}
-    assert "quality" in reward_names
-    quality_rewards = [reward for reward in rewards if reward.name == "quality"]
-    assert len(quality_rewards) == 1
-    assert quality_rewards[0].judge is not None
-    shutil.rmtree(temp_root, ignore_errors=True)
+    with _temp_test_dir("_tmp_gbqa_quality_discover") as temp_root:
+        rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
+        reward_names = {reward.name for reward in rewards}
+        assert "quality" in reward_names
+        quality_rewards = [reward for reward in rewards if reward.name == "quality"]
+        assert len(quality_rewards) == 1
+        assert quality_rewards[0].judge is not None
 
 
 def test_quality_toml_supports_subscription_agent_judges() -> None:
     rk = require_rewardkit()
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_quality_agents"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    previous = os.environ.get("REWARDKIT_JUDGE")
-    try:
-        for judge_name in ("claude-code", "codex"):
-            os.environ["REWARDKIT_JUDGE"] = judge_name
-            rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
-            quality_reward = next(reward for reward in rewards if reward.name == "quality")
-            assert quality_reward.judge is not None
-            assert getattr(quality_reward.judge, "agent", "") == judge_name
-    finally:
-        if previous is None:
-            os.environ.pop("REWARDKIT_JUDGE", None)
-        else:
-            os.environ["REWARDKIT_JUDGE"] = previous
-        shutil.rmtree(temp_root, ignore_errors=True)
+    with _temp_test_dir("_tmp_gbqa_quality_agents") as temp_root:
+        previous = os.environ.get("REWARDKIT_JUDGE")
+        try:
+            for judge_name in ("claude-code", "codex"):
+                os.environ["REWARDKIT_JUDGE"] = judge_name
+                rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
+                quality_reward = next(
+                    reward for reward in rewards if reward.name == "quality"
+                )
+                assert quality_reward.judge is not None
+                assert getattr(quality_reward.judge, "agent", "") == judge_name
+        finally:
+            if previous is None:
+                os.environ.pop("REWARDKIT_JUDGE", None)
+            else:
+                os.environ["REWARDKIT_JUDGE"] = previous
 
 
 def test_quality_toml_references_value_review_inputs() -> None:
@@ -256,162 +266,154 @@ def test_dark_castle_verifier_env_has_subscription_defaults() -> None:
 
 
 def test_template_installs_subscription_ready_value_review_prompt() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_template_quality"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    install_task_verifier_tests(
-        temp_root,
-        ground_truth_path="/tests/bugs/example.json",
-    )
-    prompt_text = (temp_root / "quality" / "value_evaluation_review.md").read_text(
-        encoding="utf-8"
-    )
-    quality_text = (temp_root / "quality" / "quality.toml").read_text(
-        encoding="utf-8"
-    )
-    test_script = (temp_root / "test.sh").read_text(encoding="utf-8")
-    assert "/tests/bugs/example.json" in prompt_text
-    assert "/tests/bugs/example.json" in quality_text
-    assert "__GBQA_GROUND_TRUTH__" not in prompt_text
-    assert (temp_root / "value" / "baseline_values.json").is_file()
-    assert (temp_root / "value" / "validation_cases.json").is_file()
-    assert "JUDGE_AGENT" in test_script
-    assert "JUDGE_CODEX_MODEL" in test_script
-    assert "CODEX_AUTH_JSON_B64" in test_script
-    shutil.rmtree(temp_root, ignore_errors=True)
+    with _temp_test_dir("_tmp_gbqa_template_quality") as temp_root:
+        install_task_verifier_tests(
+            temp_root,
+            ground_truth_path="/tests/bugs/example.json",
+        )
+        prompt_text = (
+            temp_root / "quality" / "value_evaluation_review.md"
+        ).read_text(encoding="utf-8")
+        quality_text = (temp_root / "quality" / "quality.toml").read_text(
+            encoding="utf-8"
+        )
+        test_script = (temp_root / "test.sh").read_text(encoding="utf-8")
+        assert "/tests/bugs/example.json" in prompt_text
+        assert "/tests/bugs/example.json" in quality_text
+        assert "__GBQA_GROUND_TRUTH__" not in prompt_text
+        assert (temp_root / "value" / "baseline_values.json").is_file()
+        assert (temp_root / "value" / "validation_cases.json").is_file()
+        assert "JUDGE_AGENT" in test_script
+        assert "JUDGE_CODEX_MODEL" in test_script
+        assert "CODEX_AUTH_JSON_B64" in test_script
 
 
 def test_value_based_evaluation_scores_verified_reports() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_value_eval"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    bugs = temp_root / "bugs.json"
-    bugs.write_text(
-        json.dumps(
-            {
-                "bugs": [
+    with _temp_test_dir("_tmp_gbqa_value_eval") as temp_root:
+        bugs = temp_root / "bugs.json"
+        bugs.write_text(
+            json.dumps(
+                {
+                    "bugs": [
                         {
                             "title": "Key assembles with only two fragments",
                             "description": "The combine command bypasses a core progression gate after only two fragments.",
                             "severity": "high",
                             "evidence": {
-                            "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
-                            "observed_fault": "The player can assemble the complete key with only two fragments.",
-                            "minimal_reproduction": [
-                                "Collect any two key fragments.",
-                                "Execute combine.",
-                            ],
+                                "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
+                                "observed_fault": "The player can assemble the complete key with only two fragments.",
+                                "minimal_reproduction": [
+                                    "Collect any two key fragments.",
+                                    "Execute combine.",
+                                ],
+                            },
                         },
-                    },
-                    {
-                        "title": "Ignored extra candidate",
-                        "description": "This should be outside the top-n budget when n is one.",
-                        "evidence": {
-                            "expected_behavior": "extra expected",
-                            "observed_fault": "extra",
-                            "minimal_reproduction": ["extra"],
+                        {
+                            "title": "Ignored extra candidate",
+                            "description": "This should be outside the top-n budget when n is one.",
+                            "evidence": {
+                                "expected_behavior": "extra expected",
+                                "observed_fault": "extra",
+                                "minimal_reproduction": ["extra"],
+                            },
                         },
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    baseline = temp_root / "baseline_values.json"
-    baseline.write_text(
-        json.dumps(
-            {
-                "bugs": [
-                    {
-                        "id": "0",
-                        "tier": "high",
-                        "points": 6,
-                        "dimensions": {
-                            "impact": 3,
-                            "scope": 2,
-                            "reproducibility": 4,
-                        },
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = evaluate_value_based_report(
-        bugs_path=bugs,
-        ground_truth_path=GROUND_TRUTH,
-        baseline_values_path=baseline,
-        validation_cases_path=VALIDATION_CASES,
-        max_reported_bugs=1,
-    )
-    assert result["verified_bug_count"] == 1
-    assert result["evaluated_bug_count"] == 1
-    assert result["ignored_bug_count"] == 1
-    assert result["human_value"] == 6.0
-    assert result["agent_value"] >= 6.0
-    assert result["reward"] == 1.0
-    shutil.rmtree(temp_root, ignore_errors=True)
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        baseline = temp_root / "baseline_values.json"
+        baseline.write_text(
+            json.dumps(
+                {
+                    "bugs": [
+                        {
+                            "id": "0",
+                            "tier": "high",
+                            "points": 6,
+                            "dimensions": {
+                                "impact": 3,
+                                "scope": 2,
+                                "reproducibility": 4,
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = evaluate_value_based_report(
+            bugs_path=bugs,
+            ground_truth_path=GROUND_TRUTH,
+            baseline_values_path=baseline,
+            validation_cases_path=VALIDATION_CASES,
+            max_reported_bugs=1,
+        )
+        assert result["verified_bug_count"] == 1
+        assert result["evaluated_bug_count"] == 1
+        assert result["ignored_bug_count"] == 1
+        assert result["human_value"] == 6.0
+        assert result["agent_value"] >= 6.0
+        assert result["reward"] == 1.0
 
 
 def test_value_based_validation_case_command_verifies_failure() -> None:
-    temp_root = Path(REPO_ROOT) / "agent" / "test" / "_tmp_gbqa_value_command"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    bugs = temp_root / "bugs.json"
-    bugs.write_text(
-        json.dumps(
-            {
-                "bugs": [
-                    {
-                        "title": "Command-backed candidate",
-                        "description": "A deterministic validation command fails.",
-                        "severity": "medium",
-                        "evidence": {
-                            "expected_behavior": "The validation command should pass.",
-                            "observed_fault": "validation command fails",
-                            "minimal_reproduction": ["run validation command"],
+    with _temp_test_dir("_tmp_gbqa_value_command") as temp_root:
+        bugs = temp_root / "bugs.json"
+        bugs.write_text(
+            json.dumps(
+                {
+                    "bugs": [
+                        {
+                            "title": "Command-backed candidate",
+                            "description": "A deterministic validation command fails.",
+                            "severity": "medium",
+                            "evidence": {
+                                "expected_behavior": "The validation command should pass.",
+                                "observed_fault": "validation command fails",
+                                "minimal_reproduction": ["run validation command"],
+                            },
                         },
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    baseline = temp_root / "baseline_values.json"
-    baseline.write_text(
-        json.dumps({"bugs": [{"id": "0", "tier": "low", "points": 1}]}),
-        encoding="utf-8",
-    )
-    validation = temp_root / "validation_cases.json"
-    validation.write_text(
-        json.dumps(
-            {
-                "cases": [
-                    {
-                        "id": "command-case",
-                        "keywords": ["validation", "command"],
-                        "command": [
-                            sys.executable,
-                            "-c",
-                            "import sys; sys.exit(1)",
-                        ],
-                        "fixed_result": "pass",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = evaluate_value_based_report(
-        bugs_path=bugs,
-        ground_truth_path=GROUND_TRUTH,
-        baseline_values_path=baseline,
-        validation_cases_path=validation,
-        max_reported_bugs=1,
-    )
-    assert result["verified_bug_count"] == 1
-    assert result["details"][0]["execution"]["source"] == "validation_case_command"
-    assert result["details"][0]["execution"]["status"] == "failed"
-    shutil.rmtree(temp_root, ignore_errors=True)
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        baseline = temp_root / "baseline_values.json"
+        baseline.write_text(
+            json.dumps({"bugs": [{"id": "0", "tier": "low", "points": 1}]}),
+            encoding="utf-8",
+        )
+        validation = temp_root / "validation_cases.json"
+        validation.write_text(
+            json.dumps(
+                {
+                    "cases": [
+                        {
+                            "id": "command-case",
+                            "keywords": ["validation", "command"],
+                            "command": [
+                                sys.executable,
+                                "-c",
+                                "import sys; sys.exit(1)",
+                            ],
+                            "fixed_result": "pass",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = evaluate_value_based_report(
+            bugs_path=bugs,
+            ground_truth_path=GROUND_TRUTH,
+            baseline_values_path=baseline,
+            validation_cases_path=validation,
+            max_reported_bugs=1,
+        )
+        assert result["verified_bug_count"] == 1
+        assert result["details"][0]["execution"]["source"] == "validation_case_command"
+        assert result["details"][0]["execution"]["status"] == "failed"
 
 
 def main() -> None:

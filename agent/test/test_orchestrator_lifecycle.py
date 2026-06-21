@@ -216,6 +216,25 @@ def test_end_session_only_closes_active_session() -> None:
     assert end_sessions[0].trigger == "agent"
 
 
+def test_end_session_reason_alone_closes_active_session() -> None:
+    report, backend, _reporter = _run(
+        [
+            Action(tool="new_session", command="open second path"),
+            Action(tool="end_session", command="done with second path"),
+            Action(tool="end_task", command="done"),
+        ],
+        max_steps=5,
+    )
+
+    assert backend.started == ["session-1", "session-2"]
+    assert backend.closed == ["session-2", "session-1"]
+    end_sessions = [
+        event for event in report.lifecycle_events if event.event == "end_session"
+    ]
+    assert end_sessions[0].session_id == "session-2"
+    assert end_sessions[0].reason == "done with second path"
+
+
 def test_switch_session_changes_active_session() -> None:
     report, backend, _reporter = _run(
         [
@@ -315,6 +334,7 @@ def main() -> None:
     test_agent_can_end_task_explicitly()
     test_new_session_keeps_previous_session_open()
     test_end_session_only_closes_active_session()
+    test_end_session_reason_alone_closes_active_session()
     test_switch_session_changes_active_session()
     test_refresh_session_records_lifecycle_event()
     test_list_sessions_reports_open_and_active_ids()

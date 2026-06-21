@@ -222,6 +222,10 @@ are enabled, the planner sees explicit mode tools:
 - `browser_action`
 - `computer_action`
 
+`terminal_action` remains the public planner-facing tool name even when the
+concrete terminal surface is an HTTP API. Task metadata records whether terminal
+means HTTP API, CLI, Python API, shell command, or another code-facing contract.
+
 This avoids ambiguous natural-language mode selection inside a single generic
 action string.
 

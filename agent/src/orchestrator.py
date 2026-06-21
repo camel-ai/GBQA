@@ -43,7 +43,6 @@ _ENVIRONMENT_ACTION_TOOLS = frozenset(
     {
         "environment_action",
         "terminal_action",
-        "api_action",
         "browser_action",
         "computer_action",
     }
@@ -1412,12 +1411,15 @@ class Orchestrator:
         open_sessions: Dict[str, SessionHandle],
         active_session: Optional[SessionHandle],
     ) -> tuple[Optional[SessionHandle], str]:
-        payload = self._tool_registry.parse_action("end_session", action.command)
-        session_id = str(payload.get("session_id") or "").strip()
-        reason = str(payload.get("reason") or "").strip() or "agent requested session end"
-        if session_id:
-            return open_sessions.get(session_id), reason
-        return active_session, reason
+        text = action.command.strip()
+        if not text:
+            return active_session, "agent requested session end"
+
+        first, _, remainder = text.partition(" ")
+        if first in open_sessions:
+            reason = remainder.strip() or "agent requested session end"
+            return open_sessions[first], reason
+        return active_session, text
 
     @staticmethod
     def _session_id_from_action(action: Action) -> str:

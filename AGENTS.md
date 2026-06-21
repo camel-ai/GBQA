@@ -268,6 +268,9 @@ The harness uses `interaction_profile` to select interaction exposure:
 - In multi-mode/default runs, planner-facing mode tools should stay explicit
   (`terminal_action`, `browser_action`, `computer_action`) rather than relying on
   natural-language mode selection inside a single action string.
+  Keep `terminal_action` as the public tool name even when the concrete terminal
+  surface is HTTP API-backed; terminal mode also covers CLI, shell, Python API,
+  and similar code-facing task contracts.
 
 The harness uses `harness_mode` to select the capability surface:
 
@@ -675,6 +678,16 @@ For skill-gated tool, log-source, or white-box debugging changes, also run:
 ```bash
 python -m pytest agent/test/test_prompt_render.py agent/test/test_log_sources.py agent/test/test_log_analysis_tool.py agent/test/test_code_tool_loop.py agent/test/test_run_agent_endpoints.py agent/test/test_gbqa_harbor.py
 ```
+
+Equivalent Linux helper script:
+
+```bash
+bash scripts/test-linux.sh
+```
+
+Set `GBQA_RUN_AGENT_SCRIPT_SMOKES=1` to include the standalone
+`agent/test/test_*.py` smoke scripts. Set `GBQA_RUN_NETWORK_SMOKES=1` only when
+intentionally including model/API network smoke tests.
 
 For sandbox path changes, also run:
 

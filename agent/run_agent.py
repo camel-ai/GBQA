@@ -67,7 +67,7 @@ _INTERACTION_TOOL_BY_MODE = {
 
 _INTERACTION_TOOL_DESCRIPTIONS = {
     "terminal": (
-        "Execute one semantic action through terminal/code execution mode"
+        "Execute one semantic action through the terminal-oriented interaction mode"
     ),
     "browser": (
         "Execute one semantic action through the browser UI interaction mode"
