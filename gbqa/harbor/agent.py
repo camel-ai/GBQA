@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import shlex
@@ -87,22 +88,17 @@ class GBQAHarborAgent(BaseAgent):
     ) -> None:
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self._task_metadata_path = task_metadata_path
-        self.metadata = self._load_task_metadata(task_metadata_path)
+        self._uses_explicit_task_metadata = bool(
+            task_metadata_path or os.environ.get("GBQA_TASK_METADATA_PATH")
+        )
+        self.metadata = self._load_task_metadata(
+            task_metadata_path,
+            logs_dir=self.logs_dir,
+        )
         requested_interaction = interaction_profile or interaction_mode
         normalized_interaction_mode = normalize_interaction_mode(requested_interaction)
-        supported_modes = [
-            normalize_interaction_mode(mode)
-            for mode in self.metadata.supported_interaction_modes
-        ]
-        if (
-            normalized_interaction_mode != "default"
-            and normalized_interaction_mode not in supported_modes
-        ):
-            raise ValueError(
-                "interaction_mode must be one of: default, "
-                + ", ".join(supported_modes)
-        )
         self.interaction_mode = normalized_interaction_mode
+        self._validate_interaction_mode()
         self.harness_mode = self._normalize_harness_mode(harness_mode)
         self.max_steps = int(max_steps)
         self._extra_env = dict(extra_env or {})
@@ -114,7 +110,35 @@ class GBQAHarborAgent(BaseAgent):
     def version(self) -> str:
         return "0.1.0"
 
+    def _validate_interaction_mode(self) -> None:
+        supported_modes = [
+            normalize_interaction_mode(mode)
+            for mode in self.metadata.supported_interaction_modes
+        ]
+        if (
+            self.interaction_mode == "default"
+            or self.interaction_mode in supported_modes
+        ):
+            return
+        raise ValueError(
+            "interaction_mode must be one of: default, "
+            + ", ".join(supported_modes)
+        )
+
+    def _refresh_trial_metadata(self) -> None:
+        if self._uses_explicit_task_metadata:
+            return
+        configured = self._infer_task_metadata_path_from_trial_config(self.logs_dir)
+        if not configured:
+            return
+        metadata = load_gbqa_metadata(Path(configured))
+        if metadata.task_id == self.metadata.task_id:
+            return
+        self.metadata = metadata
+        self._validate_interaction_mode()
+
     async def setup(self, environment: BaseEnvironment) -> None:
+        self._refresh_trial_metadata()
         repo_root = self._repo_root()
         await environment.exec(
             command=(
@@ -264,8 +288,15 @@ class GBQAHarborAgent(BaseAgent):
         return Path(__file__).resolve().parents[2]
 
     @classmethod
-    def _load_task_metadata(cls, metadata_path: str | None = None) -> GBQAMetadata:
+    def _load_task_metadata(
+        cls,
+        metadata_path: str | None = None,
+        *,
+        logs_dir: Path | None = None,
+    ) -> GBQAMetadata:
         configured = metadata_path or os.environ.get("GBQA_TASK_METADATA_PATH")
+        if not configured and logs_dir is not None:
+            configured = cls._infer_task_metadata_path_from_trial_config(logs_dir)
         if configured:
             path = Path(configured)
             if not path.is_absolute():
@@ -274,6 +305,23 @@ class GBQAHarborAgent(BaseAgent):
         return load_gbqa_metadata(
             cls._repo_root() / cls._DEFAULT_TASK_METADATA_RELATIVE
         )
+
+    @classmethod
+    def _infer_task_metadata_path_from_trial_config(cls, logs_dir: Path) -> str:
+        config_path = Path(logs_dir).parent / "config.json"
+        if not config_path.is_file():
+            return ""
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        task_path = payload.get("task", {}).get("path", "")
+        if not isinstance(task_path, str) or not task_path:
+            return ""
+        metadata_path = Path(task_path) / "gbqa.yaml"
+        if metadata_path.is_absolute():
+            return str(metadata_path)
+        return str(cls._repo_root() / metadata_path)
 
     @staticmethod
     def _normalize_harness_mode(value: str) -> str:
