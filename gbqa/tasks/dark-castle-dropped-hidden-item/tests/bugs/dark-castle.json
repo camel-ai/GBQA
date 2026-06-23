@@ -1,0 +1,53 @@
+{
+  "schema_version": "gbqa-target-bug-v1",
+  "task_id": "gbqa/dark-castle-dropped-hidden-item",
+  "target_bug": {
+    "id": "dark-castle-dropped-hidden-item",
+    "title": "Dropped hidden item remains hidden from room description",
+    "hint": "Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again.",
+    "expected_behavior": "A dropped item should be visible in the current room description after it leaves the player's inventory.",
+    "observed_fault": "An item that was previously hidden can remain hidden after being dropped, so the room state changes but the visible room description omits it.",
+    "reproduction": [
+      "Start a new game.",
+      "Go to the bedroom.",
+      "Open the nightstand and take the small key.",
+      "Drop the small key in the bedroom.",
+      "Execute `look` and observe whether the small key appears in the room description."
+    ],
+    "pinpoint": {
+      "file": "backend/game/world.py",
+      "class": "GameWorld",
+      "function": "drop_item",
+      "qualified_name": "GameWorld.drop_item",
+      "start_line": 231,
+      "end_line": 240
+    },
+    "golden_patch": {
+      "source": "diff v0.1.0..v0.2.0",
+      "functions": [
+        {
+          "file": "backend/game/world.py",
+          "class": "GameWorld",
+          "function": "drop_item",
+          "qualified_name": "GameWorld.drop_item",
+          "start_line": 231,
+          "end_line": 240
+        }
+      ],
+      "hunks": [
+        {
+          "file": "backend/game/world.py",
+          "function": "drop_item",
+          "old_start": 231,
+          "old_lines": 10,
+          "new_start": 231,
+          "new_lines": 11,
+          "removed": [],
+          "added": [
+            "item.hidden = False"
+          ]
+        }
+      ]
+    }
+  }
+}

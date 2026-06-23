@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import os
 import shutil
@@ -24,17 +23,20 @@ from gbqa.protocol.schemas import load_bug_candidates
 from gbqa.reporting.export import export_harbor_artifacts
 from gbqa.spec import load_gbqa_metadata
 from gbqa.rewards.output import write_post_rewardkit_artifacts
-from gbqa.rewards.value_based import evaluate_value_based_report
+from gbqa.rewards.targeted import evaluate_targeted_bug_report
 
 
-TASK_METADATA_PATH = ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "gbqa.yaml"
+TASK_INSTANCE_SLUG = "dark-castle-key-fragment-combine"
+TASK_METADATA_PATH = ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG / "gbqa.yaml"
 
 
 def test_metadata_loader() -> None:
     metadata = load_gbqa_metadata(TASK_METADATA_PATH)
-    assert metadata.task_id == "gbqa/dark-castle"
-    assert metadata.task_slug == "dark-castle"
-    assert metadata.task_title == "Dark Castle: Night of Awakening"
+    assert metadata.task_id == "gbqa/dark-castle-key-fragment-combine"
+    assert metadata.task_slug == TASK_INSTANCE_SLUG
+    assert metadata.application_id == "dark-castle"
+    assert metadata.instance_id == TASK_INSTANCE_SLUG
+    assert metadata.task_title == "Dark Castle: Key Fragment Combine"
     assert metadata.default_provider == "daytona"
     assert metadata.default_interaction_mode == "terminal"
     assert metadata.supported_interaction_modes == ["terminal", "browser", "computer"]
@@ -46,10 +48,9 @@ def test_metadata_loader() -> None:
     assert metadata.interaction_surfaces[0]["kind"] == "http_api"
     assert metadata.service_api_base_url == "http://127.0.0.1:5000/api/agent"
     assert metadata.service_frontend_url == "http://127.0.0.1:5000/"
-    assert metadata.evaluation_method == "value_based"
-    assert metadata.value_rubric_version == "impact_scope_repro_v1"
-    assert metadata.baseline_values_path.name == "baseline_values.json"
-    assert metadata.validation_cases_path.name == "validation_cases.json"
+    assert metadata.evaluation_method == "targeted_bug"
+    assert metadata.target_bug_id == "dark-castle-key-fragment-combine"
+    assert "key-fragment progression" in metadata.target_hint
     assert "Text adventure" in metadata.agent_profile
     assert metadata.software_type == "github_release"
     assert metadata.software_repository == "https://github.com/Tsumugii24/dark-castle"
@@ -131,7 +132,7 @@ def test_config_rendering() -> None:
     assert 'primary = "playwright_mcp"' in browser_config
     assert 'primary = "computer_use"' in computer_config
     assert "http://127.0.0.1:5000/api/agent" in terminal_config
-    assert "Dark Castle: Night of Awakening" in terminal_config
+    assert "Dark Castle: Key Fragment Combine" in terminal_config
     assert "http://127.0.0.1:5000/" in browser_config
     assert computer_payload["interaction"]["primary"] == "computer_use"
     assert computer_payload["interaction"]["adapters"]["computer_use"]["server_url"] == (
@@ -147,7 +148,7 @@ def test_config_rendering() -> None:
     assert terminal_payload["run"]["interaction_profile"] == "terminal"
     assert terminal_payload["run"]["harness_mode"] == "minimal"
     assert terminal_payload["run"]["task_metadata_path"] == (
-        "/sandbox/gbqa/tasks/dark-castle/gbqa.yaml"
+        "/sandbox/gbqa/tasks/dark-castle-key-fragment-combine/gbqa.yaml"
     )
     assert terminal_payload["harness"]["mode"] == "minimal"
     assert terminal_payload["run"]["enabled_interaction_modes"] == ["terminal"]
@@ -221,7 +222,7 @@ def test_config_rendering() -> None:
     assert terminal_payload["memory"]["long_term_file"].endswith(
         "/memory/{task_slug}/long_term.json"
     )
-    assert terminal_payload["tasks"]["dark-castle"]["base_url"] == (
+    assert terminal_payload["tasks"][TASK_INSTANCE_SLUG]["base_url"] == (
         "http://127.0.0.1:5000/api/agent"
     )
     assert "ga" + "mes" not in terminal_payload
@@ -288,7 +289,7 @@ def test_agent_config_loader_requires_toml() -> None:
 def test_artifact_export_and_verifier() -> None:
     temp_root = ROOT_DIR / "agent" / "test" / "_tmp_gbqa_harbor"
     shutil.rmtree(temp_root, ignore_errors=True)
-    report_dir = temp_root / "reports" / "dark-castle" / "run-001"
+    report_dir = temp_root / "reports" / TASK_INSTANCE_SLUG / "run-001"
     out_dir = temp_root / "out"
     report_dir.mkdir(parents=True)
     report = {
@@ -301,10 +302,15 @@ def test_artifact_export_and_verifier() -> None:
                 "evidence": {
                     "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
                     "observed_fault": "The player can assemble the complete key with only two fragments.",
-                    "minimal_reproduction": [
+                    "reproduction": [
                         "Collect any two key fragments.",
                         "Execute combine.",
                     ],
+                    "pinpoint": {
+                        "file": "backend/game/actions.py",
+                        "class": "ActionHandler",
+                        "function": "handle_combine",
+                    },
                 },
                 "tags": [],
             }
@@ -316,26 +322,24 @@ def test_artifact_export_and_verifier() -> None:
 
     exported = export_harbor_artifacts(
         reports_root=temp_root / "reports",
-        task_id="gbqa/dark-castle",
+        task_id=f"gbqa/{TASK_INSTANCE_SLUG}",
         out_dir=out_dir,
     )
     assert Path(exported["run"]).exists()
     assert Path(exported["bugs"]).exists()
+    assert Path(exported["issue"]).exists()
     assert Path(exported["steps"]).exists()
     assert len(load_bug_candidates(out_dir / "bugs.json")) == 1
 
-    task_dir = ROOT_DIR / "gbqa" / "tasks" / "dark-castle"
-    result = evaluate_value_based_report(
-        bugs_path=out_dir / "bugs.json",
+    task_dir = ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG
+    result = evaluate_targeted_bug_report(
+        issue_path=out_dir / "issue.json",
         ground_truth_path=task_dir / "bugs" / "dark-castle.json",
-        baseline_values_path=task_dir / "tests" / "value" / "baseline_values.json",
-        validation_cases_path=task_dir / "tests" / "value" / "validation_cases.json",
     )
-    assert result["total_ground_truth"] == 3
-    assert result["verified_bug_count"] == 1
-    assert result["agent_value"] > 0
-    assert result["human_value"] == 15
-    assert result["reward"] > 0
+    assert result["found_target_bug"] is True
+    assert result["report_complete"] is True
+    assert result["pinpoint_aligned"] is True
+    assert result["reward"] == 1.0
 
     verifier_dir = temp_root / "verifier"
     verifier_dir.mkdir(parents=True, exist_ok=True)
@@ -343,10 +347,9 @@ def test_artifact_export_and_verifier() -> None:
         json.dumps(
             {
                 "reward": result["reward"],
-                "agent_value": result["agent_value"],
-                "human_value": result["human_value"],
-                "verified_bug_count": result["verified_bug_count"],
-                "evaluated_bug_count": result["evaluated_bug_count"],
+                "target_bug_found": 1.0,
+                "issue_report_complete": 1.0,
+                "issue_pinpoint_aligned": 1.0,
             }
         ),
         encoding="utf-8",
@@ -354,10 +357,9 @@ def test_artifact_export_and_verifier() -> None:
     write_post_rewardkit_artifacts(
         {
             "reward": result["reward"],
-            "agent_value": result["agent_value"],
-            "human_value": result["human_value"],
-            "verified_bug_count": result["verified_bug_count"],
-            "evaluated_bug_count": result["evaluated_bug_count"],
+            "target_bug_found": 1.0,
+            "issue_report_complete": 1.0,
+            "issue_pinpoint_aligned": 1.0,
         },
         result,
         verifier_dir,
@@ -367,8 +369,6 @@ def test_artifact_export_and_verifier() -> None:
     assert (verifier_dir / "gbqa_result.json").exists()
     reward_payload = json.loads((verifier_dir / "reward.json").read_text())
     assert reward_payload["reward"] == result["reward"]
-    assert reward_payload["agent_value"] == result["agent_value"]
-    assert reward_payload["human_value"] == result["human_value"]
     assert all(
         isinstance(value, (int, float))
         for value in reward_payload.values()
@@ -376,7 +376,7 @@ def test_artifact_export_and_verifier() -> None:
     assert (temp_root / "verifier" / "reward-details.json").exists()
     gbqa_result = json.loads((temp_root / "verifier" / "gbqa_result.json").read_text())
     assert gbqa_result["details"] == result["details"]
-    assert gbqa_result["agent_value"] == result["agent_value"]
+    assert gbqa_result["found_target_bug"] is True
     shutil.rmtree(temp_root, ignore_errors=True)
 
 
@@ -384,45 +384,23 @@ def test_empty_and_malformed_reports_score_zero() -> None:
     temp_root = ROOT_DIR / "agent" / "test" / "_tmp_gbqa_verifier"
     shutil.rmtree(temp_root, ignore_errors=True)
     temp_root.mkdir(parents=True)
-    truth = ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json"
+    truth = ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG / "bugs" / "dark-castle.json"
 
     empty = temp_root / "empty.json"
     empty.write_text('{"bugs": []}', encoding="utf-8")
-    baseline = (
-        ROOT_DIR
-        / "gbqa"
-        / "tasks"
-        / "dark-castle"
-        / "tests"
-        / "value"
-        / "baseline_values.json"
-    )
-    validation = (
-        ROOT_DIR
-        / "gbqa"
-        / "tasks"
-        / "dark-castle"
-        / "tests"
-        / "value"
-        / "validation_cases.json"
-    )
     assert (
-        evaluate_value_based_report(
-            bugs_path=empty,
+        evaluate_targeted_bug_report(
+            issue_path=empty,
             ground_truth_path=truth,
-            baseline_values_path=baseline,
-            validation_cases_path=validation,
         )["reward"]
         == 0.0
     )
 
     malformed = temp_root / "malformed.json"
     malformed.write_text("{not json", encoding="utf-8")
-    malformed_result = evaluate_value_based_report(
-        bugs_path=malformed,
+    malformed_result = evaluate_targeted_bug_report(
+        issue_path=malformed,
         ground_truth_path=truth,
-        baseline_values_path=baseline,
-        validation_cases_path=validation,
     )
     assert malformed_result["reward"] == 0.0
     assert "error" in malformed_result
@@ -432,7 +410,7 @@ def test_empty_and_malformed_reports_score_zero() -> None:
 def test_harbor_agent_command_construction() -> None:
     command = GBQAHarborAgent.build_run_command(max_steps=5)
     assert "/opt/venv/bin/python run_agent.py" in command
-    assert "--task dark-castle" in command
+    assert "--task dark-castle-key-fragment-combine" in command
     assert "--max-steps 5" in command
     assert "cd /sandbox/agent" in command
     assert "--config /sandbox/runtime/config.toml" in command
@@ -475,19 +453,19 @@ def test_harbor_agent_default_profile_enables_all_task_modes() -> None:
 
 def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
     assert build_harbor_command(
-        ["run", "-p", "gbqa/tasks/dark-castle"],
+        ["run", "-p", f"gbqa/tasks/{TASK_INSTANCE_SLUG}"],
         env={},
     ) == [
         "harbor",
         "run",
         "-p",
-        "gbqa/tasks/dark-castle",
+        f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
     ]
     command = build_harbor_command(
         [
             "run",
             "-p",
-            str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
+            str(ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG),
             "--ak",
             "interaction_mode=computer",
         ],
@@ -495,7 +473,7 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
     )
     assert command[:3] == ["harbor", "run", "-p"]
     overlay_path = Path(command[3])
-    assert overlay_path.name == "dark-castle-computer-use"
+    assert overlay_path.name == "dark-castle-key-fragment-combine-computer-use"
     assert overlay_path.parent.name == "harbor_task_overlays"
     assert overlay_path.parent.parent.name == "tmp"
     assert Path(command[3], "environment", "Dockerfile").exists()
@@ -505,24 +483,28 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
         [
             "run",
             "-p",
-            str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
+            str(ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG),
             "--ak",
             "interaction_mode=default",
         ],
         env={},
     )
-    assert Path(default_command[3]).name == "dark-castle-computer-use"
+    assert Path(default_command[3]).name == (
+        "dark-castle-key-fragment-combine-computer-use"
+    )
     default_profile_command = build_harbor_command(
         [
             "run",
             "-p",
-            str(ROOT_DIR / "gbqa" / "tasks" / "dark-castle"),
+            str(ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG),
             "--ak",
             "interaction_profile=default",
         ],
         env={},
     )
-    assert Path(default_profile_command[3]).name == "dark-castle-computer-use"
+    assert Path(default_profile_command[3]).name == (
+        "dark-castle-key-fragment-combine-computer-use"
+    )
 
 
 def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
@@ -530,7 +512,7 @@ def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
         [
             "run",
             "-p",
-            "gbqa/tasks/dark-castle",
+            f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
             "--gbqa-task-runner",
             "claude-code",
             "--gbqa-agent-model",
@@ -544,7 +526,7 @@ def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
         "harbor",
         "run",
         "-p",
-        "gbqa/tasks/dark-castle",
+        f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
         "-a",
     ]
     assert "claude-code" in claude_command
@@ -559,7 +541,7 @@ def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
         [
             "run",
             "-p",
-            "gbqa/tasks/dark-castle",
+            f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
             "--gbqa-task-runner=codex",
             "--gbqa-agent-model",
             "gpt-5",
@@ -577,7 +559,7 @@ def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
         [
             "run",
             "-p",
-            "gbqa/tasks/dark-castle",
+            f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
             "--gbqa-task-runner",
             "codex",
         ],
@@ -589,73 +571,6 @@ def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
     )
     assert "OPENAI_API_KEY=provider-neutral-key" in codex_api_command
     assert "OPENAI_BASE_URL=https://example.test/v1" in codex_api_command
-
-
-def test_harbor_run_wrapper_selects_rewardkit_agent_judges() -> None:
-    temp_root = ROOT_DIR / "agent" / "test" / "_tmp_codex_auth"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    temp_root.mkdir(parents=True)
-    auth_path = temp_root / "auth.json"
-    auth_path.write_text('{"tokens": "example"}', encoding="utf-8")
-    try:
-        command = build_harbor_command(
-            [
-                "run",
-                "-p",
-                "gbqa/tasks/dark-castle",
-                "--gbqa-judge",
-                "codex",
-                "--gbqa-judge-model",
-                "gpt-5.5",
-                "--gbqa-judge-auth",
-                "subscription",
-                "--gbqa-codex-auth-file",
-                str(auth_path),
-            ],
-            env={},
-        )
-        assert "REWARDKIT_JUDGE=codex" in command
-        assert "REWARDKIT_MODEL=gpt-5.5" in command
-        encoded = next(
-            item.removeprefix("CODEX_AUTH_JSON_B64=")
-            for item in command
-            if item.startswith("CODEX_AUTH_JSON_B64=")
-        )
-        assert base64.b64decode(encoded).decode("utf-8") == '{"tokens": "example"}'
-
-        token_command = build_harbor_command(
-            [
-                "run",
-                "-p",
-                "gbqa/tasks/dark-castle",
-                "--gbqa-judge",
-                "codex",
-                "--gbqa-judge-auth",
-                "subscription",
-            ],
-            env={"CODEX_ACCESS_TOKEN": "codex-token"},
-        )
-        assert "CODEX_ACCESS_TOKEN=codex-token" in token_command
-        assert "REWARDKIT_FORCE_OAUTH=1" in token_command
-    finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
-
-
-def test_harbor_run_wrapper_supports_cowork_judge_alias_env() -> None:
-    command = build_harbor_command(
-        ["run", "-p", "gbqa/tasks/dark-castle"],
-        env={
-            "JUDGE_AGENT": "claude-code",
-            "JUDGE_MODEL": "claude-opus-4-7",
-            "CLAUDE_CODE_OAUTH_TOKEN": "claude-token",
-            "GBQA_JUDGE_AUTH": "subscription",
-        },
-    )
-    assert "REWARDKIT_JUDGE=claude-code" in command
-    assert "REWARDKIT_MODEL=claude-opus-4-7" in command
-    assert "CLAUDE_CODE_OAUTH_TOKEN=claude-token" in command
-    assert "CLAUDE_FORCE_OAUTH=1" in command
-    assert "REWARDKIT_FORCE_OAUTH=1" in command
 
 
 def test_harbor_agent_requires_model_key_and_name() -> None:

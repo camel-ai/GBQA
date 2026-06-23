@@ -122,14 +122,24 @@ class Reporter:
         if not report.bugs:
             lines.append("No bugs reported.")
         for bug in report.bugs:
+            reproduction = bug.reproduction or bug.evidence.get("reproduction", [])
             lines.extend(
                 [
                     f"### {bug.title}",
                     f"- Confidence: {bug.confidence:.2f}",
                     f"- Description: {bug.description}",
+                    f"- Expected behavior: {bug.expected_behavior or bug.evidence.get('expected_behavior', '')}",
+                    f"- Observed fault: {bug.observed_fault or bug.evidence.get('observed_fault', '')}",
+                    f"- Root cause: {bug.root_cause or bug.evidence.get('root_cause', '')}",
+                    f"- Pinpoint: {json.dumps(bug.pinpoint or bug.evidence.get('pinpoint', {}), ensure_ascii=False)}",
                     "",
                 ]
             )
+            if reproduction:
+                lines.append("Reproduction:")
+                for index, step in enumerate(reproduction, start=1):
+                    lines.append(f"{index}. {step}")
+                lines.append("")
         if report.lifecycle_events:
             lines.extend(["## Lifecycle", ""])
             for event in report.lifecycle_events:

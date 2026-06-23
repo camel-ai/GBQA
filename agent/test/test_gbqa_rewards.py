@@ -1,4 +1,4 @@
-"""Tests for Harbor Rewardkit-compatible GBQA verifier outputs."""
+"""Tests for Harbor Rewardkit-compatible GBQA targeted verifier outputs."""
 
 from __future__ import annotations
 
@@ -17,19 +17,18 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from gbqa.rewards.output import primary_reward_score, write_post_rewardkit_artifacts
-from gbqa.rewards.runner import RewardkitDependencyError, require_rewardkit, run_task_verifier
+from gbqa.rewards.runner import (
+    RewardkitDependencyError,
+    require_rewardkit,
+    run_task_verifier,
+)
+from gbqa.rewards.targeted import evaluate_targeted_bug_report
 from gbqa.rewards.template import install_task_verifier_tests
-from gbqa.rewards.value_based import evaluate_value_based_report
 
 
-TASK_TESTS_DIR = (
-    Path(REPO_ROOT) / "gbqa" / "tasks" / "dark-castle" / "tests"
-)
-GROUND_TRUTH = (
-    Path(REPO_ROOT) / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json"
-)
-BASELINE_VALUES = TASK_TESTS_DIR / "value" / "baseline_values.json"
-VALIDATION_CASES = TASK_TESTS_DIR / "value" / "validation_cases.json"
+TASK_DIR = Path(REPO_ROOT) / "gbqa" / "tasks" / "dark-castle-key-fragment-combine"
+TASK_TESTS_DIR = TASK_DIR / "tests"
+GROUND_TRUTH = TASK_DIR / "bugs" / "dark-castle.json"
 
 
 @contextmanager
@@ -44,15 +43,37 @@ def _temp_test_dir(name: str) -> Iterator[Path]:
 
 
 def _programmatic_tests_dir(temp_root: Path) -> Path:
-    """Copy verifier tests without the LLM judge dimension (no API key needed)."""
+    """Copy verifier tests for a local Rewardkit run."""
 
     destination = temp_root / "tests"
-    shutil.copytree(
-        TASK_TESTS_DIR,
-        destination,
-        ignore=shutil.ignore_patterns("quality"),
-    )
+    shutil.copytree(TASK_TESTS_DIR, destination)
     return destination
+
+
+def _matching_issue(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "issue": {
+                    "title": "Key assembles with only two fragments",
+                    "description": "The combine command creates the final key early.",
+                    "expected_behavior": "Combining key fragments should require all three fragments.",
+                    "observed_fault": "The player can combine only two fragments into the complete key.",
+                    "reproduction": [
+                        "Collect two key fragments.",
+                        "Execute `combine`.",
+                    ],
+                    "pinpoint": {
+                        "file": "backend/game/actions.py",
+                        "class": "ActionHandler",
+                        "function": "handle_combine",
+                    },
+                    "root_cause": "ActionHandler.handle_combine uses a two-fragment threshold.",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_require_rewardkit_imports() -> None:
@@ -61,8 +82,8 @@ def test_require_rewardkit_imports() -> None:
 
 
 def test_primary_reward_score_prefers_reward_key() -> None:
-    assert primary_reward_score({"reward": 0.4, "agent_value": 3.0}) == 0.4
-    assert primary_reward_score({"agent_value": 3.0, "human_value": 6.0}) == 0.5
+    assert primary_reward_score({"reward": 0.4, "target_bug_found": 1.0}) == 0.4
+    assert primary_reward_score({"target_bug_found": 1.0}) == 1.0
 
 
 def test_write_post_rewardkit_artifacts_preserves_reward_json() -> None:
@@ -70,51 +91,44 @@ def test_write_post_rewardkit_artifacts_preserves_reward_json() -> None:
         (temp_root / "reward.json").write_text(
             json.dumps(
                 {
-                    "reward": 0.4,
-                    "agent_value": 6.0,
-                    "human_value": 15.0,
-                    "verified_bug_count": 1,
-                    "evaluated_bug_count": 1,
+                    "reward": 1.0,
+                    "target_bug_found": 1.0,
+                    "issue_report_complete": 1.0,
+                    "issue_pinpoint_aligned": 1.0,
                 }
             ),
             encoding="utf-8",
         )
         evaluation = {
-            "evaluation_method": "value_based",
-            "reward": 0.4,
-            "agent_value": 6.0,
-            "human_value": 15.0,
-            "verified_bug_count": 1,
-            "evaluated_bug_count": 1,
-            "ignored_bug_count": 0,
+            "evaluation_method": "targeted_bug",
+            "rubric_version": "targeted_function_pinpoint_v1",
+            "reward": 1.0,
+            "found_target_bug": True,
+            "target_bug_id": "dark-castle-key-fragment-combine",
+            "report_complete": True,
+            "pinpoint_aligned": True,
+            "evaluated_issue_count": 1,
+            "ignored_issue_count": 0,
             "total_reported": 1,
-            "total_ground_truth": 3,
             "details": [],
         }
         scores = write_post_rewardkit_artifacts(
             {
-                "reward": 0.4,
-                "agent_value": 6.0,
-                "human_value": 15.0,
-                "verified_bug_count": 1,
-                "evaluated_bug_count": 1,
+                "reward": 1.0,
+                "target_bug_found": 1.0,
+                "issue_report_complete": 1.0,
+                "issue_pinpoint_aligned": 1.0,
             },
             evaluation,
             temp_root,
         )
-        assert scores["reward"] == 0.4
+        assert scores["reward"] == 1.0
         reward_payload = json.loads((temp_root / "reward.json").read_text())
-        assert reward_payload == {
-            "reward": 0.4,
-            "agent_value": 6.0,
-            "human_value": 15.0,
-            "verified_bug_count": 1,
-            "evaluated_bug_count": 1,
-        }
-        assert (temp_root / "reward.txt").read_text().strip() == "0.4"
+        assert reward_payload == scores
+        assert (temp_root / "reward.txt").read_text().strip() == "1.0"
         details = json.loads((temp_root / "reward-details.json").read_text())
-        assert details["gbqa"]["verified_bug_count"] == 1
-        assert details["gbqa"]["agent_value"] == 6.0
+        assert details["gbqa"]["found_target_bug"] is True
+        assert details["gbqa"]["pinpoint_aligned"] is True
         assert (temp_root / "gbqa_result.json").exists()
 
 
@@ -125,52 +139,27 @@ def test_run_task_verifier_with_rewardkit_layout() -> None:
             trace_path = temp_root / "trace.jsonl"
             trace_path.write_text('{"type":"trace","step":1}\n', encoding="utf-8")
             os.environ["GBQA_TRAJECTORY_PATH"] = str(trace_path)
-            bugs = temp_root / "bugs.json"
+            issue = temp_root / "issue.json"
             out_dir = temp_root / "verifier"
-            bugs.write_text(
-                json.dumps(
-                    {
-                        "bugs": [
-                            {
-                                "title": "Locked door opens without key",
-                                "description": "Running combine after two key fragments creates the full key.",
-                                "evidence": {
-                                    "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
-                                    "observed_fault": "The player can assemble the complete key with only two fragments.",
-                                    "minimal_reproduction": [
-                                        "Collect any two key fragments.",
-                                        "Execute combine.",
-                                    ],
-                                },
-                            },
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
+            _matching_issue(issue)
 
             scores = run_task_verifier(
                 tests_dir=_programmatic_tests_dir(temp_root),
                 workspace=temp_root,
                 out_dir=out_dir,
-                bugs_path=bugs,
+                bugs_path=issue,
                 ground_truth_path=GROUND_TRUTH,
-                baseline_values_path=BASELINE_VALUES,
-                validation_cases_path=VALIDATION_CASES,
+                eval_method="targeted_bug",
             )
-            assert "reward" in scores
-            assert "agent_value" in scores
-            assert "human_value" in scores
-            assert "verified_bug_count" in scores
-            assert "evaluated_bug_count" in scores
+            assert scores["reward"] == 1.0
+            assert scores["target_bug_found"] == 1.0
+            assert scores["issue_report_complete"] == 1.0
+            assert scores["issue_pinpoint_aligned"] == 1.0
             assert "trajectory" in scores
-            reward_payload = json.loads((out_dir / "reward.json").read_text())
-            assert isinstance(reward_payload["agent_value"], (int, float))
-            assert reward_payload["human_value"] == 15.0
             details = json.loads((out_dir / "reward-details.json").read_text())
-            assert "agent_value" in details
-            assert "human_value" in details
-            assert "gbqa" in details
+            assert details["gbqa"]["target_bug_id"] == (
+                "dark-castle-key-fragment-combine"
+            )
         finally:
             if previous_trajectory_path is None:
                 os.environ.pop("GBQA_TRAJECTORY_PATH", None)
@@ -185,235 +174,74 @@ def test_rewardkit_dependency_error_message() -> None:
     ).args[0]
 
 
-def test_quality_toml_is_discoverable() -> None:
+def test_rewardkit_discovers_rule_based_criteria() -> None:
     rk = require_rewardkit()
-    with _temp_test_dir("_tmp_gbqa_quality_discover") as temp_root:
+    with _temp_test_dir("_tmp_gbqa_reward_discover") as temp_root:
         rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
         reward_names = {reward.name for reward in rewards}
-        assert "quality" in reward_names
-        quality_rewards = [reward for reward in rewards if reward.name == "quality"]
-        assert len(quality_rewards) == 1
-        assert quality_rewards[0].judge is not None
-
-
-def test_quality_toml_supports_subscription_agent_judges() -> None:
-    rk = require_rewardkit()
-    with _temp_test_dir("_tmp_gbqa_quality_agents") as temp_root:
-        previous = os.environ.get("REWARDKIT_JUDGE")
-        try:
-            for judge_name in ("claude-code", "codex"):
-                os.environ["REWARDKIT_JUDGE"] = judge_name
-                rewards = rk.discover(TASK_TESTS_DIR, workspace=temp_root)
-                quality_reward = next(
-                    reward for reward in rewards if reward.name == "quality"
-                )
-                assert quality_reward.judge is not None
-                assert getattr(quality_reward.judge, "agent", "") == judge_name
-        finally:
-            if previous is None:
-                os.environ.pop("REWARDKIT_JUDGE", None)
-            else:
-                os.environ["REWARDKIT_JUDGE"] = previous
-
-
-def test_quality_toml_references_value_review_inputs() -> None:
-    quality_toml = TASK_TESTS_DIR / "quality" / "quality.toml"
-    text = quality_toml.read_text(encoding="utf-8")
-    assert "/tests/bugs/dark-castle.json" in text
-    assert "/tests/value/baseline_values.json" in text
-    assert "/tests/value/validation_cases.json" in text
-    assert "/logs/agent/gbqa/bugs.json" in text
-    assert "/logs/verifier/gbqa_result.json" in text
-    prompt = TASK_TESTS_DIR / "quality" / "value_evaluation_review.md"
-    prompt_text = prompt.read_text(encoding="utf-8")
-    assert "{criteria}" in prompt_text
-    assert "/tests/bugs/dark-castle.json" in prompt_text
-    assert "/tests/value/baseline_values.json" in prompt_text
-    assert "/logs/agent/gbqa/bugs.json" in prompt_text
+        assert "reward" in reward_names
+        assert "target_bug_found" in reward_names
+        assert "issue_report_complete" in reward_names
+        assert "issue_pinpoint_aligned" in reward_names
+        assert "quality" not in reward_names
 
 
 def test_dark_castle_verifier_env_has_subscription_defaults() -> None:
-    task_toml = Path(REPO_ROOT) / "gbqa" / "tasks" / "dark-castle" / "task.toml"
+    task_toml = TASK_DIR / "task.toml"
     config = tomllib.loads(task_toml.read_text(encoding="utf-8"))
     verifier_env = config["verifier"]["env"]
-    assert verifier_env["GBQA_EVAL_METHOD"] == "${GBQA_EVAL_METHOD:-value_based}"
-    assert verifier_env["GBQA_BASELINE_VALUES"].endswith(
-        "/tests/value/baseline_values.json}"
-    )
-    assert verifier_env["GBQA_BUG_VALIDATION_CASES"].endswith(
-        "/tests/value/validation_cases.json}"
-    )
-    assert verifier_env["GBQA_BUG_TEST_GENERATOR_CMD"] == "${GBQA_BUG_TEST_GENERATOR_CMD:-}"
-    assert verifier_env["GBQA_BUG_TEST_REASONABLENESS_CMD"] == (
-        "${GBQA_BUG_TEST_REASONABLENESS_CMD:-}"
-    )
-    assert verifier_env["GBQA_BUG_TEST_EXECUTOR_CMD"] == "${GBQA_BUG_TEST_EXECUTOR_CMD:-}"
-    assert verifier_env["GBQA_VALUE_AGENT_CMD"] == "${GBQA_VALUE_AGENT_CMD:-}"
-    assert verifier_env["REWARDKIT_JUDGE"] == "${REWARDKIT_JUDGE:-openai/gpt-4o}"
-    assert verifier_env["REWARDKIT_MODEL"] == "${REWARDKIT_MODEL:-}"
-    assert verifier_env["REWARDKIT_FORCE_OAUTH"] == "${REWARDKIT_FORCE_OAUTH:-}"
-    assert verifier_env["JUDGE_AGENT"] == "${JUDGE_AGENT:-}"
-    assert verifier_env["JUDGE_MODEL"] == "${JUDGE_MODEL:-}"
-    assert verifier_env["JUDGE_CODEX_MODEL"] == "${JUDGE_CODEX_MODEL:-}"
-    assert verifier_env["OPENAI_API_BASE"].endswith("https://zenmux.ai/api/v1}")
-    assert verifier_env["ANTHROPIC_AUTH_TOKEN"] == "${ANTHROPIC_AUTH_TOKEN:-}"
-    assert verifier_env["CLAUDE_CODE_OAUTH_TOKEN"] == "${CLAUDE_CODE_OAUTH_TOKEN:-}"
-    assert verifier_env["CLAUDE_FORCE_OAUTH"] == "${CLAUDE_FORCE_OAUTH:-}"
-    assert verifier_env["CODEX_AUTH_JSON_B64"] == "${CODEX_AUTH_JSON_B64:-}"
-    assert verifier_env["CODEX_FORCE_API_KEY"] == "${CODEX_FORCE_API_KEY:-}"
-    assert verifier_env["CODEX_ACCESS_TOKEN"] == "${CODEX_ACCESS_TOKEN:-}"
+    assert verifier_env["GBQA_EVAL_METHOD"] == "${GBQA_EVAL_METHOD:-targeted_bug}"
+    assert set(verifier_env) == {"GBQA_EVAL_METHOD"}
     assert all(":-" in value for value in verifier_env.values())
 
 
-def test_template_installs_subscription_ready_value_review_prompt() -> None:
-    with _temp_test_dir("_tmp_gbqa_template_quality") as temp_root:
+def test_template_installs_rule_based_targeted_verifier() -> None:
+    with _temp_test_dir("_tmp_gbqa_template") as temp_root:
         install_task_verifier_tests(
             temp_root,
             ground_truth_path="/tests/bugs/example.json",
         )
-        prompt_text = (
-            temp_root / "quality" / "value_evaluation_review.md"
-        ).read_text(encoding="utf-8")
-        quality_text = (temp_root / "quality" / "quality.toml").read_text(
-            encoding="utf-8"
-        )
         test_script = (temp_root / "test.sh").read_text(encoding="utf-8")
-        assert "/tests/bugs/example.json" in prompt_text
-        assert "/tests/bugs/example.json" in quality_text
-        assert "__GBQA_GROUND_TRUTH__" not in prompt_text
-        assert (temp_root / "value" / "baseline_values.json").is_file()
-        assert (temp_root / "value" / "validation_cases.json").is_file()
-        assert "JUDGE_AGENT" in test_script
-        assert "JUDGE_CODEX_MODEL" in test_script
-        assert "CODEX_AUTH_JSON_B64" in test_script
+        assert "/tests/bugs/example.json" in test_script
+        assert "__GBQA_GROUND_TRUTH__" not in test_script
+        assert not (temp_root / "quality").exists()
+        assert not (temp_root / "judge").exists()
+        assert not (temp_root / "value").exists()
+        assert (temp_root / "target_bug_found" / "check.py").is_file()
+        assert (temp_root / "issue_report_complete" / "check.py").is_file()
+        assert (temp_root / "issue_pinpoint_aligned" / "check.py").is_file()
 
 
-def test_value_based_evaluation_scores_verified_reports() -> None:
-    with _temp_test_dir("_tmp_gbqa_value_eval") as temp_root:
-        bugs = temp_root / "bugs.json"
-        bugs.write_text(
-            json.dumps(
-                {
-                    "bugs": [
-                        {
-                            "title": "Key assembles with only two fragments",
-                            "description": "The combine command bypasses a core progression gate after only two fragments.",
-                            "severity": "high",
-                            "evidence": {
-                                "expected_behavior": "Combining key fragments should require all three fragments before producing the complete key.",
-                                "observed_fault": "The player can assemble the complete key with only two fragments.",
-                                "minimal_reproduction": [
-                                    "Collect any two key fragments.",
-                                    "Execute combine.",
-                                ],
-                            },
-                        },
-                        {
-                            "title": "Ignored extra candidate",
-                            "description": "This should be outside the top-n budget when n is one.",
-                            "evidence": {
-                                "expected_behavior": "extra expected",
-                                "observed_fault": "extra",
-                                "minimal_reproduction": ["extra"],
-                            },
-                        },
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-        baseline = temp_root / "baseline_values.json"
-        baseline.write_text(
-            json.dumps(
-                {
-                    "bugs": [
-                        {
-                            "id": "0",
-                            "tier": "high",
-                            "points": 6,
-                            "dimensions": {
-                                "impact": 3,
-                                "scope": 2,
-                                "reproducibility": 4,
-                            },
-                        }
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-        result = evaluate_value_based_report(
-            bugs_path=bugs,
+def test_targeted_evaluation_scores_matching_issue() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_eval") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
             ground_truth_path=GROUND_TRUTH,
-            baseline_values_path=baseline,
-            validation_cases_path=VALIDATION_CASES,
-            max_reported_bugs=1,
         )
-        assert result["verified_bug_count"] == 1
-        assert result["evaluated_bug_count"] == 1
-        assert result["ignored_bug_count"] == 1
-        assert result["human_value"] == 6.0
-        assert result["agent_value"] >= 6.0
+        assert result["found_target_bug"] is True
+        assert result["report_complete"] is True
+        assert result["pinpoint_aligned"] is True
         assert result["reward"] == 1.0
 
 
-def test_value_based_validation_case_command_verifies_failure() -> None:
-    with _temp_test_dir("_tmp_gbqa_value_command") as temp_root:
-        bugs = temp_root / "bugs.json"
-        bugs.write_text(
-            json.dumps(
-                {
-                    "bugs": [
-                        {
-                            "title": "Command-backed candidate",
-                            "description": "A deterministic validation command fails.",
-                            "severity": "medium",
-                            "evidence": {
-                                "expected_behavior": "The validation command should pass.",
-                                "observed_fault": "validation command fails",
-                                "minimal_reproduction": ["run validation command"],
-                            },
-                        },
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-        baseline = temp_root / "baseline_values.json"
-        baseline.write_text(
-            json.dumps({"bugs": [{"id": "0", "tier": "low", "points": 1}]}),
-            encoding="utf-8",
-        )
-        validation = temp_root / "validation_cases.json"
-        validation.write_text(
-            json.dumps(
-                {
-                    "cases": [
-                        {
-                            "id": "command-case",
-                            "keywords": ["validation", "command"],
-                            "command": [
-                                sys.executable,
-                                "-c",
-                                "import sys; sys.exit(1)",
-                            ],
-                            "fixed_result": "pass",
-                        }
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-        result = evaluate_value_based_report(
-            bugs_path=bugs,
+def test_targeted_evaluation_rejects_wrong_function() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_wrong") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["issue"]["pinpoint"]["function"] = "handle_open"
+        payload["issue"]["pinpoint"]["class"] = "ActionHandler"
+        payload["issue"]["root_cause"] = "ActionHandler.handle_open mishandles opening."
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
             ground_truth_path=GROUND_TRUTH,
-            baseline_values_path=baseline,
-            validation_cases_path=validation,
-            max_reported_bugs=1,
         )
-        assert result["verified_bug_count"] == 1
-        assert result["details"][0]["execution"]["source"] == "validation_case_command"
-        assert result["details"][0]["execution"]["status"] == "failed"
+        assert result["report_complete"] is True
+        assert result["pinpoint_aligned"] is False
+        assert result["reward"] == 0.0
 
 
 def main() -> None:
@@ -421,14 +249,12 @@ def main() -> None:
     test_primary_reward_score_prefers_reward_key()
     test_write_post_rewardkit_artifacts_preserves_reward_json()
     test_run_task_verifier_with_rewardkit_layout()
-    test_quality_toml_is_discoverable()
-    test_quality_toml_supports_subscription_agent_judges()
-    test_quality_toml_references_value_review_inputs()
+    test_rewardkit_discovers_rule_based_criteria()
     test_dark_castle_verifier_env_has_subscription_defaults()
-    test_template_installs_subscription_ready_value_review_prompt()
+    test_template_installs_rule_based_targeted_verifier()
     test_rewardkit_dependency_error_message()
-    test_value_based_evaluation_scores_verified_reports()
-    test_value_based_validation_case_command_verifies_failure()
+    test_targeted_evaluation_scores_matching_issue()
+    test_targeted_evaluation_rejects_wrong_function()
     print("gbqa rewards tests passed")
 
 

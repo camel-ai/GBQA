@@ -1,0 +1,25 @@
+{
+  "schema_version": "0.2",
+  "task_id": "gbqa/dark-castle-key-fragment-combine",
+  "issue": {
+    "title": "Key of Awakening can be assembled with only two fragments",
+    "description": "The combine action creates the complete Key of Awakening when the player has only two of the three key fragments.",
+    "expected_behavior": "Combining key fragments should require all three fragments before producing the complete Key of Awakening.",
+    "observed_fault": "The player can assemble the complete key with only two fragments instead of all three.",
+    "reproduction": [
+      "Start a new game.",
+      "Reach a state with exactly two of the three key fragments in inventory.",
+      "Execute `combine`.",
+      "Observe that the complete Key of Awakening is created before the third fragment is present."
+    ],
+    "pinpoint": {
+      "file": "backend/game/actions.py",
+      "class": "ActionHandler",
+      "function": "handle_combine",
+      "qualified_name": "ActionHandler.handle_combine",
+      "start_line": 562,
+      "end_line": 593
+    },
+    "root_cause": "`ActionHandler.handle_combine` checks for fewer than two fragments instead of fewer than three, so the final key assembly gate is off by one."
+  }
+}

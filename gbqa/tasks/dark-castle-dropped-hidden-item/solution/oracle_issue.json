@@ -1,0 +1,26 @@
+{
+  "schema_version": "0.2",
+  "task_id": "gbqa/dark-castle-dropped-hidden-item",
+  "issue": {
+    "title": "Dropped hidden item remains hidden from room description",
+    "description": "Dropping an item that came from a hidden/container state can leave its hidden flag set, so the backend moves the item into the room while the room description still omits it.",
+    "expected_behavior": "A dropped item should be visible in the current room description after it leaves the player's inventory.",
+    "observed_fault": "An item that was previously hidden can remain hidden after being dropped, so the room state changes but the visible room description omits it.",
+    "reproduction": [
+      "Start a new game.",
+      "Go north to the corridor, then west to the bedroom.",
+      "Open the nightstand and take the small key.",
+      "Drop the small key in the bedroom.",
+      "Execute `look` and observe that the small key is missing from the room description."
+    ],
+    "pinpoint": {
+      "file": "backend/game/world.py",
+      "class": "GameWorld",
+      "function": "drop_item",
+      "qualified_name": "GameWorld.drop_item",
+      "start_line": 231,
+      "end_line": 240
+    },
+    "root_cause": "`GameWorld.drop_item` updates the item's location but does not clear `item.hidden`, so previously hidden items remain invisible after being dropped."
+  }
+}

@@ -37,6 +37,18 @@ def build_bug_evidence(
     if observed:
         normalized["observed_fault"] = observed
 
+    reproduction = (
+        normalized.get("reproduction")
+        or normalized.get("minimal_reproduction")
+        or normalized.get("reproduction_steps")
+    )
+    if reproduction:
+        normalized["reproduction"] = _string_list(reproduction)
+
+    pinpoint = normalized.get("pinpoint") or normalized.get("root_cause")
+    if pinpoint:
+        normalized["pinpoint"] = pinpoint
+
     return normalized
 
 
@@ -344,3 +356,11 @@ def _token_overlap(left: str, right: str) -> float:
     if not left_tokens or not right_tokens:
         return 0.0
     return len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
+
+
+def _string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []

@@ -7,14 +7,14 @@ Milestone 1 runs GBQA as a Harbor-compatible benchmark on a remote Daytona sandb
 - Harbor owns task packaging, trial execution, verifier execution, and artifact layout.
 - Daytona owns the remote sandbox lifecycle through Harbor's `daytona` environment provider.
 - `GBQAHarborAgent` is a Harbor custom agent wrapper that uploads the current GBQA runtime into `/sandbox`, starts Dark Castle from `/sandbox/software/dark-castle`, runs the QA loop, and exports stable artifacts under Harbor's `/logs` contract.
-- The first task is `gbqa/tasks/dark-castle`; its software environment is downloaded from the real GitHub release archive for `Tsumugii24/dark-castle`.
+- The first instances live under `gbqa/tasks/dark-castle-*`; their shared software environment is downloaded from the real GitHub release archive for `Tsumugii24/dark-castle`.
 
 ## Configuration Boundaries
 
 - `agent/config.toml` is harness policy only: model sampling, loop budgets, memory, operator retry, and current QA-agent backend defaults.
-- `gbqa/tasks/dark-castle/gbqa.yaml` is the task source of truth: software source release, service endpoints, interaction modes, human baseline, artifact contract, and agent-facing task profile.
+- Each instance `gbqa.yaml` is the source of truth: software source release, service endpoints, interaction modes, target bug hint, artifact contract, and agent-facing task profile.
 - `gbqa.protocol` defines the stable QA output schema consumed by verifiers, independent of which agent harness produced the artifacts.
-- `gbqa.reporting` converts harness-specific outputs into `run.json`, `bugs.json`, `steps.jsonl`, and artifact files.
+- `gbqa.reporting` converts harness-specific outputs into `run.json`, `issue.json`, `bugs.json`, `steps.jsonl`, and artifact files.
 
 Harness config is resolved with explicit precedence: CLI overrides, trial/run
 config, task package `gbqa.yaml`, repo harness defaults, then built-in
@@ -96,7 +96,7 @@ Oracle verifier pass:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   -a oracle
 ```
@@ -105,7 +105,7 @@ Terminal mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal
@@ -115,7 +115,7 @@ Browser mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=browser
@@ -126,7 +126,7 @@ the same wrapper:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner codex \
   --gbqa-agent-model gpt-5 \
@@ -134,16 +134,13 @@ python -m gbqa.cli.harbor_run run \
   --gbqa-codex-auth-file "$HOME/.codex/auth.json"
 ```
 
-Verifier judges are independently selectable with `--gbqa-judge`, including
-subscription-backed RewardKit agent judges. See `docs/subscription-auth.md` for
-the full Codex / Claude Code task-runner and verifier-judge matrix.
-
 ## Expected Artifacts
 
 The agent writes stable GBQA artifacts under `/logs/agent/gbqa`:
 
 - `run.json`
-- `bugs.json` — each bug should include `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
+- `issue.json` — preferred single issue report for the hinted target bug
+- `bugs.json` — legacy single-element compatibility report
 - `steps.jsonl`
 - `trace.jsonl` when available
 - `report.md` when available
@@ -153,6 +150,7 @@ The verifier writes Harbor-compatible outputs under `/logs/verifier`:
 
 - `reward.txt`
 - `reward.json`
+- `gbqa_result.json`
 
 ## Non-Goals
 

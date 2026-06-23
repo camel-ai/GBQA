@@ -11,6 +11,7 @@ from typing import Any
 from gbqa.protocol.schemas import (
     SCHEMA_VERSION,
     normalize_bug_candidate,
+    normalize_issue_report,
     normalize_step_record,
 )
 
@@ -69,9 +70,19 @@ def export_harbor_artifacts(
 
     run_path = out_dir / "run.json"
     bugs_path = out_dir / "bugs.json"
+    issue_path = out_dir / "issue.json"
     steps_path = out_dir / "steps.jsonl"
     run_path.write_text(json.dumps(run_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     bugs_path.write_text(json.dumps(bugs_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    issue_payload = {
+        "schema_version": SCHEMA_VERSION,
+        "task_id": task_id,
+        "issue": normalize_issue_report(bugs[0]) if bugs and isinstance(bugs[0], dict) else {},
+    }
+    issue_path.write_text(
+        json.dumps(issue_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     with steps_path.open("w", encoding="utf-8") as handle:
         for step in steps:
@@ -90,6 +101,7 @@ def export_harbor_artifacts(
     return {
         "run": str(run_path),
         "bugs": str(bugs_path),
+        "issue": str(issue_path),
         "steps": str(steps_path),
     }
 

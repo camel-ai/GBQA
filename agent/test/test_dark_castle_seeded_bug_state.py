@@ -1,4 +1,4 @@
-"""Smoke checks for the released Dark Castle benchmark baseline metadata."""
+"""Smoke checks for the released Dark Castle benchmark instances."""
 
 from __future__ import annotations
 
@@ -14,64 +14,56 @@ if str(ROOT_DIR) not in sys.path:
 import yaml  # noqa: E402
 
 
-def test_dark_castle_baseline_uses_latest_minus_one_github_release() -> None:
-    metadata_path = ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "gbqa.yaml"
-    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
-    software = metadata["software"]
-
-    assert software["type"] == "github_release"
-    assert software["repository"] == "https://github.com/Tsumugii24/dark-castle"
-    assert software["selected_release_role"] == "latest_minus_one"
-    assert software["selected_version"] == "v0.1.0"
-    assert software["latest_version"] == "v0.2.0"
-    assert software["archive_url"].endswith("/archive/refs/tags/v0.1.0.tar.gz")
-    assert urlparse(software["archive_url"]).scheme == "https"
-    assert software["install_dir"] == "/sandbox/software/dark-castle"
+INSTANCE_SLUGS = [
+    "dark-castle-key-fragment-combine",
+    "dark-castle-dropped-hidden-item",
+]
 
 
-def test_bug_ids_are_zero_based_in_ground_truth_files() -> None:
-    paths = [
-        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json",
-        ROOT_DIR
-        / "gbqa"
-        / "tasks"
-        / "dark-castle"
-        / "tests"
-        / "bugs"
-        / "dark-castle.json",
-        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "solution" / "oracle_bugs.json",
-    ]
-    for path in paths:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        assert [bug["id"] for bug in payload["bugs"]] == [0, 1, 2]
+def test_dark_castle_instances_use_latest_minus_one_github_release() -> None:
+    for slug in INSTANCE_SLUGS:
+        metadata_path = ROOT_DIR / "gbqa" / "tasks" / slug / "gbqa.yaml"
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+        software = metadata["software"]
+
+        assert metadata["task"]["id"] == f"gbqa/{slug}"
+        assert metadata["task"]["application_id"] == "dark-castle"
+        assert metadata["task"]["instance_id"] == slug
+        assert software["type"] == "github_release"
+        assert software["repository"] == "https://github.com/Tsumugii24/dark-castle"
+        assert software["selected_release_role"] == "latest_minus_one"
+        assert software["selected_version"] == "v0.1.0"
+        assert software["latest_version"] == "v0.2.0"
+        assert software["archive_url"].endswith("/archive/refs/tags/v0.1.0.tar.gz")
+        assert urlparse(software["archive_url"]).scheme == "https"
+        assert software["install_dir"] == "/sandbox/software/dark-castle"
 
 
-def test_ground_truth_files_include_expected_behavior() -> None:
-    paths = [
-        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "bugs" / "dark-castle.json",
-        ROOT_DIR
-        / "gbqa"
-        / "tasks"
-        / "dark-castle"
-        / "tests"
-        / "bugs"
-        / "dark-castle.json",
-        ROOT_DIR / "gbqa" / "tasks" / "dark-castle" / "solution" / "oracle_bugs.json",
-    ]
-    for path in paths:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        for bug in payload["bugs"]:
-            if isinstance(bug.get("evidence"), dict):
-                assert str(bug["evidence"].get("expected_behavior", "")).strip()
-            else:
-                assert str(bug.get("expected_behavior", "")).strip()
+def test_ground_truth_files_define_one_patch_backed_target_bug() -> None:
+    for slug in INSTANCE_SLUGS:
+        paths = [
+            ROOT_DIR / "gbqa" / "tasks" / slug / "bugs" / "dark-castle.json",
+            ROOT_DIR / "gbqa" / "tasks" / slug / "tests" / "bugs" / "dark-castle.json",
+        ]
+        for path in paths:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            target = payload["target_bug"]
+            assert payload["task_id"] == f"gbqa/{slug}"
+            assert target["id"] == slug
+            assert str(target.get("hint", "")).strip()
+            assert str(target.get("expected_behavior", "")).strip()
+            assert str(target.get("observed_fault", "")).strip()
+            assert target.get("reproduction")
+            assert target.get("pinpoint", {}).get("function")
+            assert target.get("pinpoint", {}).get("file")
+            assert target.get("golden_patch", {}).get("functions")
+            assert target.get("golden_patch", {}).get("hunks")
 
 
 def main() -> None:
-    test_dark_castle_baseline_uses_latest_minus_one_github_release()
-    test_bug_ids_are_zero_based_in_ground_truth_files()
-    test_ground_truth_files_include_expected_behavior()
-    print("dark castle release metadata smoke test passed")
+    test_dark_castle_instances_use_latest_minus_one_github_release()
+    test_ground_truth_files_define_one_patch_backed_target_bug()
+    print("dark castle instance metadata smoke test passed")
 
 
 if __name__ == "__main__":

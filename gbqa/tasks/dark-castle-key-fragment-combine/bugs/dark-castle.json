@@ -1,0 +1,56 @@
+{
+  "schema_version": "gbqa-target-bug-v1",
+  "task_id": "gbqa/dark-castle-key-fragment-combine",
+  "target_bug": {
+    "id": "dark-castle-key-fragment-combine",
+    "title": "Key of Awakening can be assembled with only two fragments",
+    "hint": "Focus on key-fragment progression. Verify whether assembling the final escape key enforces every documented prerequisite before the combine action succeeds.",
+    "expected_behavior": "Combining key fragments should require all three fragments before producing the complete Key of Awakening.",
+    "observed_fault": "The player can assemble the complete key with only two fragments instead of all three.",
+    "reproduction": [
+      "Start a new game.",
+      "Reach a state with exactly two of the three key fragments in inventory.",
+      "Execute `combine`.",
+      "Observe whether the complete Key of Awakening is created before the third fragment is present."
+    ],
+    "pinpoint": {
+      "file": "backend/game/actions.py",
+      "class": "ActionHandler",
+      "function": "handle_combine",
+      "qualified_name": "ActionHandler.handle_combine",
+      "start_line": 562,
+      "end_line": 593
+    },
+    "golden_patch": {
+      "source": "diff v0.1.0..v0.2.0",
+      "functions": [
+        {
+          "file": "backend/game/actions.py",
+          "class": "ActionHandler",
+          "function": "handle_combine",
+          "qualified_name": "ActionHandler.handle_combine",
+          "start_line": 562,
+          "end_line": 593
+        }
+      ],
+      "hunks": [
+        {
+          "file": "backend/game/actions.py",
+          "function": "handle_combine",
+          "old_start": 564,
+          "old_lines": 8,
+          "new_start": 564,
+          "new_lines": 8,
+          "removed": [
+            "if len(owned_fragments) < 2:",
+            "missing = 2 - len(owned_fragments)"
+          ],
+          "added": [
+            "if len(owned_fragments) < 3:",
+            "missing = 3 - len(owned_fragments)"
+          ]
+        }
+      ]
+    }
+  }
+}

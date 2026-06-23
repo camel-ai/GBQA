@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import os
 import shutil
 import subprocess
@@ -20,9 +19,6 @@ class GBQAHarborOptions:
     task_runner: str = ""
     agent_model: str = ""
     agent_auth: str = ""
-    judge: str = ""
-    judge_model: str = ""
-    judge_auth: str = ""
     codex_auth_file: str = ""
     claude_oauth_token: str = ""
 
@@ -33,9 +29,6 @@ _GBQA_VALUE_FLAGS = {
     "--gbqa-runner": "task_runner",
     "--gbqa-agent-model": "agent_model",
     "--gbqa-agent-auth": "agent_auth",
-    "--gbqa-judge": "judge",
-    "--gbqa-judge-model": "judge_model",
-    "--gbqa-judge-auth": "judge_auth",
     "--gbqa-codex-auth-file": "codex_auth_file",
     "--gbqa-claude-oauth-token": "claude_oauth_token",
 }
@@ -90,7 +83,6 @@ def _apply_gbqa_options(
     )
     if task_runner:
         rewritten = _apply_task_runner_options(rewritten, task_runner, options, env)
-    rewritten = _apply_judge_options(rewritten, options, env)
     return rewritten
 
 
@@ -124,51 +116,6 @@ def _apply_task_runner_options(
     )
     for key, value in _agent_auth_env(task_runner, agent_auth, options, env):
         _append_env_option(rewritten, ["--ae", "--agent-env"], key, value)
-    return rewritten
-
-
-def _apply_judge_options(
-    argv: list[str],
-    options: GBQAHarborOptions,
-    env: Mapping[str, str],
-) -> list[str]:
-    rewritten = list(argv)
-    judge = _normalize_judge(
-        options.judge
-        or env.get("GBQA_JUDGE", "")
-        or env.get("GBQA_VERIFIER_JUDGE", "")
-        or env.get("JUDGE_AGENT", "")
-    )
-    judge_auth = _normalize_auth_mode(
-        options.judge_auth or env.get("GBQA_JUDGE_AUTH", "auto")
-    )
-
-    if judge:
-        _append_env_option(
-            rewritten,
-            ["--ve", "--verifier-env"],
-            "REWARDKIT_JUDGE",
-            judge,
-        )
-
-    judge_model = (
-        options.judge_model
-        or env.get("GBQA_JUDGE_MODEL", "")
-        or env.get("REWARDKIT_MODEL", "")
-        or (env.get("JUDGE_CODEX_MODEL", "") if judge == "codex" else "")
-        or env.get("JUDGE_MODEL", "")
-    )
-    if judge_model:
-        _append_env_option(
-            rewritten,
-            ["--ve", "--verifier-env"],
-            "REWARDKIT_MODEL",
-            judge_model,
-        )
-
-    if judge in {"codex", "claude-code"}:
-        for key, value in _judge_auth_env(judge, judge_auth, options, env):
-            _append_env_option(rewritten, ["--ve", "--verifier-env"], key, value)
     return rewritten
 
 
@@ -218,63 +165,6 @@ def _agent_auth_env(
     return []
 
 
-def _judge_auth_env(
-    judge: str,
-    auth_mode: str,
-    options: GBQAHarborOptions,
-    env: Mapping[str, str],
-) -> list[tuple[str, str]]:
-    if judge == "codex":
-        if auth_mode == "api_key" or _codex_api_key_forced(env):
-            return _openai_compatible_env(env)
-        if auth_mode in {"auto", "subscription"}:
-            access_token = env.get("CODEX_ACCESS_TOKEN", "")
-            if access_token:
-                values = [("CODEX_ACCESS_TOKEN", access_token)]
-                if auth_mode == "subscription":
-                    values.append(("REWARDKIT_FORCE_OAUTH", "1"))
-                return values
-            b64 = env.get("CODEX_AUTH_JSON_B64", "")
-            if b64:
-                return [("CODEX_AUTH_JSON_B64", b64)]
-            auth_json = _read_codex_auth_json_b64(options, env)
-            if auth_json:
-                return [("CODEX_AUTH_JSON_B64", auth_json)]
-            if auth_mode == "subscription":
-                path = (
-                    _resolve_codex_auth_path(options, env, include_default=True)
-                    or "~/.codex/auth.json"
-                )
-                raise FileNotFoundError(
-                    "Codex verifier subscription auth requires CODEX_AUTH_JSON_B64 "
-                    f"or a readable auth file at {path}."
-                )
-        return []
-
-    if judge == "claude-code":
-        if auth_mode == "api_key":
-            return _present_env(
-                env,
-                "ANTHROPIC_API_KEY",
-                "ANTHROPIC_AUTH_TOKEN",
-                "ANTHROPIC_BASE_URL",
-            )
-        values = []
-        token = options.claude_oauth_token or env.get("CLAUDE_CODE_OAUTH_TOKEN", "")
-        if token:
-            values.append(("CLAUDE_CODE_OAUTH_TOKEN", token))
-        if auth_mode == "subscription":
-            values.append(("CLAUDE_FORCE_OAUTH", "1"))
-            values.append(("REWARDKIT_FORCE_OAUTH", "1"))
-        elif env.get("CLAUDE_FORCE_OAUTH", ""):
-            values.append(("CLAUDE_FORCE_OAUTH", env["CLAUDE_FORCE_OAUTH"]))
-        elif env.get("REWARDKIT_FORCE_OAUTH", ""):
-            values.append(("REWARDKIT_FORCE_OAUTH", env["REWARDKIT_FORCE_OAUTH"]))
-        return values
-
-    return []
-
-
 def _present_env(env: Mapping[str, str], *keys: str) -> list[tuple[str, str]]:
     return [(key, env[key]) for key in keys if env.get(key, "")]
 
@@ -311,25 +201,6 @@ def _resolve_codex_auth_path(
     default = Path.home() / ".codex" / "auth.json"
     if include_default and default.is_file():
         return str(default)
-    return ""
-
-
-def _read_codex_auth_json_b64(
-    options: GBQAHarborOptions,
-    env: Mapping[str, str],
-) -> str:
-    candidates = [
-        _resolve_codex_auth_path(options, env, include_default=True),
-        str(Path.home() / ".codex" / "auth.json")
-        if _truthy(env.get("CODEX_FORCE_AUTH_JSON", ""))
-        else "",
-    ]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        path = Path(candidate).expanduser()
-        if path.is_file():
-            return base64.b64encode(path.read_bytes()).decode("ascii")
     return ""
 
 
@@ -383,16 +254,6 @@ def _normalize_task_runner(value: str) -> str:
     text = aliases.get(text, text)
     if text and text not in {"gbqa", "codex", "claude-code"}:
         raise ValueError("GBQA task runner must be one of: gbqa, codex, claude-code")
-    return text
-
-
-def _normalize_judge(value: str) -> str:
-    text = str(value or "").strip()
-    normalized = text.lower().replace("_", "-")
-    if normalized in {"claude", "claude-code"}:
-        return "claude-code"
-    if normalized in {"codex", "codex-cli"}:
-        return "codex"
     return text
 
 

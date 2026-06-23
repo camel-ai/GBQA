@@ -554,7 +554,7 @@ def main() -> None:
         "--config",
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.toml"),
     )
-    parser.add_argument("--task", default="dark-castle")
+    parser.add_argument("--task", default="dark-castle-key-fragment-combine")
     parser.add_argument("--task-metadata", default=None)
     parser.add_argument(
         "--interaction-profile",
