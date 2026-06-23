@@ -61,7 +61,8 @@ def main() -> None:
             max_tokens=4096,
         )
     )
-    assert request_config["max_context_tokens"] == 16096
+    assert request_config["max_tokens"] == 4096
+    assert "max_context_tokens" not in request_config
 
     agent = CamelTaskAgent.__new__(CamelTaskAgent)
     agent._config = CamelRuntimeConfig(

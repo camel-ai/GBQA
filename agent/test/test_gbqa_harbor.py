@@ -99,6 +99,35 @@ def test_metadata_loader() -> None:
     ]
 
 
+def test_harbor_agent_infers_instance_metadata_from_trial_config() -> None:
+    temp_root = ROOT_DIR / "agent" / "test" / "_tmp_gbqa_harbor_trial_config"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    logs_dir = temp_root / "trial" / "agent"
+    logs_dir.mkdir(parents=True)
+    try:
+        agent = GBQAHarborAgent(
+            logs_dir=logs_dir,
+            interaction_mode="terminal",
+            max_steps=1,
+        )
+        assert agent.metadata.task_slug == "dark-castle-key-fragment-combine"
+        (temp_root / "trial" / "config.json").write_text(
+            json.dumps(
+                {
+                    "task": {
+                        "path": "gbqa/tasks/dark-castle-dropped-hidden-item",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        agent._refresh_trial_metadata()
+        assert agent.metadata.task_slug == "dark-castle-dropped-hidden-item"
+        assert agent.metadata.task_id == "gbqa/dark-castle-dropped-hidden-item"
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_config_rendering() -> None:
     metadata = load_gbqa_metadata(TASK_METADATA_PATH)
     terminal_config = render_agent_config(metadata=metadata, interaction_mode="terminal", max_steps=3)
