@@ -1196,6 +1196,24 @@ class Orchestrator:
             action=action,
             observation=observation,
         )
+        bug.expected_behavior = bug.expected_behavior or str(
+            bug.evidence.get("expected_behavior", "")
+        ).strip()
+        bug.observed_fault = bug.observed_fault or str(
+            bug.evidence.get("observed_fault", "")
+        ).strip()
+        if not bug.reproduction:
+            reproduction = bug.evidence.get("reproduction") or bug.evidence.get(
+                "minimal_reproduction",
+                [],
+            )
+            bug.reproduction = self._string_list(reproduction)
+        if not bug.pinpoint:
+            pinpoint = bug.evidence.get("pinpoint")
+            if isinstance(pinpoint, dict):
+                bug.pinpoint = pinpoint
+        if not bug.root_cause:
+            bug.root_cause = str(bug.evidence.get("root_cause", "")).strip()
         report.bugs.append(bug)
         self._hypotheses.add_from_finding(
             finding=bug,
@@ -1535,6 +1553,14 @@ class Orchestrator:
                 "error": result.error,
             },
         )
+
+    @staticmethod
+    def _string_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
 
     @staticmethod
     def _subagent_summary(report: RunReport, *, max_items: int = 4) -> str:

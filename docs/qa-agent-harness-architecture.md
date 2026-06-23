@@ -57,7 +57,7 @@ Runtime ownership:
 - GBQA owns task metadata, the QA harness behavior, normalized agent artifacts,
   and platform-level verifier-side bug evaluation.
 - `agent/` owns harness execution only. It emits reports and trajectories, but
-  does not read verifier human-baseline bugs or compute benchmark scores.
+  does not read verifier target-bug files or compute benchmark scores.
 - `GBQAHarborAgent` uploads the harness and GBQA package into the sandbox,
   renders `/sandbox/runtime/config.toml`, starts the target software service,
   runs `agent/run_agent.py`, and exports normalized GBQA artifacts.
@@ -65,9 +65,6 @@ Runtime ownership:
   task runners through `gbqa.cli.harbor_run` selectors. They do not run the GBQA
   QA Agent Harness; they run Harbor's CLI-agent path and must follow the task
   instruction artifact contract.
-- RewardKit agent judges are supported independently in the verifier phase by
-  selecting `REWARDKIT_JUDGE=codex` or `REWARDKIT_JUDGE=claude-code`, either
-  directly or through `--gbqa-judge`.
 
 ## 3. Repository Boundaries
 
@@ -91,12 +88,14 @@ Primary implementation paths:
 - `gbqa/reporting/`: conversion from harness reports to normalized artifacts.
 - `gbqa/rewards/`: verifier and Rewardkit integration.
 
-The current first-party task package is:
+Current first-party instance packages include:
 
-- `gbqa/tasks/dark-castle/`
+- `gbqa/tasks/dark-castle-key-fragment-combine/`
+- `gbqa/tasks/dark-castle-dropped-hidden-item/`
 
-Task metadata belongs in `gbqa.yaml`; the target software repository must not
-contain GBQA human-baseline bug definitions.
+Instance metadata belongs in `gbqa.yaml`; multiple instances may share the same
+target software release, but each instance has one target bug, one hint, and one
+ground-truth golden patch anchor.
 
 ## 4. Layered Architecture
 
@@ -554,15 +553,15 @@ directory. Harbor export then normalizes those into `/logs/agent/gbqa`.
 Canonical agent artifacts:
 
 - `run.json`
-- `bugs.json` — normalized bug candidates with `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
+- `issue.json` — preferred single issue report with `expected_behavior`, `observed_fault`, `reproduction`, and function-level `pinpoint` or `root_cause`
+- `bugs.json` — legacy single-element compatibility report
 - `steps.jsonl`
 - `trace.jsonl`
 - `report.md`
 - `artifacts/`
 
-Human-baseline bug files may store the same three fields at the top level. Export
-and verifier code lift them into `evidence` through
-`gbqa.protocol.schemas.normalize_bug_evidence(...)`.
+Target bug files store `target_bug`, including the hint, expected behavior,
+observed fault, reproduction, function-level pinpoint, and golden patch anchors.
 
 Verifier outputs remain under `/logs/verifier`:
 
@@ -571,10 +570,9 @@ Verifier outputs remain under `/logs/verifier`:
 - `reward.txt`
 - `gbqa_result.json`
 
-The default verifier reward is value-based. It evaluates the top `n` reported
-bugs, where `n` is the human-baseline bug count, verifies candidate bugs through
-reasonable failing test cases, assigns impact/scope/reproducibility value tiers,
-and scores `min(1.0, agent_value / human_value)`.
+The verifier reward is rule-based and binary. It evaluates one submitted issue
+report for the instance and gives reward `1.0` only when the issue is complete
+and its function-level pinpoint aligns with the target golden patch.
 
 Do not move Harbor reward files or verifier outputs out of `/logs/verifier`.
 
@@ -620,7 +618,7 @@ Custom QA harness, terminal mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal
@@ -630,7 +628,7 @@ Default multi-mode profile:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=default
@@ -640,7 +638,7 @@ Full harness mode:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal \
@@ -651,7 +649,7 @@ Harbor built-in Claude Code task runner:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner claude-code \
   --gbqa-agent-model anthropic/claude-sonnet-4-6 \
@@ -662,24 +660,11 @@ Harbor built-in Codex task runner:
 
 ```bash
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner codex \
   --gbqa-agent-model gpt-5 \
   --gbqa-agent-auth subscription \
-  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
-```
-
-Subscription-backed verifier judge with the custom QA harness:
-
-```bash
-python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
-  -e daytona \
-  --gbqa-task-runner gbqa \
-  --gbqa-judge codex \
-  --gbqa-judge-model gpt-5.5 \
-  --gbqa-judge-auth subscription \
   --gbqa-codex-auth-file "$HOME/.codex/auth.json"
 ```
 
@@ -692,4 +677,4 @@ The current QA Agent Harness does not:
 - Assume source-code access in minimal mode.
 - Assume logs are memory.
 - Float benchmark baselines automatically when upstream releases change.
-- Store GBQA human-baseline bugs in the external target software repository.
+- Store GBQA target-bug files in the external target software repository.

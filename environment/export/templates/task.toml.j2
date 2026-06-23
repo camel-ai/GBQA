@@ -4,8 +4,12 @@ description = "Draft GBQA task generated from environment sourcing."
 agent_timeout_sec = 600
 verifier_timeout_sec = 120
 
+[verifier.env]
+GBQA_EVAL_METHOD = "${GBQA_EVAL_METHOD:-targeted_bug}"
+
 [metadata]
 benchmark_status = "{{ benchmark_status }}"
+instance_id = "{{ slug }}"
 software_repository = "{{ repository }}"
 software_selected_version = "{{ baseline_release }}"
 software_fixed_reference_version = "{{ fixed_release }}"

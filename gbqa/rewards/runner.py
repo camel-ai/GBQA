@@ -35,8 +35,6 @@ def run_task_verifier(
     out_dir: str | Path,
     bugs_path: str | Path | None = None,
     ground_truth_path: str | Path | None = None,
-    baseline_values_path: str | Path | None = None,
-    validation_cases_path: str | Path | None = None,
     eval_method: str | None = None,
 ) -> dict[str, float]:
     """Run Rewardkit criteria and write GBQA post-processing artifacts."""
@@ -51,12 +49,6 @@ def run_task_verifier(
         "GBQA_GROUND_TRUTH": (
             str(ground_truth_path) if ground_truth_path is not None else None
         ),
-        "GBQA_BASELINE_VALUES": (
-            str(baseline_values_path) if baseline_values_path is not None else None
-        ),
-        "GBQA_BUG_VALIDATION_CASES": (
-            str(validation_cases_path) if validation_cases_path is not None else None
-        ),
     }
     previous_env = {key: os.environ.get(key) for key in env_updates}
     try:
@@ -67,8 +59,6 @@ def run_task_verifier(
             Path(workspace),
             bugs_path=bugs_path,
             ground_truth_path=ground_truth_path,
-            baseline_values_path=baseline_values_path,
-            validation_cases_path=validation_cases_path,
             eval_method=eval_method,
         )
         (out_path / "gbqa_result.json").write_text(
@@ -102,8 +92,6 @@ def main() -> None:
     parser.add_argument("--out-dir", default="/logs/verifier")
     parser.add_argument("--bugs")
     parser.add_argument("--ground-truth")
-    parser.add_argument("--baseline-values")
-    parser.add_argument("--validation-cases")
     parser.add_argument("--eval-method")
     args = parser.parse_args()
     scores = run_task_verifier(
@@ -112,8 +100,6 @@ def main() -> None:
         out_dir=args.out_dir,
         bugs_path=args.bugs,
         ground_truth_path=args.ground_truth,
-        baseline_values_path=args.baseline_values,
-        validation_cases_path=args.validation_cases,
         eval_method=args.eval_method,
     )
     print(f"[gbqa.rewards] wrote verifier rewards: {scores}")

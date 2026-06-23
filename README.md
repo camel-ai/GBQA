@@ -10,7 +10,7 @@
 
 ## 📖 Overview
 
-The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned human-baseline bugs plus value criteria for scoring.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA instance points to a real GitHub software release, gives one targeted bug hint, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and evaluates one issue report with rule-based function-level validation.
 
 ## 🚀 Quick Start
 
@@ -37,9 +37,6 @@ DAYTONA_API_KEY=
 API_KEY=
 BASE_URL=https://zenmux.ai/api/v1
 MODEL_NAME=
-REWARDKIT_JUDGE=openai/gpt-4o
-OPENAI_API_KEY=
-OPENAI_API_BASE=https://zenmux.ai/api/v1
 GITHUB_TOKEN=
 ```
 
@@ -70,7 +67,7 @@ python -m gbqa.cli.harbor_run run \
 > [!WARNING]
 > Warning for  `computer`: computer interaction (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
-### 3a. Optional Runner And Judge Selection
+### 3a. Optional Runner Selection
 
 GBQA supports two task-running paths:
 
@@ -84,7 +81,7 @@ Use the GBQA launcher selectors to choose the path:
 ```bash
 # Custom GBQA QA harness
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal \
@@ -96,7 +93,7 @@ python -m gbqa.cli.harbor_run run \
 claude setup-token
 export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner claude-code \
   --gbqa-agent-model anthropic/claude-sonnet-4-6 \
@@ -107,7 +104,7 @@ python -m gbqa.cli.harbor_run run \
 # Harbor built-in Codex with subscription auth
 codex login
 python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
   -e daytona \
   --gbqa-task-runner codex \
   --gbqa-agent-model gpt-5 \
@@ -116,37 +113,10 @@ python -m gbqa.cli.harbor_run run \
 ```
 
 The task instruction tells generic CLI agents to start Dark Castle and write
-`/logs/agent/gbqa/bugs.json`, which is the verifier input.
+`/logs/agent/gbqa/issue.json`, which is the verifier's preferred input. A
+single-element legacy `bugs.json` is still accepted for compatibility.
 
-The verifier judge is independently selectable. API-key scoring remains
-supported with `REWARDKIT_JUDGE=openai/<model>` plus `OPENAI_API_KEY` and
-`OPENAI_API_BASE`. Subscription-backed judges use RewardKit agent judges:
-
-```bash
-# Claude Code judge for optional value-evaluation review
-export CLAUDE_CODE_OAUTH_TOKEN="claude_oauth_..."
-python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
-  -e daytona \
-  --gbqa-task-runner gbqa \
-  --gbqa-judge claude-code \
-  --gbqa-judge-model claude-opus-4-7 \
-  --gbqa-judge-auth subscription
-```
-
-```bash
-# Codex judge for optional value-evaluation review inside the verifier container
-python -m gbqa.cli.harbor_run run \
-  -p gbqa/tasks/dark-castle \
-  -e daytona \
-  --gbqa-task-runner gbqa \
-  --gbqa-judge codex \
-  --gbqa-judge-model gpt-5.5 \
-  --gbqa-judge-auth subscription \
-  --gbqa-codex-auth-file "$HOME/.codex/auth.json"
-```
-
-See `docs/subscription-auth.md` for the full Harbor/Rewardkit subscription
+See `docs/subscription-auth.md` for the Harbor task-runner subscription
 authentication reference.
 
 ### 4. Run Batch Evaluations In Parallel
@@ -182,22 +152,21 @@ you intentionally want to include model/API network smoke tests.
 
 In Harbor benchmark runs, evaluation is performed automatically by the verifier
 phase after the agent writes normalized artifacts. The `agent/` harness does not
-read human-baseline verifier assets or compute benchmark scores.
+read target-bug verifier assets or compute benchmark scores.
 
-GBQA's default verifier reward is value-based. The task human baseline is treated
-as a pre-scored human baseline, not as the only bug oracle. The verifier
-evaluates the top `n` reported candidate bugs, where `n` is the number of human
-baseline bugs, verifies reasonable failing test cases, assigns impact/scope/
-reproducibility value tiers, and returns `min(1.0, agent_value / human_value)`.
+GBQA's default verifier reward is targeted and binary. Each benchmark instance
+has one known target bug and one hint. The verifier reads the submitted issue
+report, checks required issue fields, and gives reward `1.0` only when the
+reported function-level pinpoint aligns with the target golden patch.
 
-- Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
-- Each bug report should include `evidence.expected_behavior`, `evidence.observed_fault`, and `evidence.minimal_reproduction`
+- Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/issue.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
+- Each issue report should include `expected_behavior`, `observed_fault`, `reproduction`, and `pinpoint` or `root_cause`
 - Harbor reward outputs: `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`
 - Full GBQA evaluation payload: `/logs/verifier/gbqa_result.json`
 
 ## Task Packages
 
-Each benchmark task is a Harbor-compatible package under `gbqa/tasks/<task-id>`. The task package defines the GitHub software release, sandbox runtime assets, interaction modes, verifier entrypoint, human-baseline bug file, precomputed baseline value file, validation cases, and artifact contract.
+Each benchmark instance is a Harbor-compatible package under `gbqa/tasks/<instance-id>`. Multiple instances may share the same upstream software release, but each instance has its own `instruction.md`, `gbqa.yaml`, target bug file, verifier entrypoint, and artifact contract. Running multiple instances launches multiple independent Harbor trials and Daytona sandboxes.
 
 ## Environment Preparation
 

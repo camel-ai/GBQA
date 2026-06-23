@@ -35,6 +35,14 @@ class GBQAMetadata:
         return self.task_id.rsplit("/", maxsplit=1)[-1]
 
     @property
+    def instance_id(self) -> str:
+        return str(self.raw["task"].get("instance_id") or self.task_slug)
+
+    @property
+    def application_id(self) -> str:
+        return str(self.raw["task"].get("application_id") or self.task_slug)
+
+    @property
     def task_title(self) -> str:
         return str(self.raw["task"].get("title") or self.task_slug)
 
@@ -248,32 +256,15 @@ class GBQAMetadata:
 
     @property
     def evaluation_method(self) -> str:
-        return str(self.raw.get("evaluation", {}).get("method", "value_based"))
+        return str(self.raw.get("evaluation", {}).get("method", "targeted_bug"))
 
     @property
-    def value_rubric_version(self) -> str:
-        return str(
-            self.raw.get("evaluation", {}).get(
-                "value_rubric_version",
-                "impact_scope_repro_v1",
-            )
-        )
+    def target_bug_id(self) -> str:
+        return str(self.raw.get("evaluation", {}).get("target_bug_id", ""))
 
     @property
-    def baseline_values_path(self) -> Path:
-        relative = self.raw.get("evaluation", {}).get(
-            "baseline_values_path",
-            "tests/value/baseline_values.json",
-        )
-        return (self.path.parent / str(relative)).resolve()
-
-    @property
-    def validation_cases_path(self) -> Path:
-        relative = self.raw.get("evaluation", {}).get(
-            "validation_cases_path",
-            "tests/value/validation_cases.json",
-        )
-        return (self.path.parent / str(relative)).resolve()
+    def target_hint(self) -> str:
+        return str(self.raw.get("evaluation", {}).get("hint", ""))
 
 
 def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:

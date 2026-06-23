@@ -11,37 +11,24 @@ from rewardkit import criterion
 from gbqa.rewards.evaluation import evaluate_task_report
 
 
-@criterion(shared=True, description="GBQA value-based reward against human baseline")
-def bug_value_reward(workspace: Path) -> float:
+@criterion(shared=True, description="GBQA targeted known-bug binary reward")
+def targeted_bug_reward(workspace: Path) -> float:
     return float(evaluate_task_report(workspace).get("reward", 0.0))
 
 
-@criterion(shared=True, description="Total value points earned by verified reported bugs")
-def bug_agent_value(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("agent_value", 0.0))
+@criterion(shared=True, description="Whether the targeted known bug was found")
+def target_bug_found(workspace: Path) -> float:
+    return float(bool(evaluate_task_report(workspace).get("found_target_bug", False)))
 
 
-@criterion(shared=True, description="Precomputed human-baseline bug value points")
-def bug_human_value(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("human_value", 0.0))
+@criterion(shared=True, description="Whether the submitted issue report is complete")
+def issue_report_complete(workspace: Path) -> float:
+    return float(bool(evaluate_task_report(workspace).get("report_complete", False)))
 
 
-@criterion(shared=True, description="Number of reported bugs verified by the verifier")
-def bug_verified_bug_count(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("verified_bug_count", 0.0))
-
-
-@criterion(shared=True, description="Number of top-n reported bugs evaluated")
-def bug_evaluated_bug_count(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("evaluated_bug_count", 0.0))
-
-
-@criterion(
-    shared=True,
-    description="Primary GBQA reward",
-)
-def bug_primary_reward(workspace: Path) -> float:
-    return float(evaluate_task_report(workspace).get("reward", 0.0))
+@criterion(shared=True, description="Whether issue pinpoint aligns with the golden patch")
+def issue_pinpoint_aligned(workspace: Path) -> float:
+    return float(bool(evaluate_task_report(workspace).get("pinpoint_aligned", False)))
 
 
 @criterion(

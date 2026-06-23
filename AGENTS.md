@@ -4,7 +4,7 @@ This `AGENTS.md` file records the current architecture decisions for GBQA and sh
 
 ## Overview
 
-The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA task points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, and provides verifier-owned human-baseline bugs plus value criteria for scoring.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA instance points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, provides one target-bug hint, and evaluates one issue report with rule-based function-level validation.
 
 ## Milestone Planning
 
@@ -34,7 +34,7 @@ The validated M1 topology is colocated:
 Validated smoke command:
 
 ```powershell
-$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 Validated result:
@@ -44,7 +44,7 @@ Validated result:
 - `GBQAHarborAgent` interacted with the environment through terminal mode's HTTP API surface for 10 steps.
 - Harbor downloaded `/logs/agent/gbqa` artifacts.
 - Verifier wrote `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`, and `/logs/verifier/gbqa_result.json`.
-- A 10-step smoke run may legitimately receive reward `0.0` if no verified candidate bug earns value; this is not an infrastructure failure.
+- A 10-step smoke run may legitimately receive reward `0.0` if the targeted bug is not found and localized; this is not an infrastructure failure.
 
 ### M2
 
@@ -77,7 +77,7 @@ Harbor task packages use this structure:
 - `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer overlay path.
 - `tests/`: verifier entrypoint and verifier assets.
 - `solution/`: oracle solution assets.
-- `bugs/`: GBQA human-baseline bug definitions.
+- `bugs/`: GBQA target-bug definitions with a hint and golden patch anchors.
 - `gbqa.yaml`: GBQA-specific metadata that Harbor does not own.
 
 Harbor itself consumes `environment/`. When `interaction_mode=computer`,
@@ -135,7 +135,7 @@ Meaning:
 
 Do not reintroduce `/opt/gbqa` as the GBQA runtime root.
 
-## Dark Castle as an example environment and QA Task
+## Dark Castle as an example environment and QA Instances
 
 Repository:
 
@@ -148,17 +148,18 @@ Release policy:
 - Selection role: `latest_minus_one`
 - Archive URL: `https://github.com/Tsumugii24/dark-castle/archive/refs/tags/v0.1.0.tar.gz`
 
-The GitHub software repository must not contain GBQA human-baseline `bugs/` files. Human baseline bugs belong in the GBQA task package:
+The GitHub software repository must not contain GBQA target-bug `bugs/` files. Target bug definitions belong in GBQA instance packages:
 
-- `gbqa/tasks/dark-castle/bugs/dark-castle.json`
+- `gbqa/tasks/dark-castle-key-fragment-combine/bugs/dark-castle.json`
+- `gbqa/tasks/dark-castle-dropped-hidden-item/bugs/dark-castle.json`
 
-The task metadata source of truth is:
+The instance metadata source of truth is:
 
-- `gbqa/tasks/dark-castle/gbqa.yaml`
+- `gbqa/tasks/<instance-id>/gbqa.yaml`
 
 The Harbor-facing mirror metadata is:
 
-- `gbqa/tasks/dark-castle/task.toml`
+- `gbqa/tasks/<instance-id>/task.toml`
 
 If a new Dark Castle release is created, do not automatically float the benchmark baseline. Update the selected release explicitly for reproducibility.
 
@@ -383,59 +384,71 @@ This subscription path applies to Harbor's `-a claude-code` / `-a codex`
 agents. The default `GBQAHarborAgent` still uses `API_KEY`, `BASE_URL`, and
 `MODEL_NAME` because it runs the GBQA QA harness directly.
 
-Rewardkit value-evaluation review can also use subscription-backed agent judges by
-setting `REWARDKIT_JUDGE=claude-code` or `REWARDKIT_JUDGE=codex`, or through
-`--gbqa-judge claude-code|codex` and
-`--gbqa-judge-auth api_key|subscription`. For Codex inside the verifier
-container, prefer `CODEX_AUTH_JSON_B64` containing a base64-encoded
-`~/.codex/auth.json`; the GBQA wrapper can derive this from
-`--gbqa-codex-auth-file`, and `tests/test.sh` writes it into
-`CODEX_HOME/auth.json` before running Rewardkit. RewardKit-style
-`CODEX_ACCESS_TOKEN` and `REWARDKIT_FORCE_OAUTH` are also passed through when
-configured. Cowork-style aliases
-`JUDGE_AGENT`, `JUDGE_MODEL`, and `JUDGE_CODEX_MODEL` are accepted by verifier
-scripts, but `REWARDKIT_JUDGE` and `REWARDKIT_MODEL` remain canonical.
-
 ## Report And Verifier Contract
 
 Every GBQA run should export normalized artifacts under `/logs/agent/gbqa`:
 
 - `run.json`
+- `issue.json`
 - `bugs.json`
 - `steps.jsonl`
 - `trace.jsonl` when available
 - `report.md` when available
 - `artifacts/` for screenshots, traces, DOM dumps, or other interaction files
 
-Each entry in `bugs.json` should use this evidence shape:
+The preferred verifier input is `issue.json`:
 
 ```json
 {
-  "bugs": [
-    {
-      "title": "Short descriptive title",
-      "description": "What goes wrong and why it is a bug.",
-      "evidence": {
-        "expected_behavior": "What correct behavior should look like.",
-        "observed_fault": "The incorrect behavior you observed.",
-        "minimal_reproduction": ["step 1", "step 2"]
-      }
-    }
-  ]
+  "issue": {
+    "title": "Short descriptive title",
+    "description": "What goes wrong and why it is a bug.",
+    "expected_behavior": "What correct behavior should look like.",
+    "observed_fault": "The incorrect behavior you observed.",
+    "reproduction": ["step 1", "step 2"],
+    "pinpoint": {
+      "file": "relative/path.py",
+      "function": "function_or_method_name",
+      "line": 123
+    },
+    "root_cause": "Function-level explanation of the defect."
+  }
 }
 ```
 
-Human-baseline bug files may keep the same three fields at the top level;
-`gbqa.protocol.schemas.normalize_bug_evidence(...)` lifts them into `evidence`
-during export and verifier loading.
+For compatibility, `bugs.json` may contain a single report with the same fields
+or with the fields nested under `evidence`.
+
+Target bug files use this shape:
+
+```json
+{
+  "target_bug": {
+    "id": "instance-id",
+    "hint": "Agent-facing hint",
+    "expected_behavior": "Correct behavior.",
+    "observed_fault": "Buggy behavior.",
+    "reproduction": ["step 1", "step 2"],
+    "pinpoint": {
+      "file": "relative/path.py",
+      "function": "function_or_method_name"
+    },
+    "golden_patch": {
+      "functions": [
+        {"file": "relative/path.py", "function": "function_or_method_name"}
+      ],
+      "hunks": []
+    }
+  }
+}
+```
 
 GBQA verifiers must use Harbor Rewardkit. `harbor-rewardkit` is a required
 platform dependency; if it is missing, `gbqa.rewards.runner` fails fast with
 an install hint. Rewardkit discovers criteria from `tests/`, writes numeric
 scores to `/logs/verifier/reward.json`, and writes per-criterion detail to
 `/logs/verifier/reward-details.json`. See
-[Harbor Rewardkit](https://www.harborframework.com/docs/rewardkit) and
-[LLM-as-a-Judge](https://www.harborframework.com/docs/tutorials/llm-as-a-judge).
+[Harbor Rewardkit](https://www.harborframework.com/docs/rewardkit).
 
 Canonical task template:
 
@@ -444,48 +457,24 @@ gbqa/tasks/_template/tests/
   test.sh
   criteria.py
   reward/check.py
-  agent_value/check.py
-  human_value/check.py
-  verified_bug_count/check.py
-  evaluated_bug_count/check.py
+  target_bug_found/check.py
+  issue_report_complete/check.py
+  issue_pinpoint_aligned/check.py
   trajectory/check.py
-  value/baseline_values.json
-  value/validation_cases.json
-  quality/quality.toml
-  quality/value_evaluation_review.md
-  judge/evidence_quality.toml.example
 ```
 
 Install the template into a task with
 `gbqa.rewards.template.install_task_verifier_tests(...)`. Each subdirectory
 maps to one Rewardkit reward name in `reward.json`.
 
-Extension points:
+Rule-based evaluation:
 
-- Value-based bug evaluation: shared criteria in `gbqa.rewards.criteria`
-  call `gbqa.rewards.value_based.evaluate_value_based_report(...)`.
-  Ground-truth bugs are a pre-scored human baseline, not the only bug oracle.
-  The default reward is `min(1.0, agent_value / human_value)`.
-- Candidate verification: `/tests/value/validation_cases.json` provides
-  deterministic task validation cases. A validation case may include a
-  `command`; nonzero exit in the buggy environment is treated as the rule-based
-  failing-test signal. Optional verifier-side commands
-  `GBQA_BUG_TEST_GENERATOR_CMD`, `GBQA_BUG_TEST_REASONABLENESS_CMD`, and
-  `GBQA_BUG_TEST_EXECUTOR_CMD` can dynamically construct, review, and execute
-  hidden-bug tests.
-- Value scoring: verified bugs are scored on impact, scope, and
-  reproducibility, then mapped to stable tier points. `GBQA_VALUE_AGENT_CMD`
-  can replace the deterministic fallback scorer.
-- Trajectory checks: `trajectory_exported` for GBQA `trace.jsonl` /
-  `steps.jsonl`, plus optional `atif_trajectory_tool_used` for ATIF JSON
-- Value-evaluation review (LLM-as-a-Judge): `quality/quality.toml` loads the
-  human baseline, baseline values, validation cases, reported bugs, and
-  `/logs/verifier/gbqa_result.json` into the same judge context. Configure the
-  judge model and credentials through `task.toml` `[verifier.env]`
-  (`REWARDKIT_JUDGE`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` / `OPENAI_API_BASE`,
-  `CLAUDE_CODE_OAUTH_TOKEN`, or Codex `auth.json` variables).
-- Optional rubric extensions: copy `judge/evidence_quality.toml.example` to
-  `judge/evidence_quality.toml` for evidence-quality scoring.
+- `reward/check.py` calls `targeted_bug_reward`, the primary binary reward.
+- `target_bug_found/check.py` reports whether the target bug was found.
+- `issue_report_complete/check.py` reports whether required issue fields are present.
+- `issue_pinpoint_aligned/check.py` reports whether the issue's function-level
+  pinpoint aligns with the target golden patch.
+- `trajectory/check.py` checks that GBQA exported `trace.jsonl` or `steps.jsonl`.
 
 `tests/test.sh` should call `python -m gbqa.rewards.runner` with
 `PYTHONPATH=/sandbox`. The runner always executes Rewardkit, then writes
@@ -498,12 +487,12 @@ Verifier outputs:
   `gbqa` evidence section
 - `/logs/verifier/reward.txt` — primary scalar reward derived from
   `reward.json`
-- `/logs/verifier/gbqa_result.json` — full value-evaluation payload for debugging
+- `/logs/verifier/gbqa_result.json` — full targeted-evaluation payload for debugging
 
 Core platform entrypoints:
 
 - `gbqa.rewards.run_task_verifier(...)`
-- `gbqa.rewards.value_based.evaluate_value_based_report(...)`
+- `gbqa.rewards.targeted.evaluate_targeted_bug_report(...)`
 - `gbqa.rewards.criteria.*` shared Rewardkit criteria
 - `gbqa.rewards.template.install_task_verifier_tests(...)`
 
@@ -540,8 +529,8 @@ Use these directories for new platform code:
   human review, and task package generation. This directory is not part of the
   GBQA runtime package and must not be uploaded into Daytona during Harbor runs.
 - `environment/export/`: draft task package generation. Generated packages are
-  not production-ready until human baseline, verifier behavior, and reward output
-  contracts are reviewed.
+  not production-ready until target-bug hints, golden patch anchors, verifier
+  behavior, and reward output contracts are reviewed.
 
 Environment export currently generates package files from Python code in
 `environment/export/generator.py`; do not assume templates under
@@ -616,7 +605,7 @@ Expected result for the path scan is no matches.
 For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbor summary output does not fail under a GBK console:
 
 ```powershell
-$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run ...` because
@@ -631,7 +620,7 @@ $env:DAYTONA_API_KEY='...'
 $env:API_KEY='...'
 $env:BASE_URL='https://zenmux.ai/api/v1'
 $env:MODEL_NAME='...'
-harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
+harbor run -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 For completed terminal/browser modes, `python -m gbqa.cli.harbor_run run ...` and
@@ -700,7 +689,7 @@ Expected result for the path scan is no matches.
 For Daytona smoke validation:
 
 ```bash
-python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal -p gbqa/tasks/dark-castle -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
+python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run run` because
@@ -715,7 +704,7 @@ export DAYTONA_API_KEY='...'
 export API_KEY='...'
 export BASE_URL='https://zenmux.ai/api/v1'
 export MODEL_NAME='...'
-harbor run -p gbqa/tasks/dark-castle -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
+harbor run -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --agent-import-path gbqa.harbor.agent:GBQAHarborAgent --ak interaction_mode=terminal --ak max_steps=10
 ```
 
 For completed terminal/browser modes, `python -m gbqa.cli.harbor_run run ...` and

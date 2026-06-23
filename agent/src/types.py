@@ -100,6 +100,11 @@ class BugFinding:
     description: str
     confidence: float
     evidence: Dict[str, Any] = field(default_factory=dict)
+    expected_behavior: str = ""
+    observed_fault: str = ""
+    reproduction: List[str] = field(default_factory=list)
+    pinpoint: Dict[str, Any] = field(default_factory=dict)
+    root_cause: str = ""
     tags: List[str] = field(default_factory=list)
 
 

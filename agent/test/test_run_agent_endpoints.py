@@ -26,6 +26,17 @@ from src.log_sources import (
 from src.tool_registry import ToolRegistry
 
 
+TASK_INSTANCE_SLUG = "dark-castle-key-fragment-combine"
+TASK_METADATA = os.path.join(
+    ROOT_DIR,
+    "..",
+    "gbqa",
+    "tasks",
+    TASK_INSTANCE_SLUG,
+    "gbqa.yaml",
+)
+
+
 def main() -> None:
     service_base_url, frontend_url = _resolve_task_endpoints(
         backend_type="api",
@@ -66,9 +77,9 @@ def main() -> None:
     )
     _apply_task_metadata(
         config,
-        os.path.join(ROOT_DIR, "..", "gbqa", "tasks", "dark-castle", "gbqa.yaml"),
+        TASK_METADATA,
     )
-    injected_task = config.get_task("dark-castle")
+    injected_task = config.get_task(TASK_INSTANCE_SLUG)
     assert injected_task["base_url"] == "http://127.0.0.1:5000/api/agent"
     assert injected_task["frontend_url"] == "http://127.0.0.1:5000/"
     assert "ga" + "mes" not in config.raw
@@ -90,7 +101,7 @@ def main() -> None:
     )
     _apply_task_metadata(
         computer_config,
-        os.path.join(ROOT_DIR, "..", "gbqa", "tasks", "dark-castle", "gbqa.yaml"),
+        TASK_METADATA,
     )
     computer_interaction = computer_config.get_section("interaction")
     assert computer_interaction["primary"] == "computer_use"
@@ -114,7 +125,7 @@ def main() -> None:
     )
     _apply_task_metadata(
         default_config,
-        os.path.join(ROOT_DIR, "..", "gbqa", "tasks", "dark-castle", "gbqa.yaml"),
+        TASK_METADATA,
     )
     default_run = default_config.get_section("run")
     default_interaction = default_config.get_section("interaction")
@@ -162,7 +173,7 @@ def main() -> None:
     )
     _apply_task_metadata(
         default_browser_config,
-        os.path.join(ROOT_DIR, "..", "gbqa", "tasks", "dark-castle", "gbqa.yaml"),
+        TASK_METADATA,
     )
     assert default_browser_config.get_section("run")["interaction_profile"] == "default"
     assert default_browser_config.get_section("run")["interaction_mode"] == "browser"

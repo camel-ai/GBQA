@@ -47,7 +47,9 @@ class GBQAHarborAgent(BaseAgent):
     _REMOTE_RUNTIME_DIR = "/sandbox/runtime"
     _REMOTE_CONFIG_PATH = "/sandbox/runtime/config.toml"
     _REMOTE_PYTHON = "/opt/venv/bin/python"
-    _DEFAULT_TASK_METADATA_RELATIVE = Path("gbqa/tasks/dark-castle/gbqa.yaml")
+    _DEFAULT_TASK_METADATA_RELATIVE = Path(
+        "gbqa/tasks/dark-castle-key-fragment-combine/gbqa.yaml"
+    )
     _AGENT_UPLOAD_ITEMS = (
         "run_agent.py",
         "config.toml.example",
@@ -239,7 +241,7 @@ class GBQAHarborAgent(BaseAgent):
         cls,
         *,
         max_steps: int,
-        task_slug: str = "dark-castle",
+        task_slug: str = "dark-castle-key-fragment-combine",
         config_path: str = "/sandbox/runtime/config.toml",
         remote_agent_dir: str = "/sandbox/agent",
         python_path: str = "/opt/venv/bin/python",

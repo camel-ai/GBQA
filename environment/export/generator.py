@@ -119,7 +119,10 @@ def _write_task_package(task_root: Path, seed: dict[str, Any]) -> None:
     (task_root / "gbqa.yaml").write_text(_render_gbqa_yaml(seed), encoding="utf-8")
     (task_root / "instruction.md").write_text(_render_instruction(seed), encoding="utf-8")
     (task_root / "environment" / "Dockerfile").write_text(_render_dockerfile(seed), encoding="utf-8")
-    (task_root / "bugs" / "ground_truth.json").write_text('{"bugs": []}\n', encoding="utf-8")
+    (task_root / "bugs" / "ground_truth.json").write_text(
+        _render_ground_truth(seed),
+        encoding="utf-8",
+    )
     (task_root / "tests" / "bugs").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(
         task_root / "bugs" / "ground_truth.json",
@@ -144,19 +147,11 @@ agent_timeout_sec = 600
 verifier_timeout_sec = 120
 
 [verifier.env]
-REWARDKIT_JUDGE = "${{REWARDKIT_JUDGE:-openai/gpt-4o}}"
-ANTHROPIC_API_KEY = "${{ANTHROPIC_API_KEY:-}}"
-ANTHROPIC_BASE_URL = "${{ANTHROPIC_BASE_URL:-}}"
-OPENAI_API_KEY = "${{OPENAI_API_KEY:-}}"
-OPENAI_API_BASE = "${{OPENAI_API_BASE:-https://zenmux.ai/api/v1}}"
-OPENAI_BASE_URL = "${{OPENAI_BASE_URL:-https://zenmux.ai/api/v1}}"
-CLAUDE_CODE_OAUTH_TOKEN = "${{CLAUDE_CODE_OAUTH_TOKEN:-}}"
-CODEX_AUTH_JSON_PATH = "${{CODEX_AUTH_JSON_PATH:-}}"
-CODEX_AUTH_JSON_B64 = "${{CODEX_AUTH_JSON_B64:-}}"
-CODEX_FORCE_AUTH_JSON = "${{CODEX_FORCE_AUTH_JSON:-}}"
+GBQA_EVAL_METHOD = "${{GBQA_EVAL_METHOD:-targeted_bug}}"
 
 [metadata]
 benchmark_status = "{seed.get('benchmark_status', 'draft')}"
+instance_id = "{seed['slug']}"
 software_repository = "{seed['repository']}"
 software_selected_version = "{seed['baseline_release']}"
 software_fixed_reference_version = "{seed.get('fixed_release', '')}"
@@ -214,6 +209,10 @@ interaction:
   frontend_path: "{service.get('frontend_path', '/')}"
 ground_truth:
   path: "bugs/ground_truth.json"
+evaluation:
+  method: "targeted_bug"
+  target_bug_id: "{seed['slug']}"
+  hint: "TODO: replace this draft hint with a target-bug hint derived from the golden patch."
 artifacts:
   agent_dir: "/logs/agent/gbqa"
   verifier_dir: "/logs/verifier"
@@ -240,11 +239,47 @@ def _render_surfaces_yaml(surfaces: list[dict[str, Any]]) -> str:
 def _render_instruction(seed: dict[str, Any]) -> str:
     return f"""# {seed['slug']}
 
-Explore the target software environment and report reproducible quality issues.
+Investigate one known target bug in the software environment. Use the hint in
+`gbqa.yaml` to reproduce and localize the issue, then write one issue report to
+`/logs/agent/gbqa/issue.json`.
+
+The issue report should include:
+
+- `expected_behavior`
+- `observed_fault`
+- `reproduction`
+- `pinpoint` or `root_cause` at function level
 
 This is a generated draft task. Review deployment, interaction contract, and
-ground-truth bugs before adding it to an official benchmark set.
+target-bug ground truth before adding it to an official benchmark set.
 """
+
+
+def _render_ground_truth(seed: dict[str, Any]) -> str:
+    payload = {
+        "schema_version": "gbqa-target-bug-v1",
+        "task_id": seed["task_id"],
+        "target_bug": {
+            "id": seed["slug"],
+            "title": "TODO: target bug title",
+            "hint": (
+                "TODO: replace this draft hint with a target-bug hint derived "
+                "from the golden patch."
+            ),
+            "expected_behavior": "TODO",
+            "observed_fault": "TODO",
+            "reproduction": [],
+            "pinpoint": {
+                "file": "TODO",
+                "function": "TODO",
+            },
+            "golden_patch": {
+                "functions": [],
+                "hunks": [],
+            },
+        },
+    }
+    return json.dumps(payload, indent=2) + "\n"
 
 
 def _render_dockerfile(seed: dict[str, Any]) -> str:
@@ -277,4 +312,3 @@ def _safe_task_root(output_dir: Path, seed: dict[str, Any]) -> Path:
     if target != root and root not in target.parents:
         raise ValueError(f"refusing to generate task outside output directory: {target}")
     return output_dir / safe_slug
-

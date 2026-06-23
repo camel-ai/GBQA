@@ -52,11 +52,23 @@ class ExportGeneratorTests(unittest.TestCase):
             self.assertTrue((task_root / "gbqa.yaml").exists())
             self.assertTrue((task_root / "instruction.md").exists())
             self.assertTrue((task_root / "environment" / "Dockerfile").exists())
+            self.assertTrue((task_root / "tests" / "target_bug_found" / "check.py").exists())
+            self.assertFalse((task_root / "tests" / "quality").exists())
             metadata = (task_root / "gbqa.yaml").read_text(encoding="utf-8")
             self.assertIn('benchmark_status: "draft"', metadata)
             self.assertIn('archive_url: "https://github.com/acme/flow-ui/archive/refs/tags/v1.0.0.tar.gz"', metadata)
             self.assertIn('default_mode: "terminal"', metadata)
             self.assertIn('kind: "http_api"', metadata)
+            self.assertIn('method: "targeted_bug"', metadata)
+            self.assertIn('target_bug_id: "acme-flow-ui"', metadata)
+            task_toml = (task_root / "task.toml").read_text(encoding="utf-8")
+            self.assertIn('GBQA_EVAL_METHOD = "${GBQA_EVAL_METHOD:-targeted_bug}"', task_toml)
+            instruction = (task_root / "instruction.md").read_text(encoding="utf-8")
+            self.assertIn("/logs/agent/gbqa/issue.json", instruction)
+            ground_truth = json.loads(
+                (task_root / "bugs" / "ground_truth.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(ground_truth["target_bug"]["id"], "acme-flow-ui")
 
     def test_generate_normalizes_unsafe_slug(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
