@@ -1,0 +1,63 @@
+{
+  "schema_version": "gbqa-target-bug-v1",
+  "task_id": "gbqa/dark-castle-dropped-lit-candlestick",
+  "target_bug": {
+    "id": "dark-castle-dropped-lit-candlestick",
+    "title": "Dropped lit candlestick does not illuminate the dark room",
+    "hint_level": "medium",
+    "hints": {
+      "weak": "Explore whether light-producing items keep affecting room visibility when they move between inventory and the room environment.",
+      "medium": "Focus on light-source state after a lit item leaves the player's inventory. Verify whether a dark room remains illuminated after dropping the lit item there.",
+      "strong": "In the basement, light the candlestick, drop it, then execute `look`. The likely defect is in `GameWorld.has_light_source`, which only considers inventory-held lit items."
+    },
+    "hint": "Focus on light-source state after a lit item leaves the player's inventory. Verify whether a dark room remains illuminated after dropping the lit item there.",
+    "expected_behavior": "A lit candlestick dropped in the current dark room should continue to illuminate that room.",
+    "observed_fault": "After the lit candlestick is dropped in a dark room, the room remains pitch-black because light-source checks only consider the player's inventory.",
+    "reproduction": [
+      "Start a new game.",
+      "Pick up the candlestick and matches.",
+      "Light the candlestick.",
+      "Enter the dark basement.",
+      "Drop the candlestick.",
+      "Execute `look` and observe whether the room is still described as pitch-black."
+    ],
+    "pinpoint": {
+      "file": "backend/game/world.py",
+      "class": "GameWorld",
+      "function": "has_light_source",
+      "qualified_name": "GameWorld.has_light_source",
+      "start_line": 200,
+      "end_line": 206
+    },
+    "golden_patch": {
+      "source": "gbqa-authored oracle patch for a historical baseline bug; not from v0.1.0..v0.2.0",
+      "functions": [
+        {
+          "file": "backend/game/world.py",
+          "class": "GameWorld",
+          "function": "has_light_source",
+          "qualified_name": "GameWorld.has_light_source",
+          "start_line": 200,
+          "end_line": 206
+        }
+      ],
+      "hunks": [
+        {
+          "file": "backend/game/world.py",
+          "function": "has_light_source",
+          "old_start": 200,
+          "old_lines": 7,
+          "new_start": 200,
+          "new_lines": 11,
+          "removed": [],
+          "added": [
+            "room = self.get_current_room()",
+            "for item in self.items.values():",
+            "if item.location == room.id and item.is_lit():",
+            "return True"
+          ]
+        }
+      ]
+    }
+  }
+}

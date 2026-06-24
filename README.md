@@ -113,8 +113,9 @@ python -m gbqa.cli.harbor_run run \
 ```
 
 The task instruction tells generic CLI agents to start Dark Castle and write
-`/logs/agent/gbqa/issue.json`, which is the verifier's preferred input. A
-single-element legacy `bugs.json` is still accepted for compatibility.
+`/logs/agent/gbqa/issue.json`, which is the verifier's preferred input. The GBQA
+harness writes the same artifact through its final issue-report pass before
+exit. A single-element legacy `bugs.json` is still accepted for compatibility.
 
 See `docs/subscription-auth.md` for the Harbor task-runner subscription
 authentication reference.
@@ -155,12 +156,15 @@ phase after the agent writes normalized artifacts. The `agent/` harness does not
 read target-bug verifier assets or compute benchmark scores.
 
 GBQA's default verifier reward is targeted and binary. Each benchmark instance
-has one known target bug and one hint. The verifier reads the submitted issue
-report, checks required issue fields, and gives reward `1.0` only when the
-reported function-level pinpoint aligns with the target golden patch.
+has one known target bug and one selected agent-facing hint; official instance
+data can store weak, medium, and strong hint variants for calibration. The
+verifier reads the submitted issue report, checks required issue fields, and
+gives reward `1.0` only when `report_status=complete` and the reported
+pinpoint aligns with the target golden patch. Pinpoint can be a source location
+or a SWE-style minimal patch/diff hunk.
 
 - Agent artifacts: `/logs/agent/gbqa/run.json`, `/logs/agent/gbqa/issue.json`, `/logs/agent/gbqa/bugs.json`, `/logs/agent/gbqa/steps.jsonl`
-- Each issue report should include `expected_behavior`, `observed_fault`, `reproduction`, and `pinpoint` or `root_cause`
+- Each `issue.json` includes top-level `report_status`, `exit_status`, and `missing_fields`; the nested issue should include `expected_behavior`, `observed_fault`, `reproduction`, and source-level `pinpoint` via `locations[]` or `patch/diff`
 - Harbor reward outputs: `/logs/verifier/reward.txt`, `/logs/verifier/reward.json`
 - Full GBQA evaluation payload: `/logs/verifier/gbqa_result.json`
 

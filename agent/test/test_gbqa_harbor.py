@@ -50,6 +50,8 @@ def test_metadata_loader() -> None:
     assert metadata.service_frontend_url == "http://127.0.0.1:5000/"
     assert metadata.evaluation_method == "targeted_bug"
     assert metadata.target_bug_id == "dark-castle-key-fragment-combine"
+    assert metadata.target_hint_level == "medium"
+    assert set(metadata.target_hints) == {"weak", "medium", "strong"}
     assert "key-fragment progression" in metadata.target_hint
     assert "Text adventure" in metadata.agent_profile
     assert metadata.software_type == "github_release"
@@ -179,6 +181,11 @@ def test_config_rendering() -> None:
     assert terminal_payload["run"]["task_metadata_path"] == (
         "/sandbox/gbqa/tasks/dark-castle-key-fragment-combine/gbqa.yaml"
     )
+    task_payload = terminal_payload["tasks"]["dark-castle-key-fragment-combine"]
+    assert task_payload["target_bug_id"] == "dark-castle-key-fragment-combine"
+    assert task_payload["target_hint_level"] == "medium"
+    assert task_payload["target_hint"] == metadata.target_hint
+    assert task_payload["target_hints"]["medium"] == metadata.target_hint
     assert terminal_payload["harness"]["mode"] == "minimal"
     assert terminal_payload["run"]["enabled_interaction_modes"] == ["terminal"]
     assert terminal_payload["interaction"]["primary"] == "api"
@@ -244,6 +251,8 @@ def test_config_rendering() -> None:
     assert full_terminal_payload["subagents"]["explorer"]["enabled"] is True
     assert full_terminal_payload["subagents"]["log_analyst"]["enabled"] is True
     assert "input_token_limit" in terminal_payload["llm"]
+    assert terminal_payload["llm"]["input_token_limit"] == 12000
+    assert full_terminal_payload["llm"]["input_token_limit"] == 128000
     assert "context_token_limit" not in terminal_payload["llm"]
     assert "message_window_" + "size" not in terminal_payload["llm"]
     assert terminal_payload["llm"]["reasoning"]["mode"] == "auto"
@@ -359,6 +368,9 @@ def test_artifact_export_and_verifier() -> None:
     assert Path(exported["issue"]).exists()
     assert Path(exported["steps"]).exists()
     assert len(load_bug_candidates(out_dir / "bugs.json")) == 1
+    issue_payload = json.loads((out_dir / "issue.json").read_text())
+    assert issue_payload["report_status"] == "complete"
+    assert issue_payload["missing_fields"] == []
 
     task_dir = ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG
     result = evaluate_targeted_bug_report(
@@ -537,6 +549,45 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
 
 
 def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:
+    native_oracle_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            str(ROOT_DIR / "gbqa" / "tasks" / TASK_INSTANCE_SLUG),
+            "-a",
+            "oracle",
+        ],
+        env={},
+    )
+    assert "-a" in native_oracle_command
+    assert "oracle" in native_oracle_command
+    oracle_overlay = Path(native_oracle_command[3])
+    assert oracle_overlay.name == "dark-castle-key-fragment-combine-oracle-gbqa"
+    assert (oracle_overlay / "solution" / "gbqa" / "rewards" / "runner.py").is_file()
+
+    gbqa_oracle_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            str(ROOT_DIR / "gbqa" / "tasks"),
+            "--gbqa-task-runner",
+            "oracle",
+        ],
+        env={},
+    )
+    assert "-a" in gbqa_oracle_command
+    assert "oracle" in gbqa_oracle_command
+    tasks_overlay = Path(gbqa_oracle_command[3])
+    assert tasks_overlay.name == "tasks-oracle-gbqa"
+    assert (
+        tasks_overlay
+        / TASK_INSTANCE_SLUG
+        / "solution"
+        / "gbqa"
+        / "rewards"
+        / "runner.py"
+    ).is_file()
+
     claude_command = build_harbor_command(
         [
             "run",

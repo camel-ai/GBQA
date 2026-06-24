@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.2",
+  "task_id": "gbqa/dark-castle-dropped-lit-candlestick",
+  "issue": {
+    "title": "Dropped lit candlestick does not illuminate the dark room",
+    "description": "A lit candlestick only counts as a light source while it is in the player's inventory. If the player drops it in a dark room, it remains lit in the room but the room is still treated as pitch-black.",
+    "expected_behavior": "A lit candlestick dropped in the current dark room should continue to illuminate that room.",
+    "observed_fault": "After the lit candlestick is dropped in a dark room, the room remains pitch-black because light-source checks only consider the player's inventory.",
+    "reproduction": [
+      "Start a new game.",
+      "Pick up the candlestick and matches.",
+      "Light the candlestick.",
+      "Enter the dark basement.",
+      "Drop the candlestick.",
+      "Execute `look` and observe that the room is still described as pitch-black."
+    ],
+    "pinpoint": {
+      "file": "backend/game/world.py",
+      "class": "GameWorld",
+      "function": "has_light_source",
+      "qualified_name": "GameWorld.has_light_source",
+      "start_line": 200,
+      "end_line": 206
+    },
+    "root_cause": "`GameWorld.has_light_source` only checks lit items in `self.inventory`, so a lit item placed in the current room no longer contributes to `can_see()`."
+  }
+}

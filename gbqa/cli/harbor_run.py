@@ -45,6 +45,7 @@ def build_harbor_command(
     harbor_args, options = _extract_gbqa_options(list(argv))
     harbor_args = _rewrite_backend_environment(harbor_args)
     harbor_args = _apply_gbqa_options(harbor_args, options, env_map)
+    harbor_args = _rewrite_oracle_solution_package(harbor_args)
     return ["harbor", *harbor_args]
 
 
@@ -104,6 +105,10 @@ def _apply_task_runner_options(
         rewritten.extend(
             ["--agent-import-path", "gbqa.harbor.agent:GBQAHarborAgent"]
         )
+        return rewritten
+
+    if task_runner == "oracle":
+        rewritten.extend(["-a", "oracle"])
         return rewritten
 
     rewritten.extend(["-a", task_runner])
@@ -252,9 +257,47 @@ def _normalize_task_runner(value: str) -> str:
         "codex-cli": "codex",
     }
     text = aliases.get(text, text)
-    if text and text not in {"gbqa", "codex", "claude-code"}:
-        raise ValueError("GBQA task runner must be one of: gbqa, codex, claude-code")
+    if text and text not in {"gbqa", "oracle", "codex", "claude-code"}:
+        raise ValueError(
+            "GBQA task runner must be one of: gbqa, oracle, codex, claude-code"
+        )
     return text
+
+
+def _rewrite_oracle_solution_package(argv: list[str]) -> list[str]:
+    if not _uses_oracle_agent(argv):
+        return argv
+    path_index = _task_path_index(argv)
+    if path_index is None:
+        return argv
+    task_path = Path(argv[path_index]).expanduser()
+    if not task_path.exists():
+        return argv
+    overlay = _prepare_oracle_solution_task_overlay(task_path)
+    rewritten = list(argv)
+    rewritten[path_index] = str(overlay)
+    return rewritten
+
+
+def _uses_oracle_agent(argv: list[str]) -> bool:
+    index = 0
+    while index < len(argv):
+        item = argv[index]
+        flag, sep, inline_value = item.partition("=")
+        if flag in {"-a", "--agent"}:
+            value = (
+                inline_value
+                if sep
+                else argv[index + 1]
+                if index + 1 < len(argv)
+                else ""
+            )
+            if value == "oracle":
+                return True
+            if not sep:
+                index += 1
+        index += 1
+    return False
 
 
 def _normalize_auth_mode(value: str) -> str:
@@ -338,6 +381,36 @@ def _prepare_computer_use_task_overlay(
     shutil.copytree(task_path, overlay, ignore=ignore)
     shutil.copytree(computer_environment, overlay / "environment")
     return overlay
+
+
+def _prepare_oracle_solution_task_overlay(task_path: Path) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    overlay_root = repo_root / "tmp" / "harbor_task_overlays"
+    overlay = overlay_root / f"{task_path.name}-oracle-gbqa"
+    if overlay.exists():
+        shutil.rmtree(overlay)
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    shutil.copytree(task_path, overlay, ignore=ignore)
+
+    for task_dir in _iter_task_package_dirs(overlay):
+        solution_dir = task_dir / "solution"
+        if not solution_dir.is_dir():
+            continue
+        packaged_gbqa = solution_dir / "gbqa"
+        if packaged_gbqa.exists():
+            shutil.rmtree(packaged_gbqa)
+        shutil.copytree(repo_root / "gbqa", packaged_gbqa, ignore=ignore)
+    return overlay
+
+
+def _iter_task_package_dirs(path: Path) -> list[Path]:
+    if (path / "task.toml").is_file():
+        return [path]
+    return sorted(
+        item
+        for item in path.iterdir()
+        if item.is_dir() and (item / "task.toml").is_file()
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

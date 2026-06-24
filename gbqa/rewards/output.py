@@ -66,6 +66,8 @@ def _gbqa_detail_payload(
         "rubric_version": evaluation.get("rubric_version", ""),
         "found_target_bug": bool(evaluation.get("found_target_bug", False)),
         "target_bug_id": evaluation.get("target_bug_id", ""),
+        "report_status": evaluation.get("report_status", ""),
+        "exit_status": evaluation.get("exit_status", ""),
         "report_complete": bool(evaluation.get("report_complete", False)),
         "missing_report_fields": evaluation.get("missing_report_fields", []),
         "pinpoint_aligned": bool(evaluation.get("pinpoint_aligned", False)),

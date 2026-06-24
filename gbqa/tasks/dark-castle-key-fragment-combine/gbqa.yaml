@@ -5,7 +5,7 @@ task:
   instance_id: "dark-castle-key-fragment-combine"
   family: "game"
   title: "Dark Castle: Key Fragment Combine"
-  profile: "Text adventure in a mysterious castle. Investigate the hinted key-fragment progression bug, reproduce it, and produce one complete issue report. The target software accepts 'new game' to reset; use lifecycle tools such as 'new_session' to open a fresh exploration path, 'end_session' to close one, or 'switch_session' to move between open sessions."
+  profile: "Text adventure in a mysterious castle. Investigate the hinted key-fragment progression bug, reproduce it, localize it with source evidence when code tools are available, and produce one complete issue report. The target software accepts 'new game' to reset; use lifecycle tools such as 'new_session' to open a fresh exploration path, 'end_session' to close one, or 'switch_session' to move between open sessions."
 software:
   type: "github_release"
   repository: "https://github.com/Tsumugii24/dark-castle"
@@ -87,6 +87,11 @@ ground_truth:
 evaluation:
   method: "targeted_bug"
   target_bug_id: "dark-castle-key-fragment-combine"
+  hint_level: "medium"
+  hints:
+    weak: "Explore the key-fragment and escape-key progression. Compare when the game allows the final key to be assembled with the documented item requirements."
+    medium: "Focus on key-fragment progression. Verify whether assembling the final escape key enforces every documented prerequisite before the combine action succeeds."
+    strong: "Collect only two key fragments and execute `combine`. The likely defect is in `ActionHandler.handle_combine`, where the key-fragment threshold is checked before creating the complete key."
   hint: "Focus on key-fragment progression. Verify whether assembling the final escape key enforces every documented prerequisite before the combine action succeeds."
 artifacts:
   agent_dir: "/logs/agent/gbqa"

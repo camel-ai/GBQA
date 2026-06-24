@@ -17,6 +17,7 @@ import yaml  # noqa: E402
 INSTANCE_SLUGS = [
     "dark-castle-key-fragment-combine",
     "dark-castle-dropped-hidden-item",
+    "dark-castle-dropped-lit-candlestick",
 ]
 
 
@@ -39,8 +40,15 @@ def test_dark_castle_instances_use_latest_minus_one_github_release() -> None:
         assert software["install_dir"] == "/sandbox/software/dark-castle"
 
 
-def test_ground_truth_files_define_one_patch_backed_target_bug() -> None:
+def test_ground_truth_files_define_one_function_anchored_target_bug() -> None:
     for slug in INSTANCE_SLUGS:
+        metadata_path = ROOT_DIR / "gbqa" / "tasks" / slug / "gbqa.yaml"
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+        hints = metadata["evaluation"]["hints"]
+        assert metadata["evaluation"]["hint_level"] == "medium"
+        assert set(hints) == {"weak", "medium", "strong"}
+        assert metadata["evaluation"]["hint"] == hints["medium"]
+
         paths = [
             ROOT_DIR / "gbqa" / "tasks" / slug / "bugs" / "dark-castle.json",
             ROOT_DIR / "gbqa" / "tasks" / slug / "tests" / "bugs" / "dark-castle.json",
@@ -50,6 +58,8 @@ def test_ground_truth_files_define_one_patch_backed_target_bug() -> None:
             target = payload["target_bug"]
             assert payload["task_id"] == f"gbqa/{slug}"
             assert target["id"] == slug
+            assert target.get("hint_level") == "medium"
+            assert set(target.get("hints", {})) == {"weak", "medium", "strong"}
             assert str(target.get("hint", "")).strip()
             assert str(target.get("expected_behavior", "")).strip()
             assert str(target.get("observed_fault", "")).strip()
@@ -62,7 +72,7 @@ def test_ground_truth_files_define_one_patch_backed_target_bug() -> None:
 
 def main() -> None:
     test_dark_castle_instances_use_latest_minus_one_github_release()
-    test_ground_truth_files_define_one_patch_backed_target_bug()
+    test_ground_truth_files_define_one_function_anchored_target_bug()
     print("dark castle instance metadata smoke test passed")
 
 

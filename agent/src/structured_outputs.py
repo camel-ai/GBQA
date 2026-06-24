@@ -50,6 +50,38 @@ class ReflectionDecision(BaseModel):
         return float(value)
 
 
+class FinalIssueDecision(BaseModel):
+    """Final targeted issue report output schema."""
+
+    title: str = ""
+    description: str = ""
+    expected_behavior: str = ""
+    observed_fault: str = ""
+    reproduction: List[str] = Field(default_factory=list)
+    pinpoint: dict[str, Any] = Field(default_factory=dict)
+    root_cause: str = ""
+    report_status: str = "incomplete"
+    missing_fields: List[str] = Field(default_factory=list)
+
+    @field_validator("reproduction", "missing_fields", mode="before")
+    @classmethod
+    def normalize_string_list(cls, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    @field_validator("pinpoint", mode="before")
+    @classmethod
+    def normalize_pinpoint(cls, value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            return {"summary": value.strip()}
+        return {}
+
+
 class OperatorCallDecision(BaseModel):
     """One normalized call produced by the operator."""
 

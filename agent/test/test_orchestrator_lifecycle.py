@@ -10,6 +10,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from src.orchestrator import Orchestrator
+from src.final_issue import build_final_issue_payload
 from src.tool_registry import ToolRegistry, register_environment_action_tool
 from src.types import Action, CapabilityDescriptor, Observation, SessionHandle
 
@@ -120,7 +121,27 @@ class ReporterStub:
         return {}
 
 
-def _run(actions: list[Action], *, max_steps: int):
+class FinalIssueReporterStub:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def finalize(self, **kwargs):  # noqa: ANN003
+        self.calls.append(kwargs)
+        return build_final_issue_payload(
+            {
+                "title": "Final issue",
+                "description": "A final issue report was generated.",
+                "expected_behavior": "Expected behavior.",
+                "observed_fault": "Observed fault.",
+                "reproduction": ["Step one.", "Step two."],
+                "pinpoint": {"file": "app.py", "function": "handle"},
+                "root_cause": "handle has a defect.",
+                "report_status": "complete",
+            }
+        )
+
+
+def _run(actions: list[Action], *, max_steps: int, final_issue_reporter=None):
     registry = ToolRegistry()
     register_environment_action_tool(registry, lambda payload, runtime: None)
     backend = BackendStub()
@@ -135,6 +156,7 @@ def _run(actions: list[Action], *, max_steps: int):
         detector=None,
         reporter=reporter,
         max_steps=max_steps,
+        final_issue_reporter=final_issue_reporter,
     )
     return orchestrator.run("Generic QA task"), backend, reporter
 
@@ -166,6 +188,35 @@ def test_agent_can_end_task_explicitly() -> None:
     assert report.steps[-1].action.tool == "end_task"
     assert report.lifecycle_events[-1].event == "end_task"
     assert report.lifecycle_events[-1].trigger == "agent"
+
+
+def test_final_issue_reporter_runs_before_agent_exit() -> None:
+    finalizer = FinalIssueReporterStub()
+    report, _backend, _reporter = _run(
+        [Action(tool="end_task", command="enough evidence collected")],
+        max_steps=5,
+        final_issue_reporter=finalizer,
+    )
+
+    assert len(finalizer.calls) == 1
+    assert finalizer.calls[0]["exit_status"] == "completed"
+    assert report.metadata["exit_status"] == "completed"
+    assert report.metadata["final_issue_report"]["report_status"] == "complete"
+    assert report.metadata["final_issue_report"]["issue"]["pinpoint"]["function"] == "handle"
+
+
+def test_final_issue_reporter_runs_after_max_steps() -> None:
+    finalizer = FinalIssueReporterStub()
+    report, _backend, _reporter = _run(
+        [Action(command="look"), Action(command="look")],
+        max_steps=2,
+        final_issue_reporter=finalizer,
+    )
+
+    assert len(finalizer.calls) == 1
+    assert finalizer.calls[0]["exit_status"] == "max_steps"
+    assert report.metadata["exit_status"] == "max_steps"
+    assert report.metadata["final_issue_report"]["report_status"] == "complete"
 
 
 def test_new_session_keeps_previous_session_open() -> None:
@@ -332,6 +383,8 @@ def test_lifecycle_skill_is_activated_by_default() -> None:
 def main() -> None:
     test_max_steps_forces_end_task()
     test_agent_can_end_task_explicitly()
+    test_final_issue_reporter_runs_before_agent_exit()
+    test_final_issue_reporter_runs_after_max_steps()
     test_new_session_keeps_previous_session_open()
     test_end_session_only_closes_active_session()
     test_end_session_reason_alone_closes_active_session()

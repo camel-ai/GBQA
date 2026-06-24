@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from gbqa.protocol.schemas import (
+    REPORT_STATUS_COMPLETE,
     issue_report_completeness,
-    load_issue_reports,
+    issue_report_status,
+    load_issue_report_bundle,
 )
 
 
@@ -39,7 +41,8 @@ def evaluate_targeted_bug_report(
     """Evaluate whether the agent found the single targeted known bug."""
 
     try:
-        issues = load_issue_reports(issue_path)
+        bundle = load_issue_report_bundle(issue_path)
+        issues = bundle["issues"]
         target = _load_target_bug(Path(ground_truth_path))
     except Exception as exc:  # noqa: BLE001
         return _error_result(f"{type(exc).__name__}: {exc}")
@@ -52,13 +55,32 @@ def evaluate_targeted_bug_report(
         "complete": False,
         "missing_fields": ["issue"],
     }
-    alignment = _evaluate_pinpoint_alignment(issue, target) if issue else {
+    report_status = issue_report_status(
+        issue,
+        explicit_status=bundle.get("report_status") or issue.get("report_status"),
+    )
+    missing_fields = (
+        bundle.get("missing_fields")
+        or issue.get("missing_fields")
+        or completeness["missing_fields"]
+    )
+    should_align = bool(issue) and report_status == REPORT_STATUS_COMPLETE
+    alignment = _evaluate_pinpoint_alignment(issue, target) if should_align else {
         "aligned": False,
         "matched_anchor": {},
-        "rationale": "No issue report was submitted.",
+        "rationale": (
+            "No issue report was submitted."
+            if not issue
+            else f"Issue report status is {report_status}; pinpoint alignment skipped."
+        ),
         "candidate_pinpoint_text": "",
     }
-    found = bool(issue) and bool(completeness["complete"]) and bool(alignment["aligned"])
+    found = (
+        bool(issue)
+        and report_status == REPORT_STATUS_COMPLETE
+        and bool(completeness["complete"])
+        and bool(alignment["aligned"])
+    )
     reward = 1.0 if found else 0.0
     return {
         "evaluation_method": EVALUATION_METHOD,
@@ -69,8 +91,10 @@ def evaluate_targeted_bug_report(
         "evaluated_issue_count": len(evaluated),
         "ignored_issue_count": len(ignored),
         "total_reported": len(issues),
-        "report_complete": bool(completeness["complete"]),
-        "missing_report_fields": completeness["missing_fields"],
+        "report_status": report_status,
+        "exit_status": bundle.get("exit_status", ""),
+        "report_complete": report_status == REPORT_STATUS_COMPLETE,
+        "missing_report_fields": missing_fields,
         "pinpoint_aligned": bool(alignment["aligned"]),
         "details": [
             {
@@ -78,6 +102,8 @@ def evaluate_targeted_bug_report(
                 "issue": issue,
                 "target": _public_target_payload(target),
                 "completeness": completeness,
+                "report_status": report_status,
+                "exit_status": bundle.get("exit_status", ""),
                 "pinpoint_alignment": alignment,
                 "verified": found,
             }
@@ -112,7 +138,9 @@ def _load_target_bug(path: Path) -> dict[str, Any]:
 def _public_target_payload(target: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(target.get("id", "")),
-        "hint": str(target.get("hint", "")),
+        "hint_level": _target_hint_level(target),
+        "hints": _target_hints(target),
+        "hint": _target_hint(target),
         "expected_behavior": _target_field(target, "expected_behavior"),
         "observed_fault": _target_field(target, "observed_fault"),
         "reproduction": _string_list(
@@ -142,7 +170,7 @@ def _evaluate_pinpoint_alignment(
         file_match = _file_matches(anchor.file, candidate_files, candidate_text)
         line_match = _line_matches(anchor, candidate_lines)
         diff_match = _diff_matches(issue, target, anchor)
-        aligned = function_match and (file_match or line_match or diff_match)
+        aligned = diff_match or (function_match and (file_match or line_match))
         if function_match and not best:
             best = _alignment_payload(
                 anchor,
@@ -296,6 +324,9 @@ def _pinpoint_payloads(issue: dict[str, Any]) -> list[dict[str, Any]]:
     for value in (issue.get("pinpoint"), issue.get("root_cause")):
         if isinstance(value, dict):
             payloads.append(value)
+            locations = value.get("locations", [])
+            if isinstance(locations, list):
+                payloads.extend(item for item in locations if isinstance(item, dict))
         elif isinstance(value, list):
             payloads.extend(item for item in value if isinstance(item, dict))
     evidence = issue.get("evidence", {})
@@ -303,6 +334,11 @@ def _pinpoint_payloads(issue: dict[str, Any]) -> list[dict[str, Any]]:
         for value in (evidence.get("pinpoint"), evidence.get("root_cause")):
             if isinstance(value, dict):
                 payloads.append(value)
+                locations = value.get("locations", [])
+                if isinstance(locations, list):
+                    payloads.extend(
+                        item for item in locations if isinstance(item, dict)
+                    )
             elif isinstance(value, list):
                 payloads.extend(item for item in value if isinstance(item, dict))
     return payloads
@@ -357,6 +393,11 @@ def _diff_matches(
     pinpoint = issue.get("pinpoint")
     if isinstance(pinpoint, dict):
         text += "\n" + _stringify(pinpoint.get("patch") or pinpoint.get("diff"))
+        for location in pinpoint.get("locations", []):
+            if isinstance(location, dict):
+                text += "\n" + _stringify(
+                    location.get("patch") or location.get("diff")
+                )
     if not text.strip():
         return False
     patch = target.get("golden_patch", {})
@@ -377,6 +418,39 @@ def _diff_matches(
         snippets.extend(_string_list(hunk.get("added")))
     normalized_text = _normalize_free_text(text)
     return any(_normalize_free_text(snippet) in normalized_text for snippet in snippets)
+
+
+def _target_hint_level(target: dict[str, Any]) -> str:
+    level = str(target.get("hint_level") or "medium").strip().lower().replace("-", "_")
+    if level not in {"weak", "medium", "strong"}:
+        return "medium"
+    return level
+
+
+def _target_hints(target: dict[str, Any]) -> dict[str, str]:
+    hints: dict[str, str] = {}
+    raw_hints = target.get("hints", {})
+    if isinstance(raw_hints, dict):
+        for level in ("weak", "medium", "strong"):
+            value = str(raw_hints.get(level) or "").strip()
+            if value:
+                hints[level] = value
+
+    legacy_hint = str(target.get("hint") or "").strip()
+    if legacy_hint:
+        hints.setdefault("medium", legacy_hint)
+    return hints
+
+
+def _target_hint(target: dict[str, Any]) -> str:
+    hints = _target_hints(target)
+    selected = hints.get(_target_hint_level(target))
+    if selected:
+        return selected
+    for level in ("medium", "weak", "strong"):
+        if hints.get(level):
+            return hints[level]
+    return ""
 
 
 def _target_field(target: dict[str, Any], key: str) -> str:
@@ -439,6 +513,8 @@ def _error_result(error: str) -> dict[str, Any]:
         "total_reported": 0,
         "report_complete": False,
         "missing_report_fields": [],
+        "report_status": "invalid",
+        "exit_status": "",
         "pinpoint_aligned": False,
         "details": [],
         "ignored_candidates": [],

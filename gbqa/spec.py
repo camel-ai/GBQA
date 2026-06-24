@@ -263,8 +263,46 @@ class GBQAMetadata:
         return str(self.raw.get("evaluation", {}).get("target_bug_id", ""))
 
     @property
+    def target_hint_level(self) -> str:
+        level = (
+            str(self.raw.get("evaluation", {}).get("hint_level") or "medium")
+            .strip()
+            .lower()
+            .replace("-", "_")
+        )
+        if level not in {"weak", "medium", "strong"}:
+            return "medium"
+        return level
+
+    @property
+    def target_hints(self) -> dict[str, str]:
+        evaluation = self.raw.get("evaluation", {})
+        if not isinstance(evaluation, dict):
+            return {}
+
+        hints: dict[str, str] = {}
+        raw_hints = evaluation.get("hints", {})
+        if isinstance(raw_hints, dict):
+            for level in ("weak", "medium", "strong"):
+                value = str(raw_hints.get(level) or "").strip()
+                if value:
+                    hints[level] = value
+
+        legacy_hint = str(evaluation.get("hint") or "").strip()
+        if legacy_hint:
+            hints.setdefault("medium", legacy_hint)
+        return hints
+
+    @property
     def target_hint(self) -> str:
-        return str(self.raw.get("evaluation", {}).get("hint", ""))
+        hints = self.target_hints
+        selected = hints.get(self.target_hint_level, "")
+        if selected:
+            return selected
+        for level in ("medium", "weak", "strong"):
+            if hints.get(level):
+                return hints[level]
+        return ""
 
 
 def load_gbqa_metadata(path: str | Path) -> GBQAMetadata:

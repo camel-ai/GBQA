@@ -37,7 +37,9 @@ re-check IDs before `switch_session`, `refresh_session`, or a targeted
 ## Task Completion
 
 - `end_task`: Finish the current QA task and stop the interaction loop when
-  enough evidence has been collected.
+  enough evidence has been collected. In targeted GBQA tasks, task exit runs a
+  final fixed-format issue-report pass, so the reason should briefly identify
+  the reproduced bug and localization evidence.
 
 ## Action Formats
 
@@ -62,4 +64,5 @@ re-check IDs before `switch_session`, `refresh_session`, or a targeted
    reopening the environment repeatedly.
 5. Use `refresh_session` after in-session resets that change available tools or
    UI state.
-6. Call `end_task` only after you have enough reproduction evidence.
+6. Call `end_task` only after you have enough reproduction and localization
+   evidence for the final issue report.
