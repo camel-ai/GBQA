@@ -26,6 +26,11 @@ class ExportGeneratorTests(unittest.TestCase):
                         "baseline_archive_url": "https://github.com/acme/flow-ui/archive/refs/tags/v1.0.0.tar.gz",
                         "interaction_modes": ["api"],
                         "primary_interaction_mode": "api",
+                        "hints": {
+                            "weak": "Weak behavior-area hint.",
+                            "medium": "Medium reproduction hint.",
+                            "strong": "Strong function-level hint.",
+                        },
                         "service": {
                             "host": "127.0.0.1",
                             "port": 8000,
@@ -61,14 +66,26 @@ class ExportGeneratorTests(unittest.TestCase):
             self.assertIn('kind: "http_api"', metadata)
             self.assertIn('method: "targeted_bug"', metadata)
             self.assertIn('target_bug_id: "acme-flow-ui"', metadata)
+            self.assertIn('hint_level: "medium"', metadata)
+            self.assertIn('weak: "Weak behavior-area hint."', metadata)
+            self.assertIn('medium: "Medium reproduction hint."', metadata)
+            self.assertIn('strong: "Strong function-level hint."', metadata)
             task_toml = (task_root / "task.toml").read_text(encoding="utf-8")
             self.assertIn('GBQA_EVAL_METHOD = "${GBQA_EVAL_METHOD:-targeted_bug}"', task_toml)
+            self.assertIn('target_hint_level = "medium"', task_toml)
+            self.assertIn('target_hint = "Medium reproduction hint."', task_toml)
             instruction = (task_root / "instruction.md").read_text(encoding="utf-8")
             self.assertIn("/logs/agent/gbqa/issue.json", instruction)
+            self.assertIn("Medium reproduction hint.", instruction)
             ground_truth = json.loads(
                 (task_root / "bugs" / "ground_truth.json").read_text(encoding="utf-8")
             )
             self.assertEqual(ground_truth["target_bug"]["id"], "acme-flow-ui")
+            self.assertEqual(ground_truth["target_bug"]["hint_level"], "medium")
+            self.assertEqual(
+                ground_truth["target_bug"]["hints"]["strong"],
+                "Strong function-level hint.",
+            )
 
     def test_generate_normalizes_unsafe_slug(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -4,6 +4,12 @@
   "target_bug": {
     "id": "dark-castle-key-fragment-combine",
     "title": "Key of Awakening can be assembled with only two fragments",
+    "hint_level": "medium",
+    "hints": {
+      "weak": "Explore the key-fragment and escape-key progression. Compare when the game allows the final key to be assembled with the documented item requirements.",
+      "medium": "Focus on key-fragment progression. Verify whether assembling the final escape key enforces every documented prerequisite before the combine action succeeds.",
+      "strong": "Collect only two key fragments and execute `combine`. The likely defect is in `ActionHandler.handle_combine`, where the key-fragment threshold is checked before creating the complete key."
+    },
     "hint": "Focus on key-fragment progression. Verify whether assembling the final escape key enforces every documented prerequisite before the combine action succeeds.",
     "expected_behavior": "Combining key fragments should require all three fragments before producing the complete Key of Awakening.",
     "observed_fault": "The player can assemble the complete key with only two fragments instead of all three.",

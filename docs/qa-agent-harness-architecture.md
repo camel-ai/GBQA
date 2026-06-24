@@ -92,10 +92,15 @@ Current first-party instance packages include:
 
 - `gbqa/tasks/dark-castle-key-fragment-combine/`
 - `gbqa/tasks/dark-castle-dropped-hidden-item/`
+- `gbqa/tasks/dark-castle-dropped-lit-candlestick/`
 
 Instance metadata belongs in `gbqa.yaml`; multiple instances may share the same
-target software release, but each instance has one target bug, one hint, and one
-ground-truth golden patch anchor.
+target software release, but each instance has one target bug, one selected
+agent-facing hint, and one ground-truth golden patch anchor. Official instance
+data stores weak, medium, and strong hint variants so benchmark construction can
+calibrate hint strength while exposing only the selected level during a run.
+`dark-castle-dropped-lit-candlestick` uses a GBQA-authored oracle patch for a
+historical baseline bug rather than the upstream `v0.1.0..v0.2.0` diff.
 
 ## 4. Layered Architecture
 
@@ -553,7 +558,7 @@ directory. Harbor export then normalizes those into `/logs/agent/gbqa`.
 Canonical agent artifacts:
 
 - `run.json`
-- `issue.json` — preferred single issue report with `expected_behavior`, `observed_fault`, `reproduction`, and function-level `pinpoint` or `root_cause`
+- `issue.json` — preferred single issue report with top-level `report_status`, `exit_status`, `missing_fields`, and an `issue` containing `expected_behavior`, `observed_fault`, `reproduction`, and source-level `pinpoint` via `locations[]` or SWE-style `patch/diff`
 - `bugs.json` — legacy single-element compatibility report
 - `steps.jsonl`
 - `trace.jsonl`
@@ -562,6 +567,12 @@ Canonical agent artifacts:
 
 Target bug files store `target_bug`, including the hint, expected behavior,
 observed fault, reproduction, function-level pinpoint, and golden patch anchors.
+
+For targeted tasks, the harness runs a final fixed-format issue-report pass
+before task exit. The verifier reads `report_status` first and only performs
+rule-based pinpoint matching when it is `complete`. Pinpoint matching accepts
+either a location naming the golden-patch function plus file/line evidence, or a
+minimal patch/diff hunk that overlaps the golden patch.
 
 Verifier outputs remain under `/logs/verifier`:
 

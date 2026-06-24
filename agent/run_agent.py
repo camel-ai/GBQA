@@ -34,6 +34,7 @@ from src.environment_clients import (
     EnvironmentClientConfig,
     create_http_code_tool_adapter,
 )
+from src.final_issue import FinalIssueReporter
 from src.hooks import HookManager, normalize_hook_policy
 from src.llm_client import DEFAULT_BASE_URL, LlmClient
 from src.log_sources import AgentTrajectoryLogSource, build_log_sources
@@ -356,6 +357,10 @@ def _task_metadata_config_layer(metadata_path: str) -> dict[str, Any]:
                 "terminal_field": metadata.service_terminal_field,
                 "name": metadata.task_title,
                 "profile": metadata.agent_profile,
+                "target_bug_id": metadata.target_bug_id,
+                "target_hint_level": metadata.target_hint_level,
+                "target_hint": metadata.target_hint,
+                "target_hints": metadata.target_hints,
                 "supported_interaction_modes": list(metadata.supported_interaction_modes),
                 "default_interaction_mode": metadata.default_interaction_mode,
                 "interaction_surfaces": metadata.interaction_surfaces,
@@ -463,6 +468,10 @@ def _apply_task_metadata(config, metadata_path: str) -> None:  # noqa: ANN001
         "terminal_field": metadata.service_terminal_field,
         "name": metadata.task_title,
         "profile": metadata.agent_profile,
+        "target_bug_id": metadata.target_bug_id,
+        "target_hint_level": metadata.target_hint_level,
+        "target_hint": metadata.target_hint,
+        "target_hints": metadata.target_hints,
         "supported_interaction_modes": list(metadata.supported_interaction_modes),
         "default_interaction_mode": metadata.default_interaction_mode,
         "interaction_surfaces": metadata.interaction_surfaces,
@@ -872,6 +881,7 @@ def main() -> None:
             tool_registry.activate_skill("logs")
 
     reflection_analyzer = ReflectionAnalyzer(llm_client, prompts.reflection)
+    final_issue_reporter = FinalIssueReporter(llm_client)
     subagent_manager = (
         SubagentManager(llm_client=llm_client, policy=subagent_policy)
         if subagent_policy.get("enabled", False)
@@ -899,6 +909,7 @@ def main() -> None:
         end_condition_policy=end_condition_policy,
         hook_manager=HookManager(hook_policy),
         subagent_manager=subagent_manager,
+        final_issue_reporter=final_issue_reporter,
     )
 
     task_profile = task_config.get(
@@ -906,6 +917,26 @@ def main() -> None:
         "You are testing an interactive software environment. Focus on exploration, "
         "state verification, and reproducible QA evidence.",
     )
+    hint_level = (
+        str(task_config.get("target_hint_level") or "medium")
+        .strip()
+        .lower()
+        .replace("-", "_")
+    )
+    if hint_level not in {"weak", "medium", "strong"}:
+        hint_level = "medium"
+    target_hints = task_config.get("target_hints", {})
+    configured_hint = (
+        str(target_hints.get(hint_level) or "").strip()
+        if isinstance(target_hints, dict)
+        else ""
+    )
+    if configured_hint:
+        target_hint = configured_hint
+    else:
+        target_hint = str(task_config.get("target_hint") or "").strip()
+    if target_hint and target_hint not in str(task_profile):
+        task_profile = f"{task_profile}\n\nTarget hint ({hint_level}): {target_hint}"
     report = orchestrator.run(task_profile)
     report.metadata["llm"] = {
         "model": model,

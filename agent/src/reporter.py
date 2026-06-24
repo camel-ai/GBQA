@@ -140,6 +140,30 @@ class Reporter:
                 for index, step in enumerate(reproduction, start=1):
                     lines.append(f"{index}. {step}")
                 lines.append("")
+        final_issue = report.metadata.get("final_issue_report", {})
+        if isinstance(final_issue, dict):
+            issue = final_issue.get("issue", {})
+            if isinstance(issue, dict):
+                lines.extend(
+                    [
+                        "## Final Issue Report",
+                        "",
+                        f"- Report status: {final_issue.get('report_status', '')}",
+                        f"- Missing fields: {json.dumps(final_issue.get('missing_fields', []), ensure_ascii=False)}",
+                        f"- Title: {issue.get('title', '')}",
+                        f"- Expected behavior: {issue.get('expected_behavior', '')}",
+                        f"- Observed fault: {issue.get('observed_fault', '')}",
+                        f"- Root cause: {issue.get('root_cause', '')}",
+                        f"- Pinpoint: {json.dumps(issue.get('pinpoint', {}), ensure_ascii=False)}",
+                        "",
+                    ]
+                )
+                reproduction = issue.get("reproduction", [])
+                if reproduction:
+                    lines.append("Reproduction:")
+                    for index, step in enumerate(reproduction, start=1):
+                        lines.append(f"{index}. {step}")
+                    lines.append("")
         if report.lifecycle_events:
             lines.extend(["## Lifecycle", ""])
             for event in report.lifecycle_events:

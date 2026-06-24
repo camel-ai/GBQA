@@ -17,6 +17,18 @@ _MODE_ALIASES = {
     "computeruse": "computer",
     "gui": "computer",
 }
+_HINT_LEVELS = ("weak", "medium", "strong")
+_DEFAULT_DRAFT_HINTS = {
+    "weak": "TODO: replace this draft weak hint with a broad behavioral clue for the target bug.",
+    "medium": (
+        "TODO: replace this draft medium hint with a target-bug hint derived "
+        "from the golden patch."
+    ),
+    "strong": (
+        "TODO: replace this draft strong hint with a concrete reproduction "
+        "area and function-level localization clue."
+    ),
+}
 
 
 def _normalize_mode(value: Any) -> str:
@@ -76,6 +88,37 @@ def _toml_string(value: Any) -> str:
 
 def _toml_string_array(values: list[Any]) -> str:
     return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _normalize_hint_level(value: Any) -> str:
+    level = str(value or "medium").strip().lower().replace("-", "_")
+    if level not in _HINT_LEVELS:
+        return "medium"
+    return level
+
+
+def _hint_level(seed: dict[str, Any]) -> str:
+    return _normalize_hint_level(seed.get("hint_level") or seed.get("target_hint_level"))
+
+
+def _hint_levels(seed: dict[str, Any]) -> dict[str, str]:
+    hints = dict(_DEFAULT_DRAFT_HINTS)
+    raw_hints = seed.get("hints") or seed.get("target_hints") or {}
+    if isinstance(raw_hints, dict):
+        for level in _HINT_LEVELS:
+            value = str(raw_hints.get(level) or "").strip()
+            if value:
+                hints[level] = value
+
+    legacy_hint = str(seed.get("hint") or seed.get("target_hint") or "").strip()
+    if legacy_hint:
+        hints["medium"] = legacy_hint
+    return hints
+
+
+def _selected_hint(seed: dict[str, Any]) -> str:
+    hints = _hint_levels(seed)
+    return hints.get(_hint_level(seed)) or hints["medium"]
 
 
 def _toml_inline_surfaces(surfaces: list[dict[str, Any]]) -> str:
@@ -140,6 +183,9 @@ def _render_task_toml(seed: dict[str, Any]) -> str:
     if primary_mode not in modes:
         primary_mode = modes[0]
     surfaces = _interaction_surfaces(seed, modes)
+    hint_level = _hint_level(seed)
+    hints = _hint_levels(seed)
+    selected_hint = hints[hint_level]
     return f"""id = "{seed['task_id']}"
 name = "{seed['slug']}"
 description = "Draft GBQA task generated from environment sourcing."
@@ -160,6 +206,13 @@ operating_system = "{seed.get('operating_system', 'linux')}"
 supported_interaction_modes = {_toml_string_array(modes)}
 default_interaction_mode = "{primary_mode}"
 interaction_surfaces = {_toml_inline_surfaces(surfaces)}
+evaluation_method = "targeted_bug"
+target_bug_id = "{seed['slug']}"
+target_hint_level = "{hint_level}"
+target_hint = {_toml_string(selected_hint)}
+target_hint_weak = {_toml_string(hints["weak"])}
+target_hint_medium = {_toml_string(hints["medium"])}
+target_hint_strong = {_toml_string(hints["strong"])}
 
 [environment]
 provider = "daytona"
@@ -175,6 +228,8 @@ def _render_gbqa_yaml(seed: dict[str, Any]) -> str:
         primary_mode = modes[0]
     mode_lines = "".join(f'    - "{mode}"\n' for mode in modes)
     surface_lines = _render_surfaces_yaml(_interaction_surfaces(seed, modes))
+    hint_level = _hint_level(seed)
+    hints = _hint_levels(seed)
     return f"""schema_version: "0.1"
 task:
   id: "{seed['task_id']}"
@@ -212,7 +267,12 @@ ground_truth:
 evaluation:
   method: "targeted_bug"
   target_bug_id: "{seed['slug']}"
-  hint: "TODO: replace this draft hint with a target-bug hint derived from the golden patch."
+  hint_level: "{hint_level}"
+  hints:
+    weak: {_toml_string(hints["weak"])}
+    medium: {_toml_string(hints["medium"])}
+    strong: {_toml_string(hints["strong"])}
+  hint: {_toml_string(hints[hint_level])}
 artifacts:
   agent_dir: "/logs/agent/gbqa"
   verifier_dir: "/logs/verifier"
@@ -237,11 +297,48 @@ def _render_surfaces_yaml(surfaces: list[dict[str, Any]]) -> str:
 
 
 def _render_instruction(seed: dict[str, Any]) -> str:
+    hint_level = _hint_level(seed)
+    hint = _selected_hint(seed)
     return f"""# {seed['slug']}
 
-Investigate one known target bug in the software environment. Use the hint in
-`gbqa.yaml` to reproduce and localize the issue, then write one issue report to
-`/logs/agent/gbqa/issue.json`.
+Investigate one known target bug in the software environment. Use the selected
+{hint_level} hint to reproduce and localize the issue, then write one issue report to
+`/logs/agent/gbqa/issue.json`. In the GBQA harness, `end_task` triggers a final
+fixed-format issue report pass; only end the task after collecting enough
+reproduction evidence and localization detail.
+
+The preferred issue artifact shape is:
+
+```json
+{{
+  "report_status": "complete",
+  "exit_status": "completed",
+  "missing_fields": [],
+  "issue": {{
+    "title": "Short descriptive title",
+    "description": "What goes wrong and why it is a bug.",
+    "expected_behavior": "What correct behavior should look like.",
+    "observed_fault": "The incorrect behavior you observed.",
+    "reproduction": ["step 1", "step 2"],
+    "pinpoint": {{
+      "locations": [
+        {{
+          "file": "relative/path.py",
+          "function": "function_or_method_name",
+          "line": 123
+        }}
+      ],
+      "patch": "optional minimal unified diff or patch hunk",
+      "rationale": "Why this location or patch explains the fault."
+    }},
+    "root_cause": "Function-level explanation of the implementation defect."
+  }}
+}}
+```
+
+Hint:
+
+{hint}
 
 The issue report should include:
 
@@ -256,16 +353,17 @@ target-bug ground truth before adding it to an official benchmark set.
 
 
 def _render_ground_truth(seed: dict[str, Any]) -> str:
+    hint_level = _hint_level(seed)
+    hints = _hint_levels(seed)
     payload = {
         "schema_version": "gbqa-target-bug-v1",
         "task_id": seed["task_id"],
         "target_bug": {
             "id": seed["slug"],
             "title": "TODO: target bug title",
-            "hint": (
-                "TODO: replace this draft hint with a target-bug hint derived "
-                "from the golden patch."
-            ),
+            "hint_level": hint_level,
+            "hints": hints,
+            "hint": hints[hint_level],
             "expected_behavior": "TODO",
             "observed_fault": "TODO",
             "reproduction": [],

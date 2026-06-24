@@ -14,6 +14,13 @@ software_repository = "{{ repository }}"
 software_selected_version = "{{ baseline_release }}"
 software_fixed_reference_version = "{{ fixed_release }}"
 software_archive_url = "{{ baseline_archive_url }}"
+evaluation_method = "targeted_bug"
+target_bug_id = "{{ slug }}"
+target_hint_level = "medium"
+target_hint = "TODO: replace this draft medium hint with a target-bug hint derived from the golden patch."
+target_hint_weak = "TODO: replace this draft weak hint with a broad behavioral clue for the target bug."
+target_hint_medium = "TODO: replace this draft medium hint with a target-bug hint derived from the golden patch."
+target_hint_strong = "TODO: replace this draft strong hint with a concrete reproduction area and function-level localization clue."
 
 [environment]
 provider = "daytona"

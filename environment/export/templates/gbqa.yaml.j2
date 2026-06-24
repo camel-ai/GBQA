@@ -28,7 +28,12 @@ ground_truth:
 evaluation:
   method: "targeted_bug"
   target_bug_id: "{{ slug }}"
-  hint: "TODO: replace this draft hint with a target-bug hint derived from the golden patch."
+  hint_level: "medium"
+  hints:
+    weak: "TODO: replace this draft weak hint with a broad behavioral clue for the target bug."
+    medium: "TODO: replace this draft medium hint with a target-bug hint derived from the golden patch."
+    strong: "TODO: replace this draft strong hint with a concrete reproduction area and function-level localization clue."
+  hint: "TODO: replace this draft medium hint with a target-bug hint derived from the golden patch."
 artifacts:
   agent_dir: "/logs/agent/gbqa"
   verifier_dir: "/logs/verifier"

@@ -244,6 +244,125 @@ def test_targeted_evaluation_rejects_wrong_function() -> None:
         assert result["reward"] == 0.0
 
 
+def test_targeted_evaluation_short_circuits_incomplete_report_status() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_incomplete") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["report_status"] = "incomplete"
+        payload["missing_fields"] = ["pinpoint"]
+        payload["issue"]["pinpoint"] = {}
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
+            ground_truth_path=GROUND_TRUTH,
+        )
+        assert result["report_status"] == "incomplete"
+        assert result["missing_report_fields"] == ["pinpoint"]
+        assert result["report_complete"] is False
+        assert result["pinpoint_aligned"] is False
+        assert result["reward"] == 0.0
+
+
+def test_targeted_evaluation_short_circuits_invalid_report_status() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_invalid") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["report_status"] = "invalid"
+        payload["exit_status"] = "completed"
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
+            ground_truth_path=GROUND_TRUTH,
+        )
+        assert result["report_status"] == "invalid"
+        assert result["exit_status"] == "completed"
+        assert result["report_complete"] is False
+        assert result["pinpoint_aligned"] is False
+        assert result["reward"] == 0.0
+
+
+def test_targeted_evaluation_treats_empty_pinpoint_locator_as_incomplete() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_empty_pinpoint") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["report_status"] = "complete"
+        payload["issue"]["pinpoint"] = {
+            "file": "",
+            "function": "",
+            "rationale": "Likely a light-source calculation problem.",
+        }
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
+            ground_truth_path=GROUND_TRUTH,
+        )
+        assert result["report_status"] == "incomplete"
+        assert result["missing_report_fields"] == ["pinpoint"]
+        assert result["report_complete"] is False
+        assert result["reward"] == 0.0
+
+
+def test_targeted_evaluation_accepts_nested_pinpoint_locations() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_locations") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["issue"]["pinpoint"] = {
+            "locations": [
+                {
+                    "file": "backend/game/actions.py",
+                    "class": "ActionHandler",
+                    "function": "handle_combine",
+                    "qualified_name": "ActionHandler.handle_combine",
+                    "rationale": "The combine prerequisite check is off by one.",
+                }
+            ],
+            "rationale": "The final key assembly gate is implemented in the action handler.",
+        }
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
+            ground_truth_path=GROUND_TRUTH,
+        )
+        assert result["report_status"] == "complete"
+        assert result["pinpoint_aligned"] is True
+        assert result["reward"] == 1.0
+
+
+def test_targeted_evaluation_accepts_patch_style_pinpoint() -> None:
+    with _temp_test_dir("_tmp_gbqa_targeted_patch") as temp_root:
+        issue = temp_root / "issue.json"
+        _matching_issue(issue)
+        payload = json.loads(issue.read_text(encoding="utf-8"))
+        payload["issue"]["pinpoint"] = {
+            "patch": (
+                "diff --git a/backend/game/actions.py b/backend/game/actions.py\n"
+                "@@ def handle_combine(self, game):\n"
+                "-    if len(owned_fragments) < 2:\n"
+                "-        missing = 2 - len(owned_fragments)\n"
+                "+    if len(owned_fragments) < 3:\n"
+                "+        missing = 3 - len(owned_fragments)\n"
+            ),
+            "rationale": "SWE-style minimal patch for the failing prerequisite gate.",
+        }
+        issue.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = evaluate_targeted_bug_report(
+            issue_path=issue,
+            ground_truth_path=GROUND_TRUTH,
+        )
+        assert result["report_status"] == "complete"
+        assert result["pinpoint_aligned"] is True
+        assert result["reward"] == 1.0
+
+
 def main() -> None:
     test_require_rewardkit_imports()
     test_primary_reward_score_prefers_reward_key()
@@ -255,6 +374,11 @@ def main() -> None:
     test_rewardkit_dependency_error_message()
     test_targeted_evaluation_scores_matching_issue()
     test_targeted_evaluation_rejects_wrong_function()
+    test_targeted_evaluation_short_circuits_incomplete_report_status()
+    test_targeted_evaluation_short_circuits_invalid_report_status()
+    test_targeted_evaluation_treats_empty_pinpoint_locator_as_incomplete()
+    test_targeted_evaluation_accepts_nested_pinpoint_locations()
+    test_targeted_evaluation_accepts_patch_style_pinpoint()
     print("gbqa rewards tests passed")
 
 

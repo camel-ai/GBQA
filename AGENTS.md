@@ -4,7 +4,7 @@ This `AGENTS.md` file records the current architecture decisions for GBQA and sh
 
 ## Overview
 
-The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA instance points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, provides one target-bug hint, and evaluates one issue report with rule-based function-level validation.
+The autonomous discovery of bugs remains a significant challenge in modern software development. Compared to code generation, the complexity of dynamic runtime environments makes bug discovery considerably harder for LLMs. A GBQA instance points to a real GitHub software release, defines how that software should run in an isolated sandbox, exposes supported interaction modes, provides one selected target-bug hint, and evaluates one issue report with rule-based function-level validation. Official instance data may store weak, medium, and strong hint variants; the selected hint is exposed to the agent for that run.
 
 ## Milestone Planning
 
@@ -77,7 +77,7 @@ Harbor task packages use this structure:
 - `environment-computer-use/`: optional GUI/Cua environment definition used only by GBQA's computer overlay path.
 - `tests/`: verifier entrypoint and verifier assets.
 - `solution/`: oracle solution assets.
-- `bugs/`: GBQA target-bug definitions with a hint and golden patch anchors.
+- `bugs/`: GBQA target-bug definitions with weak/medium/strong hints and golden patch anchors.
 - `gbqa.yaml`: GBQA-specific metadata that Harbor does not own.
 
 Harbor itself consumes `environment/`. When `interaction_mode=computer`,
@@ -152,6 +152,11 @@ The GitHub software repository must not contain GBQA target-bug `bugs/` files. T
 
 - `gbqa/tasks/dark-castle-key-fragment-combine/bugs/dark-castle.json`
 - `gbqa/tasks/dark-castle-dropped-hidden-item/bugs/dark-castle.json`
+- `gbqa/tasks/dark-castle-dropped-lit-candlestick/bugs/dark-castle.json`
+
+The dropped-lit-candlestick instance uses a GBQA-authored oracle patch for a
+historical baseline bug; the bug is not fixed by the upstream `v0.1.0..v0.2.0`
+diff. Do not label that golden patch as an upstream release diff.
 
 The instance metadata source of truth is:
 
@@ -400,6 +405,9 @@ The preferred verifier input is `issue.json`:
 
 ```json
 {
+  "report_status": "complete",
+  "exit_status": "completed",
+  "missing_fields": [],
   "issue": {
     "title": "Short descriptive title",
     "description": "What goes wrong and why it is a bug.",
@@ -407,14 +415,28 @@ The preferred verifier input is `issue.json`:
     "observed_fault": "The incorrect behavior you observed.",
     "reproduction": ["step 1", "step 2"],
     "pinpoint": {
-      "file": "relative/path.py",
-      "function": "function_or_method_name",
-      "line": 123
+      "locations": [
+        {
+          "file": "relative/path.py",
+          "function": "function_or_method_name",
+          "line": 123
+        }
+      ],
+      "patch": "optional minimal unified diff or patch hunk",
+      "rationale": "Why this location or patch explains the fault."
     },
     "root_cause": "Function-level explanation of the defect."
   }
 }
 ```
+
+`report_status` is `complete`, `incomplete`, or `invalid`. The verifier reads it
+first: anything other than `complete` receives reward `0` before rule-based
+pinpoint matching. `exit_status` records the harness exit path, currently
+`completed`, `max_steps`, or `error`.
+For SWE-style reports, `pinpoint.patch` or `pinpoint.diff` may contain a
+minimal patch hunk; verifier-side alignment can credit either patch-level hunk
+overlap or a source location that names the golden-patch function and file/line.
 
 For compatibility, `bugs.json` may contain a single report with the same fields
 or with the fields nested under `evidence`.

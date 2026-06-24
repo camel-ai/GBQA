@@ -10,6 +10,8 @@ from typing import Any
 
 from gbqa.protocol.schemas import (
     SCHEMA_VERSION,
+    issue_report_completeness,
+    issue_report_status,
     normalize_bug_candidate,
     normalize_issue_report,
     normalize_step_record,
@@ -74,10 +76,30 @@ def export_harbor_artifacts(
     steps_path = out_dir / "steps.jsonl"
     run_path.write_text(json.dumps(run_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     bugs_path.write_text(json.dumps(bugs_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    issue = _final_issue_from_report(report, bugs)
+    completeness = issue_report_completeness(issue) if issue else {
+        "complete": False,
+        "missing_fields": ["issue"],
+    }
+    final_metadata = _final_issue_metadata(report)
+    report_status = issue_report_status(
+        issue,
+        explicit_status=final_metadata.get("report_status") or issue.get("report_status"),
+    )
+    missing_fields = (
+        _string_list(final_metadata.get("missing_fields"))
+        or _string_list(issue.get("missing_fields"))
+        or completeness["missing_fields"]
+    )
+    issue["report_status"] = report_status
+    issue["missing_fields"] = missing_fields
     issue_payload = {
         "schema_version": SCHEMA_VERSION,
         "task_id": task_id,
-        "issue": normalize_issue_report(bugs[0]) if bugs and isinstance(bugs[0], dict) else {},
+        "report_status": report_status,
+        "exit_status": str(report.get("metadata", {}).get("exit_status", "")).strip(),
+        "missing_fields": missing_fields,
+        "issue": issue,
     }
     issue_path.write_text(
         json.dumps(issue_payload, ensure_ascii=False, indent=2),
@@ -104,6 +126,35 @@ def export_harbor_artifacts(
         "issue": str(issue_path),
         "steps": str(steps_path),
     }
+
+
+def _final_issue_metadata(report: dict[str, Any]) -> dict[str, Any]:
+    metadata = report.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return {}
+    final_issue = metadata.get("final_issue_report", {})
+    return final_issue if isinstance(final_issue, dict) else {}
+
+
+def _final_issue_from_report(
+    report: dict[str, Any],
+    bugs: list[Any],
+) -> dict[str, Any]:
+    final_issue = _final_issue_metadata(report)
+    issue = final_issue.get("issue")
+    if isinstance(issue, dict):
+        return normalize_issue_report(issue)
+    if bugs and isinstance(bugs[0], dict):
+        return normalize_issue_report(bugs[0])
+    return normalize_issue_report({})
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def _find_latest_report(reports_root: Path, task_slug: str) -> Path | None:

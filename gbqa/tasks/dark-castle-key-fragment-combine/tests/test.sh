@@ -6,7 +6,13 @@ VERIFIER_DIR="/logs/verifier"
 GROUND_TRUTH="/tests/bugs/dark-castle.json"
 
 mkdir -p "${VERIFIER_DIR}"
-export PYTHONPATH="/sandbox:${PYTHONPATH:-}"
+if [ -d "/sandbox/gbqa" ]; then
+  export PYTHONPATH="/sandbox:${PYTHONPATH:-}"
+elif [ -d "/solution/gbqa" ]; then
+  export PYTHONPATH="/solution:${PYTHONPATH:-}"
+else
+  export PYTHONPATH="/sandbox:${PYTHONPATH:-}"
+fi
 export GBQA_GROUND_TRUTH="${GROUND_TRUTH}"
 export GBQA_EVAL_METHOD="${GBQA_EVAL_METHOD:-targeted_bug}"
 export GBQA_TRAJECTORY_PATH="${GBQA_TRAJECTORY_PATH:-/logs/agent/gbqa/trace.jsonl}"

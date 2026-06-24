@@ -24,7 +24,11 @@ supported_interaction_modes = ["terminal", "browser", "computer"]
 default_interaction_mode = "terminal"
 evaluation_method = "targeted_bug"
 target_bug_id = "dark-castle-dropped-hidden-item"
+target_hint_level = "medium"
 target_hint = "Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again."
+target_hint_weak = "Explore whether item visibility stays consistent when hidden or contained items move between inventory and rooms."
+target_hint_medium = "Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again."
+target_hint_strong = "Open the bedroom nightstand, take the small key, drop it, then execute `look`. The likely defect is in `GameWorld.drop_item`, which moves the item without clearing its hidden flag."
 interaction_surfaces = [
   { id = "agent_http_api", kind = "http_api", modes = ["terminal"], base_path = "/api/agent" },
   { id = "browser_ui", kind = "web_ui", modes = ["browser", "computer"], path = "/" },

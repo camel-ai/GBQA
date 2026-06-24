@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Optional, Type
 
 from .bug_detector import BugDetector
 from .execution_backends import ExecutionBackend
+from .final_issue import (
+    fallback_final_issue_from_report,
+    final_issue_metadata,
+)
 from .hooks import HookManager, event_type_for_action
 from .memory import MemoryManager
 from .operator import Operator
@@ -77,6 +81,7 @@ class Orchestrator:
         allow_auto_code_registration: bool = False,
         hook_manager: Optional[HookManager] = None,
         subagent_manager: Optional[SubagentManager] = None,
+        final_issue_reporter: Optional[Any] = None,
     ) -> None:
         self._task_id = task_id
         self._execution_backend = execution_backend
@@ -106,6 +111,7 @@ class Orchestrator:
         self._allow_auto_code_registration = allow_auto_code_registration
         self._hook_manager = hook_manager or HookManager()
         self._subagents = subagent_manager
+        self._final_issue_reporter = final_issue_reporter
         self._hypotheses = HypothesisManager(
             confidence_threshold=confidence_threshold,
         )
@@ -501,11 +507,26 @@ class Orchestrator:
             task_end_trigger = "max_steps"
             report.metadata["forced_end_reason"] = "max_steps_reached"
             report.metadata["max_steps"] = self._max_steps
+        exit_status = self._exit_status(
+            trigger=task_end_trigger or "system",
+            reason=task_end_reason,
+            report=report,
+        )
+        report.metadata["exit_status"] = exit_status
+        report.metadata["end_reason"] = task_end_reason
+        report.metadata["end_trigger"] = task_end_trigger or "system"
         self._maybe_summarize(
             report=report,
             step=min(len(report.steps), self._max_steps),
             force_interval=False,
             force=True,
+        )
+        self._finalize_issue_report(
+            report=report,
+            task_profile=task_profile,
+            exit_status=exit_status,
+            exit_trigger=task_end_trigger or "system",
+            exit_reason=task_end_reason,
         )
         self._close_all_sessions(
             report=report,
@@ -523,8 +544,6 @@ class Orchestrator:
             trigger=task_end_trigger or "system",
             metadata={"max_steps": self._max_steps},
         )
-        report.metadata["end_reason"] = task_end_reason
-        report.metadata["end_trigger"] = task_end_trigger or "system"
         report.metadata["coverage"] = self._coverage.to_dict()
         report.metadata["hypotheses"] = self._hypotheses.to_dict()
         self._emit_hook(
@@ -538,6 +557,53 @@ class Orchestrator:
             },
         )
         return report
+
+    def _finalize_issue_report(
+        self,
+        *,
+        report: RunReport,
+        task_profile: str,
+        exit_status: str,
+        exit_trigger: str,
+        exit_reason: str,
+    ) -> None:
+        try:
+            if self._final_issue_reporter is None:
+                result = fallback_final_issue_from_report(report)
+            else:
+                result = self._final_issue_reporter.finalize(
+                    report=report,
+                    task_profile=task_profile,
+                    exit_status=exit_status,
+                    exit_trigger=exit_trigger,
+                    exit_reason=exit_reason,
+                    max_steps=self._max_steps,
+                )
+        except Exception as exc:  # noqa: BLE001
+            result = fallback_final_issue_from_report(report)
+            result.report_status = "invalid"
+            result.issue["report_status"] = "invalid"
+            result.error = f"{type(exc).__name__}: {exc}"
+        report.metadata["final_issue_report"] = final_issue_metadata(result)
+        self._emit_hook(
+            report,
+            hook="on_final_issue_report",
+            event_type="Reported",
+            step=min(len(report.steps), self._max_steps),
+            metadata={
+                "report_status": result.report_status,
+                "missing_fields": result.missing_fields,
+                "error": result.error,
+            },
+        )
+
+    @staticmethod
+    def _exit_status(*, trigger: str, reason: str, report: RunReport) -> str:
+        if trigger == "max_steps" or reason == "max_steps_reached":
+            return "max_steps"
+        if report.metadata.get("failed_stage") or reason.endswith("_error"):
+            return "error"
+        return "completed"
 
     def _ensure_lifecycle_tools(self) -> None:
         from .tool_registry import register_lifecycle_tools

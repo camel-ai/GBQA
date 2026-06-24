@@ -12,7 +12,7 @@ Milestone 1 runs GBQA as a Harbor-compatible benchmark on a remote Daytona sandb
 ## Configuration Boundaries
 
 - `agent/config.toml` is harness policy only: model sampling, loop budgets, memory, operator retry, and current QA-agent backend defaults.
-- Each instance `gbqa.yaml` is the source of truth: software source release, service endpoints, interaction modes, target bug hint, artifact contract, and agent-facing task profile.
+- Each instance `gbqa.yaml` is the source of truth: software source release, service endpoints, interaction modes, selected target-bug hint, weak/medium/strong hint variants, artifact contract, and agent-facing task profile.
 - `gbqa.protocol` defines the stable QA output schema consumed by verifiers, independent of which agent harness produced the artifacts.
 - `gbqa.reporting` converts harness-specific outputs into `run.json`, `issue.json`, `bugs.json`, `steps.jsonl`, and artifact files.
 
@@ -101,6 +101,11 @@ python -m gbqa.cli.harbor_run run \
   -a oracle
 ```
 
+Use the GBQA wrapper for oracle runs. The wrapper creates a temporary task
+overlay that packages the current GBQA verifier code into `solution/gbqa`, so
+Harbor's built-in oracle agent can upload it with `/solution`. Direct
+`harbor run -a oracle` does not perform this GBQA packaging step.
+
 Terminal mode:
 
 ```bash
@@ -139,7 +144,8 @@ python -m gbqa.cli.harbor_run run \
 The agent writes stable GBQA artifacts under `/logs/agent/gbqa`:
 
 - `run.json`
-- `issue.json` — preferred single issue report for the hinted target bug
+- `issue.json` — preferred single issue report for the hinted target bug, with
+  `report_status`, `exit_status`, and `missing_fields`
 - `bugs.json` — legacy single-element compatibility report
 - `steps.jsonl`
 - `trace.jsonl` when available

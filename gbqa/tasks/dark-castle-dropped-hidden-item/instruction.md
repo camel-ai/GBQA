@@ -2,13 +2,18 @@
 
 Investigate one known Dark Castle: Night of Awakening bug. Your goal is to use the hint below to reproduce and localize the issue, then write exactly one open-source-style issue report.
 
+Hint level: medium
+
 Hint:
 
 Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again.
 
-Write bug findings through the GBQA agent report artifacts. The verifier will
-score the report as binary found/not found by checking whether your function-level
-pinpoint aligns with the golden patch for the targeted bug.
+Write bug findings through the GBQA agent report artifacts. In the GBQA harness,
+`end_task` triggers a final fixed-format issue report pass, so only end the task
+after you have enough reproduction evidence and localization detail for that
+report. The verifier will score the report as binary found/not found by checking
+whether your function-level pinpoint aligns with the golden patch for the
+targeted bug.
 
 If you are running as a generic Harbor CLI agent such as `claude-code` or
 `codex`, the target source is available at `/sandbox/software/dark-castle`.
@@ -26,6 +31,9 @@ Then use the terminal interaction surface exposed as the HTTP API at
 
 ```json
 {
+  "report_status": "complete",
+  "exit_status": "completed",
+  "missing_fields": [],
   "issue": {
     "title": "Short descriptive title",
     "description": "What goes wrong and why it is a bug.",
@@ -33,10 +41,17 @@ Then use the terminal interaction surface exposed as the HTTP API at
     "observed_fault": "The incorrect behavior you observed.",
     "reproduction": ["step 1", "step 2"],
     "pinpoint": {
-      "file": "relative/path.py",
-      "class": "ClassName if applicable",
-      "function": "function_or_method_name",
-      "line": 123
+      "locations": [
+        {
+          "file": "relative/path.py",
+          "class": "ClassName if applicable",
+          "function": "function_or_method_name",
+          "qualified_name": "ClassName.function_or_method_name",
+          "line": 123
+        }
+      ],
+      "patch": "optional minimal unified diff or patch hunk",
+      "rationale": "Why this location or patch explains the fault."
     },
     "root_cause": "Function-level explanation of the implementation defect."
   }

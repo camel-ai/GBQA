@@ -1,8 +1,44 @@
 # {{ slug }}
 
-Investigate one known target bug in the software environment. Use the target
-hint to reproduce and localize the issue, then write one issue report to
-`/logs/agent/gbqa/issue.json`.
+Investigate one known target bug in the software environment. Use the selected
+medium hint to reproduce and localize the issue, then write one issue report to
+`/logs/agent/gbqa/issue.json`. In the GBQA harness, `end_task` triggers a final
+fixed-format issue report pass; only end the task after collecting enough
+reproduction evidence and localization detail.
+
+The preferred issue artifact shape is:
+
+```json
+{
+  "report_status": "complete",
+  "exit_status": "completed",
+  "missing_fields": [],
+  "issue": {
+    "title": "Short descriptive title",
+    "description": "What goes wrong and why it is a bug.",
+    "expected_behavior": "What correct behavior should look like.",
+    "observed_fault": "The incorrect behavior you observed.",
+    "reproduction": ["step 1", "step 2"],
+    "pinpoint": {
+      "locations": [
+        {
+          "file": "relative/path.py",
+          "function": "function_or_method_name",
+          "line": 123
+        }
+      ],
+      "patch": "optional minimal unified diff or patch hunk",
+      "rationale": "Why this location or patch explains the fault."
+    },
+    "root_cause": "Function-level explanation of the implementation defect."
+  }
+}
+```
+
+Hint:
+
+TODO: replace this draft medium hint with a target-bug hint derived from the
+golden patch.
 
 This is a generated draft task. Review deployment, interaction contract, and
 target-bug ground truth before adding it to an official benchmark set.

@@ -4,6 +4,12 @@
   "target_bug": {
     "id": "dark-castle-dropped-hidden-item",
     "title": "Dropped hidden item remains hidden from room description",
+    "hint_level": "medium",
+    "hints": {
+      "weak": "Explore whether item visibility stays consistent when hidden or contained items move between inventory and rooms.",
+      "medium": "Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again.",
+      "strong": "Open the bedroom nightstand, take the small key, drop it, then execute `look`. The likely defect is in `GameWorld.drop_item`, which moves the item without clearing its hidden flag."
+    },
     "hint": "Focus on item visibility after taking something from a hidden or contained state. Verify whether dropping that item into the room makes it visible again.",
     "expected_behavior": "A dropped item should be visible in the current room description after it leaves the player's inventory.",
     "observed_fault": "An item that was previously hidden can remain hidden after being dropped, so the room state changes but the visible room description omits it.",
