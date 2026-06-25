@@ -136,7 +136,9 @@ Meaning:
 
 - `/sandbox/software/<task>` contains the downloaded target GitHub software release.
 - `/sandbox/agent` contains the agent harness for QA tasks.
-- `/sandbox/gbqa` contains the uploaded GBQA platform package.
+- `/sandbox/gbqa` contains the uploaded GBQA platform package when the run uses
+  `GBQAHarborAgent`. Generic Harbor CLI agents such as `codex` and
+  `claude-code` do not populate this path.
 - `/sandbox/runtime/config.toml` contains the rendered run config for the current Harbor trial.
 - `/logs/agent/gbqa` contains normalized GBQA run artifacts.
 - `/logs/verifier` contains Harbor-compatible reward outputs.
@@ -493,6 +495,10 @@ Canonical task template:
 
 ```text
 gbqa/tasks/_template/tests/
+  _gbqa_runtime/
+    gbqa/
+      protocol/
+      rewards/
   test.sh
   criteria.py
   reward/check.py
@@ -504,7 +510,10 @@ gbqa/tasks/_template/tests/
 
 Install the template into a task with
 `gbqa.rewards.template.install_task_verifier_tests(...)`. Each subdirectory
-maps to one Rewardkit reward name in `reward.json`.
+maps to one Rewardkit reward name in `reward.json`. `_gbqa_runtime` is the
+task-local verifier runtime bundle uploaded by Harbor with `tests/`; keep GBQA
+verifier code self-contained there so scoring does not depend on a specific
+agent's setup hook.
 
 Rule-based evaluation:
 
@@ -513,11 +522,13 @@ Rule-based evaluation:
 - `issue_report_complete/check.py` reports whether required issue fields are present.
 - `issue_pinpoint_aligned/check.py` reports whether the issue's function-level
   pinpoint aligns with the target golden patch.
-- `trajectory/check.py` checks that GBQA exported `trace.jsonl` or `steps.jsonl`.
+- `trajectory/check.py` checks that GBQA exported `trace.jsonl`, `steps.jsonl`,
+  or Harbor generic-agent ATIF `trajectory.json`.
 
 `tests/test.sh` should call `python -m gbqa.rewards.runner` with
-`PYTHONPATH=/sandbox`. The runner always executes Rewardkit, then writes
-GBQA post-processing artifacts without rewriting Rewardkit scores.
+`/tests/_gbqa_runtime` first on `PYTHONPATH`, followed by `/sandbox` and
+`/solution` fallbacks for compatibility. The runner always executes Rewardkit,
+then writes GBQA post-processing artifacts without rewriting Rewardkit scores.
 
 Verifier outputs:
 

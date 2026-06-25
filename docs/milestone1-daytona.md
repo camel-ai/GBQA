@@ -68,9 +68,10 @@ The Daytona environment Dockerfile downloads this archive into `/sandbox/softwar
 Inside the remote Daytona sandbox, GBQA uses `/sandbox` as its runtime workspace:
 
 - `/sandbox/software/dark-castle`: downloaded target software environment
-- `/sandbox/agent`: uploaded GBQA QA agent harness
-- `/sandbox/gbqa`: uploaded GBQA platform package
+- `/sandbox/agent`: uploaded GBQA QA agent harness for `GBQAHarborAgent` runs
+- `/sandbox/gbqa`: uploaded GBQA platform package for `GBQAHarborAgent` runs
 - `/sandbox/runtime/config.toml`: rendered run config for the current trial
+- `/tests/_gbqa_runtime`: task-local verifier runtime uploaded with `tests/`
 
 Harbor's standard artifact paths stay unchanged:
 

@@ -36,8 +36,9 @@ flowchart TB
 
   subgraph Sandbox["/sandbox and /logs"]
     Software["/sandbox/software/<task><br/>target software"]
-    Agent["/sandbox/agent<br/>QA Agent Harness"]
-    GBQA["/sandbox/gbqa<br/>GBQA platform package"]
+    Agent["/sandbox/agent<br/>QA Agent Harness when using GBQAHarborAgent"]
+    GBQA["/sandbox/gbqa<br/>GBQA package for custom harness runs"]
+    Tests["/tests/_gbqa_runtime<br/>self-contained verifier runtime"]
     Runtime["/sandbox/runtime/config.toml<br/>trial run config"]
     Logs["/logs/agent/gbqa<br/>agent artifacts"]
     VerifierLogs["/logs/verifier<br/>reward outputs"]
@@ -45,7 +46,8 @@ flowchart TB
 
   Agent --> Software
   Agent --> Logs
-  GBQA --> VerifierLogs
+  GBQA --> Logs
+  Tests --> VerifierLogs
   Harbor --> VerifierLogs
 ```
 
@@ -67,6 +69,10 @@ Runtime ownership:
   task runners through `gbqa.cli.harbor_run` selectors. They do not run the GBQA
   QA Agent Harness; they run Harbor's CLI-agent path and must follow the task
   instruction artifact contract.
+- The verifier must be agent-agnostic. It is uploaded through the task's
+  `tests/` directory and imports GBQA reward code from `/tests/_gbqa_runtime`
+  first, so Codex, Claude Code, oracle, and GBQAHarborAgent runs share the same
+  scoring path.
 
 ## 3. Repository Boundaries
 
@@ -173,9 +179,10 @@ Inside a remote sandbox, GBQA uses `/sandbox` as the runtime workspace:
 Important paths:
 
 - `/sandbox/software/<task>`: target GitHub software release.
-- `/sandbox/agent`: uploaded QA Agent Harness.
-- `/sandbox/gbqa`: uploaded GBQA platform package.
+- `/sandbox/agent`: uploaded QA Agent Harness for `GBQAHarborAgent` runs.
+- `/sandbox/gbqa`: uploaded GBQA platform package for `GBQAHarborAgent` runs.
 - `/sandbox/runtime/config.toml`: rendered trial config.
+- `/tests/_gbqa_runtime`: task-local GBQA verifier runtime uploaded with tests.
 - `/logs/agent/gbqa`: normalized agent artifacts.
 - `/logs/verifier`: Harbor-compatible reward outputs.
 

@@ -145,6 +145,8 @@ The task instruction tells generic CLI agents to start Dark Castle and write
 `/logs/agent/gbqa/issue.json`, which is the verifier's preferred input. The GBQA
 harness writes the same artifact through its final issue-report pass before
 exit. A single-element legacy `bugs.json` is still accepted for compatibility.
+The verifier runtime is bundled under each task's `tests/_gbqa_runtime`, so
+generic CLI agents do not need to upload `/sandbox/gbqa`.
 
 See `docs/subscription-auth.md` for the Harbor task-runner subscription
 authentication reference.

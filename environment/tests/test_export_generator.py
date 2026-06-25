@@ -58,6 +58,13 @@ class ExportGeneratorTests(unittest.TestCase):
             self.assertTrue((task_root / "instruction.md").exists())
             self.assertTrue((task_root / "environment" / "Dockerfile").exists())
             self.assertTrue((task_root / "tests" / "target_bug_found" / "check.py").exists())
+            self.assertTrue((task_root / "tests" / "bugs" / "ground_truth.json").exists())
+            self.assertTrue(
+                (task_root / "tests" / "_gbqa_runtime" / "gbqa" / "rewards" / "runner.py").exists()
+            )
+            self.assertTrue(
+                (task_root / "tests" / "_gbqa_runtime" / "gbqa" / "protocol" / "schemas.py").exists()
+            )
             self.assertFalse((task_root / "tests" / "quality").exists())
             metadata = (task_root / "gbqa.yaml").read_text(encoding="utf-8")
             self.assertIn('benchmark_status: "draft"', metadata)
