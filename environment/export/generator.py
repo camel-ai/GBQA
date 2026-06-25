@@ -198,6 +198,8 @@ GBQA_EVAL_METHOD = "${{GBQA_EVAL_METHOD:-targeted_bug}}"
 [metadata]
 benchmark_status = "{seed.get('benchmark_status', 'draft')}"
 instance_id = "{seed['slug']}"
+runtime_provider = "daytona"
+supported_runtime_providers = ["daytona", "modal"]
 software_repository = "{seed['repository']}"
 software_selected_version = "{seed['baseline_release']}"
 software_fixed_reference_version = "{seed.get('fixed_release', '')}"
@@ -246,6 +248,9 @@ software:
   install_dir: "/sandbox/software/{seed['slug']}"
 runtime:
   default_provider: "daytona"
+  supported_providers:
+    - "daytona"
+    - "modal"
   local_docker_supported: false
 interaction:
   default_mode: "{primary_mode}"

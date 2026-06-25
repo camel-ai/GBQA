@@ -10,7 +10,7 @@ interaction_profile = "default" # default | terminal | browser | computer
 interaction_mode = "terminal" # primary mode used when interaction_profile = default
 
 [harness]
-mode = "minimal" # minimal keeps only the closed-loop QA core; full enables diagnostic skills/tools.
+mode = "minimal" # minimal keeps the QA core plus source inspection; full adds logs, diagnostics, and subagents.
 
 # LLM and CAMEL runtime settings
 [llm]
@@ -81,7 +81,7 @@ height = 720
 enabled = false
 
 [interaction.adapters.code]
-enabled = false
+enabled = true
 
 # Operator settings
 [operator]
@@ -96,7 +96,7 @@ on_findings = true
 consecutive_failures_threshold = 3
 
 [tool_policy.auto_code_lookup]
-enabled = false
+enabled = true
 min_confidence = 0.7
 
 [tool_policy.end_conditions]

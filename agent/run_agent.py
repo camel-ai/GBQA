@@ -188,9 +188,9 @@ def _apply_harness_mode(config, harness_mode: str) -> None:  # noqa: ANN001
 
     if harness_mode == "minimal":
         logs["enabled"] = False
-        code["enabled"] = False
+        code["enabled"] = True
         auto_log["enabled"] = False
-        auto_code["enabled"] = False
+        auto_code["enabled"] = True
         memory["load_persistent_long_term"] = False
         memory["cross_session_enabled"] = False
     else:
@@ -874,9 +874,9 @@ def main() -> None:
             LogAnalyzer(),
         )
         log_tools_registered = True
+    if code_tools_registered:
+        tool_registry.activate_skill("code")
     if harness_mode == "full":
-        if code_tools_registered:
-            tool_registry.activate_skill("code")
         if log_tools_registered:
             tool_registry.activate_skill("logs")
 

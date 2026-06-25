@@ -115,6 +115,7 @@ def render_agent_config(
     )
     harness_mode = _normalize_harness_mode(harness_mode)
     diagnostics_enabled = harness_mode == "full"
+    code_inspection_enabled = True
 
     base_url = metadata.service_api_base_url
     frontend_url = metadata.service_frontend_url
@@ -148,7 +149,7 @@ def render_agent_config(
             "platform": "auto",
             "temperature": 0.5,
             "max_tokens": 4096,
-            "input_token_limit": 128000 if diagnostics_enabled else 12000,
+            "input_token_limit": 128000,
             "reasoning": {
                 "mode": "auto",
                 "effort": "",
@@ -207,7 +208,7 @@ def render_agent_config(
                 },
                 "computer_use": computer_use_settings,
                 "code": {
-                    "enabled": diagnostics_enabled,
+                    "enabled": code_inspection_enabled,
                     "base_url": base_url,
                     "root_dir": metadata.software_install_dir,
                     "timeout": 60,
@@ -238,7 +239,7 @@ def render_agent_config(
                 "consecutive_failures_threshold": 3,
             },
             "auto_code_lookup": {
-                "enabled": diagnostics_enabled,
+                "enabled": code_inspection_enabled,
                 "min_confidence": 0.7,
             },
             "end_conditions": {

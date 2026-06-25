@@ -12,6 +12,7 @@ task_family = "game"
 application_id = "dark-castle"
 instance_id = "dark-castle-key-fragment-combine"
 runtime_provider = "daytona"
+supported_runtime_providers = ["daytona", "modal"]
 local_docker_supported = false
 software_repository = "https://github.com/Tsumugii24/dark-castle"
 software_release_policy = "latest_minus_one"

@@ -34,6 +34,9 @@ Fill in the required runtime fields:
 
 ```env
 DAYTONA_API_KEY=
+# Required only for `-e modal` when ~/.modal.toml is not configured.
+MODAL_TOKEN_ID=
+MODAL_TOKEN_SECRET=
 API_KEY=
 BASE_URL=https://zenmux.ai/api/v1
 MODEL_NAME=
@@ -52,6 +55,32 @@ python -m gbqa.cli.harbor_run run \
   --ak interaction_mode=terminal \
   --ak max_steps=10
 ```
+
+Modal can be used as the Harbor sandbox provider with the same GBQA task
+package and agent harness. Authenticate Modal first with `modal token new` or
+set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in `.env`, then switch only the
+environment flag:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/<task-id> \
+  -e modal \
+  --gbqa-task-runner gbqa \
+  --ak interaction_mode=terminal \
+  --ak max_steps=10
+```
+
+`pip install -e .` installs Modal's API proxy support. This matters on machines
+with `HTTP_PROXY` / `HTTPS_PROXY` or similar proxy variables set; without it the
+Modal SDK can fail before sandbox creation with a missing `python-socks`
+dependency.
+
+Use `--ak max_steps=10` as a fast infrastructure smoke. Use a larger budget such
+as `--ak max_steps=50` when checking whether the agent can reproduce the hinted
+target bug and produce a function-level pinpoint. The default `minimal` harness
+includes source-code tools because targeted GBQA rewards require pinpoint
+evidence. Use `--ak harness_mode=full` only when the run should also exercise
+logs, automatic diagnostics, and worker subagents.
 
 Use browser interaction by switching the interaction mode:
 
@@ -122,7 +151,7 @@ authentication reference.
 
 ### 4. Run Batch Evaluations In Parallel
 
-GBQA's `gbqa.cli.harbor_run` wrapper loads the root `.env` and forwards all arguments to Harbor. When a local path or registered dataset contains many task packages, Harbor can launch multiple Daytona sandboxes at the same time and run one evaluation per task environment.
+GBQA's `gbqa.cli.harbor_run` wrapper loads the root `.env` and forwards all arguments to Harbor. When a local path or registered dataset contains many task packages, Harbor can launch multiple remote sandboxes at the same time and run one evaluation per task environment. Daytona and Modal are selected with the native Harbor `-e daytona` or `-e modal` flag.
 
 For example, once `gbqa/tasks` contains many verified task packages, run up to 100 task evaluations concurrently:
 
@@ -137,7 +166,7 @@ python -m gbqa.cli.harbor_run run \
   --n-concurrent 100
 ```
 
-Here `--n-concurrent` controls how many Harbor trials can run at once. In the Daytona path, that means many independent remote sandboxes can be active in parallel. It is not intended to create multiple concurrent agents inside the same task sandbox.
+Here `--n-concurrent` controls how many Harbor trials can run at once. With Daytona or Modal, that means many independent remote sandboxes can be active in parallel. It is not intended to create multiple concurrent agents inside the same task sandbox.
 
 ### 5. Outputs
 
@@ -170,7 +199,7 @@ or a SWE-style minimal patch/diff hunk.
 
 ## Task Packages
 
-Each benchmark instance is a Harbor-compatible package under `gbqa/tasks/<instance-id>`. Multiple instances may share the same upstream software release, but each instance has its own `instruction.md`, `gbqa.yaml`, target bug file, verifier entrypoint, and artifact contract. Running multiple instances launches multiple independent Harbor trials and Daytona sandboxes.
+Each benchmark instance is a Harbor-compatible package under `gbqa/tasks/<instance-id>`. Multiple instances may share the same upstream software release, but each instance has its own `instruction.md`, `gbqa.yaml`, target bug file, verifier entrypoint, and artifact contract. Running multiple instances launches multiple independent Harbor trials and remote sandboxes.
 
 ## Environment Preparation
 
@@ -210,7 +239,8 @@ python -m environment.export.cli generate \
 - Support local sandbox + colocated agent.
 - Support local agent + remote sandbox.
 - Add more verified benchmark environments and task manifests.
-- Scale parallel evaluation in Daytona sandboxes.
+- Keep Daytona and Modal selectable as Harbor-managed remote sandbox providers.
+- Scale parallel evaluation across remote sandboxes.
 
 ### M3: Richer Interaction And Cross-Platform Sandboxes
 

@@ -14,6 +14,9 @@ software:
   install_dir: "/sandbox/software/{{ slug }}"
 runtime:
   default_provider: "daytona"
+  supported_providers:
+    - "daytona"
+    - "modal"
   local_docker_supported: false
 interaction:
   default_mode: "{{ primary_interaction_mode }}"
