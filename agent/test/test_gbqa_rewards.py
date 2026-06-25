@@ -17,6 +17,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from gbqa.rewards.output import primary_reward_score, write_post_rewardkit_artifacts
+from gbqa.rewards.criteria import _trajectory_candidates, _trajectory_file_has_content
 from gbqa.rewards.runner import (
     RewardkitDependencyError,
     require_rewardkit,
@@ -197,6 +198,9 @@ def test_dark_castle_verifier_env_has_subscription_defaults() -> None:
 
 def test_template_installs_rule_based_targeted_verifier() -> None:
     with _temp_test_dir("_tmp_gbqa_template") as temp_root:
+        bugs_dir = temp_root / "bugs"
+        bugs_dir.mkdir(parents=True)
+        (bugs_dir / "example.json").write_text('{"target_bug": {}}', encoding="utf-8")
         install_task_verifier_tests(
             temp_root,
             ground_truth_path="/tests/bugs/example.json",
@@ -204,12 +208,40 @@ def test_template_installs_rule_based_targeted_verifier() -> None:
         test_script = (temp_root / "test.sh").read_text(encoding="utf-8")
         assert "/tests/bugs/example.json" in test_script
         assert "__GBQA_GROUND_TRUTH__" not in test_script
+        assert "/tests/_gbqa_runtime" in test_script
         assert not (temp_root / "quality").exists()
         assert not (temp_root / "judge").exists()
         assert not (temp_root / "value").exists()
+        assert (temp_root / "bugs" / "example.json").is_file()
+        assert (temp_root / "_gbqa_runtime" / "gbqa" / "__init__.py").is_file()
+        assert (temp_root / "_gbqa_runtime" / "gbqa" / "rewards" / "runner.py").is_file()
+        assert (
+            temp_root / "_gbqa_runtime" / "gbqa" / "protocol" / "schemas.py"
+        ).is_file()
         assert (temp_root / "target_bug_found" / "check.py").is_file()
         assert (temp_root / "issue_report_complete" / "check.py").is_file()
         assert (temp_root / "issue_pinpoint_aligned" / "check.py").is_file()
+
+
+def test_trajectory_exported_accepts_harbor_agent_trajectory() -> None:
+    keys = ("GBQA_TRAJECTORY_PATH", "GBQA_STEPS_PATH", "GBQA_ATIF_TRAJECTORY_PATH")
+    previous = {key: os.environ.get(key) for key in keys}
+    with _temp_test_dir("_tmp_gbqa_harbor_trajectory") as temp_root:
+        atif_path = temp_root / "trajectory.json"
+        atif_path.write_text('{"steps": [{"source": "agent"}]}', encoding="utf-8")
+        os.environ["GBQA_TRAJECTORY_PATH"] = str(temp_root / "missing-trace.jsonl")
+        os.environ["GBQA_STEPS_PATH"] = str(temp_root / "missing-steps.jsonl")
+        os.environ["GBQA_ATIF_TRAJECTORY_PATH"] = str(atif_path)
+        try:
+            candidates = _trajectory_candidates()
+            assert atif_path in candidates
+            assert any(_trajectory_file_has_content(candidate) for candidate in candidates)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def test_targeted_evaluation_scores_matching_issue() -> None:
@@ -371,6 +403,7 @@ def main() -> None:
     test_rewardkit_discovers_rule_based_criteria()
     test_dark_castle_verifier_env_has_subscription_defaults()
     test_template_installs_rule_based_targeted_verifier()
+    test_trajectory_exported_accepts_harbor_agent_trajectory()
     test_rewardkit_dependency_error_message()
     test_targeted_evaluation_scores_matching_issue()
     test_targeted_evaluation_rejects_wrong_function()
