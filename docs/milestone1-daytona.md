@@ -5,7 +5,7 @@ Milestone 1 runs GBQA as a Harbor-compatible benchmark on a remote Daytona sandb
 ## Runtime Model
 
 - Harbor owns task packaging, trial execution, verifier execution, and artifact layout.
-- Daytona owns the remote sandbox lifecycle through Harbor's `daytona` environment provider.
+- Daytona owns the validated M1 remote sandbox lifecycle through Harbor's `daytona` environment provider. Modal is also supported through Harbor's `modal` provider as a parallel remote sandbox option, but Daytona remains the recorded M1 smoke baseline.
 - `GBQAHarborAgent` is a Harbor custom agent wrapper that uploads the current GBQA runtime into `/sandbox`, starts Dark Castle from `/sandbox/software/dark-castle`, runs the QA loop, and exports stable artifacts under Harbor's `/logs` contract.
 - The first instances live under `gbqa/tasks/dark-castle-*`; their shared software environment is downloaded from the real GitHub release archive for `Tsumugii24/dark-castle`.
 
@@ -32,8 +32,8 @@ In `default`, the planner sees explicit mode tools such as `terminal_action`, `b
 
 GBQA harness modes are a separate capability setting:
 
-- `minimal`: keep the smallest closed-loop QA harness that can explore a real sandbox software environment over many steps and report bugs. This keeps interaction actions, lifecycle tools, run reports, traces, and verifier artifacts, but does not expose diagnostic code/log skills or automatic code/log analysis to the agent.
-- `full`: enable available diagnostic and augmentation skills/tools such as code and log tools, activate their skill instructions, allow automatic code/log diagnostic policies, and run isolated worker subagents.
+- `minimal`: keep the smallest targeted-QA harness that can explore a real sandbox software environment, inspect source code for function-level pinpointing, manage lifecycle tools, and export reports/traces/verifier artifacts. This mode keeps log tools, automatic log analysis, and worker subagents disabled.
+- `full`: enable heavier diagnostic and augmentation capabilities such as log tools, automatic code/log diagnostic policies, and isolated worker subagents.
 
 Full mode worker subagents keep expensive or context-polluting QA side tasks
 outside the main planner context:
@@ -86,7 +86,12 @@ Create a root `.env` from the single template:
 cp .env.example .env
 ```
 
-Fill in `DAYTONA_API_KEY`, `API_KEY`, and `MODEL_NAME`. `BASE_URL` defaults to ZenMux's OpenAI-compatible endpoint, `https://zenmux.ai/api/v1`, and can be overridden when needed. The model request configuration is intentionally provider-neutral and does not use `OPENAI_*` env names.
+Fill in `DAYTONA_API_KEY`, `API_KEY`, and `MODEL_NAME` for the Daytona path. For Modal runs, authenticate once with `modal token new` or set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`. `BASE_URL` defaults to ZenMux's OpenAI-compatible endpoint, `https://zenmux.ai/api/v1`, and can be overridden when needed. The model request configuration is intentionally provider-neutral and does not use `OPENAI_*` env names.
+
+GBQA declares `modal[api-proxy-support]` in its Python dependencies. Keep that
+extra installed on machines with host proxy variables such as `HTTP_PROXY` or
+`HTTPS_PROXY`; Modal's API client needs `python-socks` before it can create the
+remote sandbox through a proxy.
 
 Use `python -m gbqa.cli.harbor_run ...` or the installed `gbqa-harbor ...` command so Harbor, Daytona, and the GBQA agent all inherit the repository-root `.env`. Direct `harbor run ...` still works only if those variables are already exported in the shell.
 
@@ -115,6 +120,24 @@ python -m gbqa.cli.harbor_run run \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal
 ```
+
+Modal terminal mode uses the same task package and GBQA harness; only the Harbor
+environment provider changes:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
+  -e modal \
+  --gbqa-task-runner gbqa \
+  --ak interaction_mode=terminal
+```
+
+Use `--ak max_steps=10` for a fast infrastructure smoke. Use a larger budget
+such as `--ak max_steps=50` when checking whether the agent can reach the hinted
+target bug and produce an issue report with function-level pinpointing. The
+default `minimal` harness includes source inspection tools for this targeted
+reward; use `--ak harness_mode=full` only when the smoke should also exercise
+logs, automatic diagnostics, and worker subagents.
 
 Browser mode:
 

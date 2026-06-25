@@ -91,6 +91,18 @@ class GBQAMetadata:
         return str(self.raw["runtime"]["default_provider"])
 
     @property
+    def supported_providers(self) -> list[str]:
+        runtime = self.raw.get("runtime", {})
+        providers = runtime.get("supported_providers", [])
+        if isinstance(providers, str):
+            providers = [providers]
+        if not isinstance(providers, list):
+            providers = []
+        normalized = [str(item).strip() for item in providers if str(item).strip()]
+        normalized.insert(0, self.default_provider)
+        return list(dict.fromkeys(normalized))
+
+    @property
     def internal_log_sources(self) -> list[dict[str, Any]]:
         sources = self.raw.get("runtime", {}).get("internal_log_sources", [])
         if not isinstance(sources, list):

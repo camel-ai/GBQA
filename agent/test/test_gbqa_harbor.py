@@ -38,6 +38,7 @@ def test_metadata_loader() -> None:
     assert metadata.instance_id == TASK_INSTANCE_SLUG
     assert metadata.task_title == "Dark Castle: Key Fragment Combine"
     assert metadata.default_provider == "daytona"
+    assert metadata.supported_providers == ["daytona", "modal"]
     assert metadata.default_interaction_mode == "terminal"
     assert metadata.supported_interaction_modes == ["terminal", "browser", "computer"]
     assert metadata.computer_use_server_url == "http://127.0.0.1:8030"
@@ -227,9 +228,12 @@ def test_config_rendering() -> None:
     assert log_sources[1]["kind"] == "file_directory"
     assert log_sources[1]["glob"] == "game_*.json"
     assert "analysis_" + "enabled" not in terminal_payload["interaction"]["adapters"]["logs"]
-    assert terminal_payload["interaction"]["adapters"]["code"]["enabled"] is False
+    assert terminal_payload["interaction"]["adapters"]["code"]["enabled"] is True
+    assert terminal_payload["interaction"]["adapters"]["code"]["root_dir"] == (
+        "/sandbox/software/dark-castle"
+    )
     assert terminal_payload["tool_policy"]["auto_log_analysis"]["enabled"] is False
-    assert terminal_payload["tool_policy"]["auto_code_lookup"]["enabled"] is False
+    assert terminal_payload["tool_policy"]["auto_code_lookup"]["enabled"] is True
     assert terminal_payload["tool_policy"]["end_conditions"]["end_on_terminal"] is False
     assert terminal_payload["hooks"]["enabled"] is True
     assert terminal_payload["hooks"]["diagnostics"] is False
@@ -251,7 +255,7 @@ def test_config_rendering() -> None:
     assert full_terminal_payload["subagents"]["explorer"]["enabled"] is True
     assert full_terminal_payload["subagents"]["log_analyst"]["enabled"] is True
     assert "input_token_limit" in terminal_payload["llm"]
-    assert terminal_payload["llm"]["input_token_limit"] == 12000
+    assert terminal_payload["llm"]["input_token_limit"] == 128000
     assert full_terminal_payload["llm"]["input_token_limit"] == 128000
     assert "context_token_limit" not in terminal_payload["llm"]
     assert "message_window_" + "size" not in terminal_payload["llm"]
@@ -277,13 +281,13 @@ def test_agent_harness_example_has_no_task_endpoints() -> None:
     assert payload["harness"]["mode"] == "minimal"
     assert "logs" in payload["interaction"]["adapters"]
     assert payload["interaction"]["adapters"]["logs"] == {"enabled": False}
-    assert payload["interaction"]["adapters"]["code"] == {"enabled": False}
+    assert payload["interaction"]["adapters"]["code"] == {"enabled": True}
     assert payload["hooks"]["enabled"] is True
     assert payload["hooks"]["diagnostics"] is False
     assert payload["subagents"]["enabled"] is False
     assert payload["subagents"]["code_localizer"]["enabled"] is False
     assert payload["tool_policy"]["auto_log_analysis"]["enabled"] is False
-    assert payload["tool_policy"]["auto_code_lookup"]["enabled"] is False
+    assert payload["tool_policy"]["auto_code_lookup"]["enabled"] is True
     assert payload["tool_policy"]["end_conditions"]["end_on_terminal"] is False
     assert payload["run"]["interaction_profile"] == "default"
     assert payload["run"]["interaction_mode"] == "terminal"
@@ -546,6 +550,31 @@ def test_harbor_run_wrapper_preserves_harbor_arguments() -> None:
     assert Path(default_profile_command[3]).name == (
         "dark-castle-key-fragment-combine-computer-use"
     )
+
+    modal_command = build_harbor_command(
+        [
+            "run",
+            "-p",
+            f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
+            "-e",
+            "modal",
+            "--gbqa-task-runner",
+            "gbqa",
+        ],
+        env={},
+    )
+    assert modal_command[:6] == [
+        "harbor",
+        "run",
+        "-p",
+        f"gbqa/tasks/{TASK_INSTANCE_SLUG}",
+        "-e",
+        "modal",
+    ]
+    assert modal_command[-2:] == [
+        "--agent-import-path",
+        "gbqa.harbor.agent:GBQAHarborAgent",
+    ]
 
 
 def test_harbor_run_wrapper_selects_builtin_task_agents() -> None:

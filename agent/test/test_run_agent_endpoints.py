@@ -189,9 +189,9 @@ def main() -> None:
     _apply_harness_mode(default_config, "minimal")
     assert default_config.get_section("harness")["mode"] == "minimal"
     assert default_config.get_section("interaction")["adapters"]["logs"]["enabled"] is False
-    assert default_config.get_section("interaction")["adapters"]["code"]["enabled"] is False
+    assert default_config.get_section("interaction")["adapters"]["code"]["enabled"] is True
     assert default_config.get_section("tool_policy")["auto_log_analysis"]["enabled"] is False
-    assert default_config.get_section("tool_policy")["auto_code_lookup"]["enabled"] is False
+    assert default_config.get_section("tool_policy")["auto_code_lookup"]["enabled"] is True
     assert default_config.get_section("subagents")["enabled"] is False
     assert default_config.get_section("subagents")["explorer"]["enabled"] is False
 

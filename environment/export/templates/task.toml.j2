@@ -10,6 +10,8 @@ GBQA_EVAL_METHOD = "${GBQA_EVAL_METHOD:-targeted_bug}"
 [metadata]
 benchmark_status = "{{ benchmark_status }}"
 instance_id = "{{ slug }}"
+runtime_provider = "daytona"
+supported_runtime_providers = ["daytona", "modal"]
 software_repository = "{{ repository }}"
 software_selected_version = "{{ baseline_release }}"
 software_fixed_reference_version = "{{ fixed_release }}"

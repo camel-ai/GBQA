@@ -19,6 +19,9 @@ software:
   ready_path: "backend/app.py"
 runtime:
   default_provider: "daytona"
+  supported_providers:
+    - "daytona"
+    - "modal"
   local_docker_supported: false
   startup:
     workdir: "{software_install_dir}/backend"

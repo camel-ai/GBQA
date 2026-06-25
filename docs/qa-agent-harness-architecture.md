@@ -31,8 +31,8 @@ task, trial, environment, and verifier lifecycle.
 flowchart TB
   User[User or evaluator] --> HarborCLI[GBQA Harbor CLI wrapper]
   HarborCLI --> Harbor[Harbor trial runner]
-  Harbor --> Daytona[Daytona sandbox provider]
-  Daytona --> Sandbox[Remote sandbox]
+  Harbor --> Provider[Harbor sandbox provider<br/>daytona or modal]
+  Provider --> Sandbox[Remote sandbox]
 
   subgraph Sandbox["/sandbox and /logs"]
     Software["/sandbox/software/<task><br/>target software"]
@@ -53,7 +53,9 @@ Runtime ownership:
 
 - Harbor owns task packaging, trial execution, verifier execution, and artifact
   collection.
-- Daytona owns the remote sandbox isolation boundary.
+- Harbor environment providers own the remote sandbox isolation boundary. The
+  validated M1 path uses `daytona`; `modal` is supported in parallel through
+  Harbor's built-in Modal provider.
 - GBQA owns task metadata, the QA harness behavior, normalized agent artifacts,
   and platform-level verifier-side bug evaluation.
 - `agent/` owns harness execution only. It emits reports and trajectories, but
@@ -137,9 +139,20 @@ Design principles:
 - Prefer normalized capabilities over backend-specific implementation details.
 - Record enough trajectory data to make bug reports auditable.
 
-## 5. Sandbox Layout
+## 5. Sandbox Providers And Layout
 
-Inside Daytona, GBQA uses `/sandbox` as the runtime workspace:
+GBQA does not implement a cloud sandbox provider itself. The wrapper forwards
+Harbor's native `-e/--env` choice, so `-e daytona` and `-e modal` use the same
+task package, verifier, and `GBQAHarborAgent` code path. Task metadata records
+`runtime.default_provider` and optional `runtime.supported_providers`; the
+actual provider for a run is still selected by Harbor CLI arguments.
+
+Modal runs require Modal authentication via `modal token new` or the
+`MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` environment pair. GBQA also depends on
+`modal[api-proxy-support]` so hosts with proxy variables can connect to Modal's
+API before sandbox creation.
+
+Inside a remote sandbox, GBQA uses `/sandbox` as the runtime workspace:
 
 ```text
 /sandbox/
@@ -239,8 +252,9 @@ The harness has two capability surfaces:
 
 ### Minimal Harness Mode
 
-Minimal mode is the smallest closed-loop setting that can explore a real
-sandbox software environment and report bugs.
+Minimal mode is the smallest targeted-QA setting that can explore a real
+sandbox software environment, inspect source code, and report function-level
+bug pinpoints.
 
 It enables:
 
@@ -249,14 +263,15 @@ It enables:
 - Task and session lifecycle tools.
 - Coverage state.
 - Hypothesis tracking.
+- Code tools and code skill instructions.
+- Targeted automatic code lookup after high-confidence bug findings.
 - Reflection and summary policies when configured.
 - Reports, traces, hooks, and verifier artifacts.
 
 It disables by default:
 
-- Code diagnostic tools.
 - Log diagnostic tools.
-- Automatic code/log diagnostics.
+- Automatic log diagnostics.
 - Isolated worker subagents.
 - Persistent memory carryover.
 
@@ -264,9 +279,8 @@ It disables by default:
 
 Full mode enables diagnostic and augmentation capabilities:
 
-- Code tools and code skill instructions.
 - Log tools and log skill instructions.
-- Automatic code/log diagnostic policy.
+- Automatic log diagnostic policy.
 - Isolated worker subagents.
 - Diagnostic hook categories.
 
@@ -600,10 +614,10 @@ Do not move Harbor reward files or verifier outputs out of `/logs/verifier`.
 | Hypothesis manager | yes | yes |
 | Reflection | policy controlled | policy controlled |
 | Summary/memory compression | policy controlled | policy controlled |
-| Code tools | no | yes |
+| Code tools | yes | yes |
 | Log tools | no | yes |
 | Auto log analysis | no | yes |
-| Auto code lookup | no | yes |
+| Auto code lookup | yes | yes |
 | Worker subagents | no | yes |
 | Hook observability | yes | yes |
 | Diagnostic hooks | no | yes |
@@ -634,6 +648,24 @@ python -m gbqa.cli.harbor_run run \
   --gbqa-task-runner gbqa \
   --ak interaction_mode=terminal
 ```
+
+Custom QA harness on Modal uses Harbor's `modal` environment provider with the
+same GBQA artifact and verifier contract:
+
+```bash
+python -m gbqa.cli.harbor_run run \
+  -p gbqa/tasks/dark-castle-key-fragment-combine \
+  -e modal \
+  --gbqa-task-runner gbqa \
+  --ak interaction_mode=terminal
+```
+
+For Modal or Daytona infrastructure smoke, keep `--ak max_steps=10`. For a
+functional targeted-bug smoke, use a larger budget such as `--ak max_steps=50`.
+The default `minimal` harness includes source-code tools because nonzero
+targeted reward requires function-level pinpoint evidence. Use
+`--ak harness_mode=full` only when the smoke should also exercise logs,
+automatic diagnostics, and worker subagents.
 
 Default multi-mode profile:
 
@@ -685,7 +717,6 @@ The current QA Agent Harness does not:
 
 - Replace Harbor's trial runner or verifier system.
 - Treat direct `harbor run` as the stable computer interaction entrypoint.
-- Assume source-code access in minimal mode.
 - Assume logs are memory.
 - Float benchmark baselines automatically when upstream releases change.
 - Store GBQA target-bug files in the external target software repository.

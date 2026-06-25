@@ -13,7 +13,9 @@ The autonomous discovery of bugs remains a significant challenge in modern softw
 Milestone 1 is complete and remains the validated Daytona-first baseline:
 
 - Harbor owns task packaging, trial execution, verifier execution, and artifact collection.
-- Daytona owns remote sandbox lifecycle through Harbor's `daytona` environment provider.
+- Harbor owns remote sandbox lifecycle through environment providers. Daytona is
+  the validated M1 baseline via Harbor's `daytona` provider; Modal is supported
+  in parallel via Harbor's `modal` provider.
 - GBQA owns task metadata, QA agent harness behavior, normalized reports, and
   platform-level bug evaluation. `agent/` must not own benchmark scoring logic.
 - Local Docker is not an M1 acceptance path.
@@ -22,7 +24,9 @@ Milestone 1 is complete and remains the validated Daytona-first baseline:
 - Terminal mode and browser mode are the completed interaction paths.
 - Computer interaction is present in task metadata and Harbor config as an experimental post-M1 path, but it is not part of the validated M1 smoke baseline.
 - Harbor-compatible verifier execution and GBQA artifact export are implemented.
-- Parallel evaluation is available through Harbor's concurrent trial runner; in the Daytona path, this means multiple independent Daytona sandboxes can run at the same time.
+- Parallel evaluation is available through Harbor's concurrent trial runner; in
+  remote provider paths such as Daytona and Modal, this means multiple
+  independent cloud sandboxes can run at the same time.
 
 The validated M1 topology is colocated:
 
@@ -54,6 +58,8 @@ Validated result:
   `ClaudeCodeHarborAgent` only if they provide GBQA-specific behavior beyond
   Harbor's built-in CLI agents.
 - M2: add more verified benchmark environments and task manifests.
+- M2: keep Daytona and Modal selectable as Harbor-managed remote sandbox
+  providers without duplicating provider lifecycle code in GBQA.
 - M2: harden the experimental computer interaction path and extend further toward free interaction mode (mixed interaction mode).
 - M2: keep Linux as the validated sandbox baseline while expanding toward Windows and macOS support.
 
@@ -102,9 +108,11 @@ Harbor 0.7+ compatibility:
 - `reward.json` must contain only numeric reward fields compatible with `dict[str, float | int]`, for example `{"reward": 0.0}`.
 - Full GBQA verifier details belong in `/logs/verifier/gbqa_result.json`, not in `reward.json`.
 
-## Daytona Sandbox Layout
+## Remote Sandbox Layout
 
-Daytona is the remote isolation boundary. Inside that boundary, GBQA uses `/sandbox` as its runtime workspace.
+Daytona is the validated M1 remote isolation boundary, and Modal is supported
+as a parallel Harbor environment provider. Inside either remote sandbox path,
+GBQA uses `/sandbox` as its runtime workspace.
 
 Current GBQA sandbox layout:
 
@@ -280,14 +288,13 @@ The harness uses `interaction_profile` to select interaction exposure:
 
 The harness uses `harness_mode` to select the capability surface:
 
-- `minimal` is the smallest closed-loop QA harness: interact with the sandbox
-  software environment, manage sessions, keep run instrumentation, and report
-  bugs. Do not expose diagnostic code/log skills or automatic code/log analysis
-  in this mode. Isolated worker subagents are disabled by default.
-- `full` enables the allowed diagnostic and augmentation skills/tools, including
-  code and log tools when available, and activates their skill instructions so
-  they are loaded into planner context. Full mode also enables isolated worker
-  subagents.
+- `minimal` is the smallest targeted-QA harness: interact with the sandbox
+  software environment, inspect source code for function-level pinpointing,
+  manage sessions, keep run instrumentation, and report bugs. Log tools,
+  automatic log analysis, and isolated worker subagents stay disabled by
+  default.
+- `full` enables heavier diagnostic and augmentation capabilities, including log
+  tools, automatic code/log diagnostic policies, and isolated worker subagents.
 
 Worker subagents are harness-owned isolated contexts, not planner-visible
 environment tools:
@@ -364,6 +371,16 @@ Required model request variables are provider-neutral:
 Daytona requires:
 
 - `DAYTONA_API_KEY`
+
+Modal requires either a local `~/.modal.toml` created by `modal token new` or:
+
+- `MODAL_TOKEN_ID`
+- `MODAL_TOKEN_SECRET`
+
+When host proxy variables such as `HTTP_PROXY` or `HTTPS_PROXY` are set, Modal
+also needs its API proxy support extra. GBQA declares
+`modal[api-proxy-support]`; do not remove it unless Modal proxy support is no
+longer needed.
 
 Default `BASE_URL` is:
 
@@ -630,6 +647,20 @@ For Daytona smoke validation on Windows, keep UTF-8 output enabled so Rich/Harbo
 $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal-lf-fix -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
+For Modal smoke validation, authenticate with `modal token new` or set
+`MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, then switch the Harbor environment
+provider:
+
+```powershell
+$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run --job-name gbqa-modal-smoke-terminal -p gbqa/tasks/dark-castle-key-fragment-combine -e modal --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
+```
+
+Use `--ak max_steps=50` for a longer Modal functional smoke that gives the
+agent enough budget to reproduce the hinted bug and source-level pinpoint.
+`max_steps=10` only validates basic sandbox, harness, artifact, and verifier
+plumbing. Use `--ak harness_mode=full` only when the smoke should also exercise
+logs, automatic diagnostics, and worker subagents.
+
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run ...` because
 the wrapper loads the repository-root `.env`, expands GBQA-only selector flags
 such as `--gbqa-task-runner`, and then forwards native arguments to Harbor.
@@ -653,13 +684,15 @@ image, and any temporary task overlay or backend-specific environment selection
 must be explicit and documented before direct `harbor run` is considered
 supported.
 
-For parallel Daytona evaluation, use Harbor's concurrent trial runner. For example, five independent task environments can run in five independent Daytona sandboxes:
+For parallel remote-sandbox evaluation, use Harbor's concurrent trial runner. For example, five independent task environments can run in five independent Daytona sandboxes:
 
 ```powershell
 $env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10 --n-tasks 5 --n-concurrent 5
 ```
 
-`--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.
+Use `-e modal` for the same pattern on Modal. `--n-concurrent` controls
+concurrent Harbor trials. In remote provider paths, concurrent trials mean
+multiple remote sandboxes, not multiple agents inside one sandbox.
 
 ### macOS / Linux Shell
 
@@ -714,6 +747,20 @@ For Daytona smoke validation:
 python -m gbqa.cli.harbor_run run --job-name gbqa-daytona-smoke-terminal -p gbqa/tasks/dark-castle-key-fragment-combine -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
 ```
 
+For Modal smoke validation, authenticate with `modal token new` or export
+`MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, then switch only the Harbor
+environment provider:
+
+```bash
+python -m gbqa.cli.harbor_run run --job-name gbqa-modal-smoke-terminal -p gbqa/tasks/dark-castle-key-fragment-combine -e modal --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10
+```
+
+Use `--ak max_steps=50` for a longer Modal functional smoke that gives the
+agent enough budget to reproduce the hinted bug and source-level pinpoint.
+`max_steps=10` only validates basic sandbox, harness, artifact, and verifier
+plumbing. Use `--ak harness_mode=full` only when the smoke should also exercise
+logs, automatic diagnostics, and worker subagents.
+
 The preferred GBQA command form is `python -m gbqa.cli.harbor_run run` because
 the wrapper loads the repository-root `.env`, expands GBQA-only selector flags
 such as `--gbqa-task-runner`, and then forwards native arguments to Harbor.
@@ -736,10 +783,12 @@ are loaded and equivalent native Harbor agent flags are used.
 > [!WARNING]
 > Warning for  `computer`: computer interaction (experimental) needs a separate GUI/Cua environment image, so we recommend to use `python -m gbqa.cli.harbor_run run` for stable execution, `harbor run` cannot handle environment image selection and may raise errors.
 
-For parallel Daytona evaluation:
+For parallel remote-sandbox evaluation:
 
 ```bash
 python -m gbqa.cli.harbor_run run -p gbqa/tasks -e daytona --gbqa-task-runner gbqa --ak interaction_mode=terminal --ak max_steps=10 --n-tasks 5 --n-concurrent 5
 ```
 
-`--n-concurrent` controls concurrent Harbor trials. In the Daytona path, concurrent trials mean multiple remote Daytona sandboxes, not multiple agents inside one sandbox.
+Use `-e modal` for the same pattern on Modal. `--n-concurrent` controls
+concurrent Harbor trials. In remote provider paths, concurrent trials mean
+multiple remote sandboxes, not multiple agents inside one sandbox.

@@ -214,7 +214,7 @@ def built_in_defaults() -> Dict[str, Any]:
                     "enabled": False,
                 },
                 "code": {
-                    "enabled": False,
+                    "enabled": True,
                 },
             },
         },
@@ -235,7 +235,7 @@ def built_in_defaults() -> Dict[str, Any]:
                 "consecutive_failures_threshold": 3,
             },
             "auto_code_lookup": {
-                "enabled": False,
+                "enabled": True,
                 "min_confidence": 0.7,
             },
             "end_conditions": {

@@ -26,6 +26,15 @@ selectors compile to Harbor flags before `harbor run` is executed.
 Native Harbor flags still work. For example, `-a codex`, `-a claude-code`,
 `--agent-import-path`, and `--ae` can be passed directly.
 
+The sandbox provider remains Harbor-native. Use `-e daytona` for the validated
+Daytona path or `-e modal` after authenticating Modal with `modal token new` or
+`MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`.
+
+If the host uses an HTTP/SOCKS proxy, keep Modal's API proxy support installed
+(`modal[api-proxy-support]`). GBQA declares this dependency so Modal can connect
+through proxy settings such as `HTTP_PROXY` before the remote sandbox is
+created.
+
 ## GBQA Custom Harness
 
 ```bash
